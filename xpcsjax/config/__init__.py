@@ -1,7 +1,7 @@
 """Configuration system for the xpcsjax package.
 
 Provides configuration management, parameter handling, and physics validation
-for the NLSQ-only XPCS analysis pipeline.
+for the XPCS analysis pipeline.
 
 The central entry point is :class:`~xpcsjax.config.manager.ConfigManager`, which
 loads and normalizes YAML/JSON configs and serves typed accessors.

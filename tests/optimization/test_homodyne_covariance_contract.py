@@ -23,7 +23,7 @@ from tests.optimization.test_fixed_parameters_integration import (
 from xpcsjax.config import ConfigManager
 from xpcsjax.optimization.nlsq.core import fit_nlsq_jax
 from xpcsjax.optimization.nlsq.recovery import safe_uncertainties_from_pcov
-from xpcsjax.optimization.nlsq.wrapper import _uncertainties_from_pcov
+from xpcsjax.optimization.nlsq.result_helpers import _uncertainties_from_pcov
 
 
 def test_recovery_helper_has_no_floor():

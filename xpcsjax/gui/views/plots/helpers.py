@@ -48,7 +48,7 @@ def _resolve_colormap(name: str) -> pg.ColorMap | None:
     """
     try:
         return pg.colormap.get(name, source="matplotlib")
-    except Exception:  # noqa: BLE001 - colormap availability is environment-dependent
+    except Exception:
         return None
 
 

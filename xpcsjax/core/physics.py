@@ -13,6 +13,7 @@ numerical computation.
 
 from dataclasses import dataclass, field
 
+import jax
 import numpy as np
 
 from xpcsjax.utils.logging import get_logger
@@ -48,9 +49,8 @@ class ValidationResult:
         """Return a human-readable representation for logging."""
         if self.valid:
             return f"OK {self.message}"
-        else:
-            violations_str = "\n  - ".join(self.violations)
-            return f"FAIL {self.message}\n  - {violations_str}"
+        violations_str = "\n  - ".join(self.violations)
+        return f"FAIL {self.message}\n  - {violations_str}"
 
 
 class PhysicsConstants:
@@ -146,18 +146,17 @@ def validate_parameters_detailed(
     violations = []
 
     # Check if we're dealing with JAX tracers during gradient computation
-    try:
-        param_str = str(type(params[0] if hasattr(params, "__getitem__") else params))
-        if "Tracer" in param_str or "LinearizeTracer" in param_str:
-            # Skip validation during JAX gradient computation
-            return ValidationResult(
-                valid=True,
-                violations=[],
-                parameters_checked=0,
-                message="Skipped validation for JAX tracers",
-            )
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Tracer detection during validation skipped: %s", exc)
+    # Guard the probe: an empty or 0-d array must fall through to the count
+    # check below (which reports it) instead of raising IndexError here.
+    first_param = params[0] if getattr(params, "ndim", 1) >= 1 and len(params) > 0 else params
+    if isinstance(first_param, jax.core.Tracer):
+        # Skip validation during JAX gradient computation
+        return ValidationResult(
+            valid=True,
+            violations=[],
+            parameters_checked=0,
+            message="Skipped validation for JAX tracers",
+        )
 
     # Check parameter count
     if len(params) != len(bounds):
@@ -179,12 +178,8 @@ def validate_parameters_detailed(
     validated_count = 0
     for i, (param, (min_val, max_val)) in enumerate(zip(params, bounds, strict=False)):
         # Check if param is a JAX tracer
-        try:
-            param_type_str = str(type(param))
-            if "Tracer" in param_type_str or "LinearizeTracer" in param_type_str:
-                continue
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Tracer detection for param failed: %s", exc)
+        if isinstance(param, jax.core.Tracer):
+            continue
 
         # Validate concrete numeric values
         try:
@@ -206,7 +201,7 @@ def validate_parameters_detailed(
                 )
             validated_count += 1
         except (TypeError, ValueError) as e:
-            if "Tracer" in str(type(param)) or "LinearizeTracer" in str(type(param)):
+            if isinstance(param, jax.core.Tracer):
                 # Genuinely a JAX tracer that slipped past the check above.
                 continue
             logger.debug(

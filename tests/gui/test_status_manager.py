@@ -4,8 +4,8 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from xpcsjax.gui.views.main_window import MainWindow  # noqa: E402
-from xpcsjax.gui.views.main_window_support.status_manager import (  # noqa: E402
+from xpcsjax.gui.views.main_window import MainWindow
+from xpcsjax.gui.views.main_window_support.status_manager import (
     StatusManager,
 )
 

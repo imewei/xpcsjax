@@ -18,6 +18,7 @@ from xpcsjax.config.types import (
     BoundDict,
     HomodyneConfig,
     coerce_finite_float,
+    dict_section,
 )
 
 if TYPE_CHECKING:
@@ -29,32 +30,12 @@ if TYPE_CHECKING:
     # (importing it here too would be an unused-import F401).
     from xpcsjax.core.physics import ValidationResult
 
+# Physics validators for constraint checking (same-package, always available).
+from xpcsjax.config.physics_validators import (
+    ConstraintSeverity,
+    validate_all_parameters,
+)
 from xpcsjax.utils.logging import get_logger
-
-# Import physics validators for constraint checking
-try:
-    from xpcsjax.config.physics_validators import (
-        ConstraintSeverity,
-        validate_all_parameters,
-    )
-
-    HAS_PHYSICS_VALIDATORS = True
-except ImportError:
-    HAS_PHYSICS_VALIDATORS = False
-
-    # Fallback severity class if module not available. The real class is
-    # imported from ``xpcsjax.config.physics_validators`` in the try branch
-    # above; mypy correctly flags the conditional redefinition as a name
-    # collision. The shapes are intentionally identical (both expose ``ERROR``)
-    # so callers don't need to branch — the type: ignore acknowledges the
-    # well-defined fallback contract.
-    class ConstraintSeverity:  # type: ignore[no-redef]
-        """Severity levels for physics constraint violations."""
-
-        ERROR = "error"
-        WARNING = "warning"
-        INFO = "info"
-
 
 logger = get_logger(__name__)
 
@@ -332,13 +313,8 @@ class ParameterManager:
         """
         from xpcsjax.core.physics import ValidationResult
 
-        if HAS_PHYSICS_VALIDATORS:
-            # Use registry-driven validation (reduced complexity)
-            physics_violations = validate_all_parameters(params, ConstraintSeverity(severity_level))
-            violations = [v.format() for v in physics_violations]
-        else:
-            # Fallback to inline validation
-            violations = self._validate_physical_constraints_fallback(params, severity_level)
+        physics_violations = validate_all_parameters(params, ConstraintSeverity(severity_level))
+        violations = [v.format() for v in physics_violations]
 
         # Create validation result
         is_valid = len(violations) == 0
@@ -355,80 +331,6 @@ class ParameterManager:
             parameters_checked=len(params),
             message=message,
         )
-
-    def _validate_physical_constraints_fallback(
-        self,
-        params: dict[str, float],
-        severity_level: str = "warning",
-    ) -> list[str]:
-        """Fallback validation when physics_validators module not available."""
-        violations: list[str] = []
-        severity_priority = {"error": 3, "warning": 2, "info": 1}
-        min_priority = severity_priority.get(severity_level, 2)
-
-        def add_violation(param: str, value: float, message: str, severity: str) -> None:
-            if severity_priority.get(severity, 0) >= min_priority:
-                violations.append(f"{param} = {value:.3e}: {message} [{severity}]")
-
-        # Diffusion parameters
-        if "D0" in params:
-            D0 = params["D0"]
-            if D0 <= 0:
-                add_violation("D0", D0, "non-positive diffusion coefficient", "error")
-            elif D0 > 1e7:
-                add_violation("D0", D0, "extremely large diffusion coefficient", "warning")
-
-        if "alpha" in params:
-            alpha = params["alpha"]
-            if alpha < -1.5:
-                add_violation("alpha", alpha, "very strongly subdiffusive", "warning")
-            elif alpha > 1.0:
-                add_violation("alpha", alpha, "strongly superdiffusive", "warning")
-            elif -0.1 < alpha < 0.1:
-                add_violation("alpha", alpha, "near-normal diffusion", "info")
-
-        if "D_offset" in params and params["D_offset"] < 0:
-            add_violation("D_offset", params["D_offset"], "negative offset", "warning")
-
-        # Shear flow parameters
-        if "gamma_dot_t0" in params:
-            gamma_dot = params["gamma_dot_t0"]
-            if gamma_dot < 0:
-                add_violation("gamma_dot_t0", gamma_dot, "negative shear rate", "error")
-            elif gamma_dot > 0.5:
-                add_violation("gamma_dot_t0", gamma_dot, "very high shear rate", "warning")
-            elif 0 < gamma_dot < 1e-6:
-                add_violation("gamma_dot_t0", gamma_dot, "very low shear rate", "info")
-
-        if "beta" in params and (params["beta"] < -2.0 or params["beta"] > 2.0):
-            add_violation("beta", params["beta"], "time exponent outside range", "warning")
-
-        if "phi0" in params and abs(params["phi0"]) > 10.0:
-            add_violation("phi0", params["phi0"], "flow angle outside [-10, 10] deg", "info")
-
-        # Scaling parameters
-        if "contrast" in params:
-            c = params["contrast"]
-            if c <= 0 or c > 1.0:
-                add_violation("contrast", c, "contrast outside (0, 1]", "error")
-            elif c < 0.1:
-                add_violation("contrast", c, "very low contrast", "warning")
-
-        if "offset" in params and params["offset"] <= 0:
-            add_violation("offset", params["offset"], "non-positive baseline", "error")
-
-        # Cross-parameter constraints
-        if all(k in params for k in ["D0", "alpha", "D_offset"]):
-            if params["D0"] > 0 and params["D_offset"] > 0.5 * params["D0"]:
-                ratio = params["D_offset"] / params["D0"]
-                add_violation(
-                    "D_offset",
-                    params["D_offset"],
-                    f"offset is {ratio:.1%} of D0",
-                    "info",
-                )
-
-        return violations
 
     def get_parameter_bounds(
         self,
@@ -543,9 +445,7 @@ class ParameterManager:
             active_params = self._get_default_active_parameters()
         else:
             # Try to get from initial_parameters section
-            initial_params = self.config_dict.get("initial_parameters") or {}
-            if not isinstance(initial_params, dict):
-                initial_params = {}
+            initial_params = dict_section(self.config_dict, "initial_parameters", warn=False)
 
             # Check for explicit active_parameters list
             active_params_config = initial_params.get("active_parameters")
@@ -630,21 +530,18 @@ class ParameterManager:
 
     @staticmethod
     def _mode_is_two_component(mode: str) -> bool:
-        """Substring-match ``mode`` against two_component's known synonyms.
+        """Report whether ``mode`` resolves to ``AnalysisMode.TWO_COMPONENT``.
 
-        Deliberately NOT ``AnalysisMode.parse(mode) == AnalysisMode.TWO_COMPONENT``
-        or a strict ``==`` -- ConfigManager defers ``analysis_mode`` validation
-        (see class docstring / :meth:`_get_default_active_parameters`), so this
-        must tolerate a mode string the registry would reject rather than
-        raising. Single source of truth for the synonym set within this class;
-        shared by :meth:`_get_default_active_parameters` and the
+        Delegates to ``AnalysisMode.try_parse`` (the M-8 single source of
+        truth for mode synonyms) instead of a locally re-implemented synonym
+        set. Non-raising -- ConfigManager defers ``analysis_mode`` validation
+        (see class docstring / :meth:`_get_default_active_parameters`), so
+        this must tolerate a mode string the registry would reject rather
+        than raising. Shared by :meth:`_get_default_active_parameters` and the
         ``tied_parameters`` cross-mode guard in ``__init__``.
         """
-        mode_lower = str(mode).lower()
-        return (
-            "two_component" in mode_lower
-            or "two-component" in mode_lower
-            or "heterodyne" in mode_lower
+        return AnalysisMode.try_parse(str(mode), default=AnalysisMode.LAMINAR_FLOW) == (
+            AnalysisMode.TWO_COMPONENT
         )
 
     def get_all_parameter_names(self) -> list[str]:
@@ -729,14 +626,12 @@ class ParameterManager:
         bounds_tuples = [(bound_dict["min"], bound_dict["max"]) for bound_dict in bounds_list_dict]
 
         # Use the detailed validation from physics module
-        result = validate_parameters_detailed(
+        return validate_parameters_detailed(
             params,
             bounds_tuples,
             param_names=param_names,
             tolerance=tolerance,
         )
-
-        return result
 
     def get_bounds_as_tuples(
         self,
@@ -821,9 +716,7 @@ class ParameterManager:
         if not self.config_dict:
             return {}
 
-        initial_params = self.config_dict.get("initial_parameters") or {}
-        if not isinstance(initial_params, dict):
-            initial_params = {}
+        initial_params = dict_section(self.config_dict, "initial_parameters", warn=False)
         fixed_params = initial_params.get("fixed_parameters", {})
 
         if not isinstance(fixed_params, dict):

@@ -33,12 +33,6 @@ from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Try to import JAX for type hints
-try:
-    import jax.numpy as jnp
-except ImportError:
-    jnp = np  # type: ignore[misc]
-
 
 @dataclass(frozen=True)
 class PhysicsFactors:

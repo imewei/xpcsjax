@@ -27,17 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# Handle YAML dependency
-try:
-    from types import ModuleType
-
-    import yaml
-
-    HAS_YAML = True
-    yaml_module: ModuleType | None = yaml
-except ImportError:
-    HAS_YAML = False
-    yaml_module = None
+import yaml
 
 # xpcsjax.data.validators is a sibling module shipped unconditionally in the
 # same package — never an optional/extra dependency — so the ImportError
@@ -169,12 +159,9 @@ def load_yaml_config(config_path: str | Path) -> dict[str, Any]:
     Raises
     ------
     XPCSConfigurationError
-        If PyYAML is unavailable, the file is missing, the file is empty or
-        unparseable, or the root node is not a mapping.
+        If the file is missing, the file is empty or unparseable, or the
+        root node is not a mapping.
     """
-    if not HAS_YAML or yaml_module is None:
-        raise XPCSConfigurationError("PyYAML required for YAML configuration files")
-
     config_path = Path(config_path)
 
     if not config_path.exists():
@@ -182,7 +169,7 @@ def load_yaml_config(config_path: str | Path) -> dict[str, Any]:
 
     try:
         with open(config_path, encoding="utf-8") as f:
-            config_data = yaml_module.safe_load(f)
+            config_data = yaml.safe_load(f)
 
         if config_data is None:
             raise XPCSConfigurationError(f"Empty or invalid YAML file: {config_path}")
@@ -197,7 +184,7 @@ def load_yaml_config(config_path: str | Path) -> dict[str, Any]:
             )
         return config_data
 
-    except yaml_module.YAMLError as e:
+    except yaml.YAMLError as e:
         raise XPCSConfigurationError(
             f"Failed to parse YAML configuration {config_path}: {e}",
         ) from e

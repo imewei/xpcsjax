@@ -188,18 +188,16 @@ class PhiAngleFilter:
             filtered_angles = phi_angles_array[optimization_indices]
             logger.debug(f"Optimization angles: {filtered_angles.tolist()}")
             return optimization_indices, filtered_angles
-        else:
-            # Handle case where no angles match target ranges
-            logger.warning(f"No angles found in target optimization ranges {ranges}")
+        # Handle case where no angles match target ranges
+        logger.warning(f"No angles found in target optimization ranges {ranges}")
 
-            if fallback:
-                logger.warning("Falling back to using all angles for optimization")
-                optimization_indices = list(range(len(phi_angles)))
-                return optimization_indices, phi_angles_array
-            else:
-                error_msg = f"No angles found in target ranges {ranges} and fallback is disabled"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
+        if fallback:
+            logger.warning("Falling back to using all angles for optimization")
+            optimization_indices = list(range(len(phi_angles)))
+            return optimization_indices, phi_angles_array
+        error_msg = f"No angles found in target ranges {ranges} and fallback is disabled"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     def validate_target_ranges(self, target_ranges: list[tuple[float, float]]) -> bool:
         """Validate target angle ranges.

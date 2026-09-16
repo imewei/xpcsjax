@@ -51,6 +51,8 @@ need their ``py:module`` entry below.
 
 .. py:module:: xpcsjax.config.physics_validators
 
+.. py:module:: xpcsjax.config.physics_validation_base
+
 .. py:module:: xpcsjax.config.types
 
 .. py:module:: xpcsjax.core
@@ -103,9 +105,11 @@ need their ``py:module`` entry below.
 
 .. py:module:: xpcsjax.data.memory_manager
 
-.. py:module:: xpcsjax.data.optimization
+.. py:module:: xpcsjax.data.npz_cache
 
-.. py:module:: xpcsjax.data.performance_engine
+.. py:module:: xpcsjax.data.hdf5_readers
+
+.. py:module:: xpcsjax.data.optimization
 
 .. py:module:: xpcsjax.data.phi_filtering
 
@@ -199,6 +203,8 @@ need their ``py:module`` entry below.
 
 .. py:module:: xpcsjax.optimization.nlsq.multistart
 
+.. py:module:: xpcsjax.optimization.nlsq.nlsq_settings
+
 .. py:module:: xpcsjax.optimization.nlsq.parallel_accumulator
 
 .. py:module:: xpcsjax.optimization.nlsq.parameter_index_mapper
@@ -215,6 +221,8 @@ need their ``py:module`` entry below.
 
 .. py:module:: xpcsjax.optimization.nlsq.results
 
+.. py:module:: xpcsjax.optimization.nlsq.result_helpers
+
 .. py:module:: xpcsjax.optimization.nlsq.shear_weighting
 
 .. py:module:: xpcsjax.optimization.nlsq.strategies
@@ -226,6 +234,10 @@ need their ``py:module`` entry below.
 .. py:module:: xpcsjax.optimization.nlsq.strategies.heterodyne_hybrid_streaming
 
 .. py:module:: xpcsjax.optimization.nlsq.strategies.hybrid_streaming
+
+.. py:module:: xpcsjax.optimization.nlsq.strategies.hybrid_streaming_layers
+
+.. py:module:: xpcsjax.optimization.nlsq.strategies.hybrid_streaming_transforms
 
 .. py:module:: xpcsjax.optimization.nlsq.strategies.out_of_core
 
@@ -242,6 +254,10 @@ need their ``py:module`` entry below.
 .. py:module:: xpcsjax.optimization.nlsq.validation
 
 .. py:module:: xpcsjax.optimization.nlsq.wrapper
+
+.. py:module:: xpcsjax.optimization.nlsq.wrapper_out_of_core_route
+
+.. py:module:: xpcsjax.optimization.nlsq.wrapper_stratified_route
 
 .. py:module:: xpcsjax.optimization.numerical_validation
 

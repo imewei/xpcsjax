@@ -21,7 +21,6 @@ Quality-gate findings added (2026-06-03):
 
 import gc
 import logging
-import unittest.mock
 import weakref
 
 import pytest
@@ -60,9 +59,13 @@ def test_cleanup_failure_is_logged_at_debug_and_does_not_escape(caplog, monkeypa
         def _boom(*_args, **_kwargs):
             raise RuntimeError("cleanup boom")
 
-        # _cleanup_old_pools is invoked from _handle_memory_warning inside a
-        # best-effort guard; forcing it to raise must not escape the handler.
-        monkeypatch.setattr(manager, "_cleanup_old_pools", _boom)
+        # gc.set_threshold (the warning-path GC tuning) is invoked from
+        # _handle_memory_warning inside a best-effort guard; forcing it to
+        # raise must not escape the handler. (2026-09-15 review, finding B2:
+        # _cleanup_old_pools/MemoryPool were removed as always-empty dead
+        # code — this test now exercises the remaining best-effort block.)
+        monkeypatch.setattr(gc, "set_threshold", _boom)
+        manager._consecutive_zero_gc = 5  # skip the GC-collect call itself
 
         stats = MemoryStats()
         with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
@@ -74,7 +77,7 @@ def test_cleanup_failure_is_logged_at_debug_and_does_not_escape(caplog, monkeypa
         ), "the swallowed cleanup failure must be logged at DEBUG with context"
 
         # The manager is still usable after the swallowed failure.
-        assert isinstance(manager.get_memory_stats(), dict)
+        manager._handle_memory_warning(stats)
     finally:
         manager.shutdown()
 
@@ -155,51 +158,10 @@ def test_logged_errors_fallback_shim_reraise_direct():
         raise ValueError("shim suppress")
 
 
-# ---------------------------------------------------------------------------
-# TEST-1 GAP-6: two different VM files each emit their own cleanup DEBUG record
-# ---------------------------------------------------------------------------
-
-
-def test_cleanup_vm_file_log_once_key_is_per_file(caplog, monkeypatch):
-    """GAP-6 regression: two different VM files each get their own DEBUG log.
-
-    The log_once key for cleanup failures is keyed per filename:
-      f"{id(self)}:memmgr:cleanup_vm_file:{file}"
-    This means the FIRST file's failure must not suppress the SECOND file's
-    failure log (different keys → both should appear).
-    """
-    manager = _make_manager()
-    try:
-        vm_dir_path = "/fake/vm/dir"
-        # Simulate two VM files this instance created
-        fake_files = [
-            f"{vm_dir_path}/xpcsjax_vm_11111_100.dat",
-            f"{vm_dir_path}/xpcsjax_vm_22222_200.dat",
-        ]
-        monkeypatch.setattr(manager, "_virtual_memory_path", f"{vm_dir_path}/xpcsjax_vm")
-        manager._own_vm_files.update(fake_files)
-
-        # os.remove raises OSError for both to trigger the log_once path
-        with unittest.mock.patch(
-            "os.remove",
-            side_effect=OSError("simulated remove failure"),
-        ):
-            with caplog.at_level(logging.DEBUG, logger="xpcsjax"):
-                manager.cleanup_virtual_memory()
-
-        # Both files should have generated a DEBUG record (different log_once keys)
-        for fake_file in fake_files:
-            matching = [
-                r
-                for r in caplog.records
-                if r.levelno == logging.DEBUG and fake_file in r.getMessage()
-            ]
-            assert matching, (
-                f"Expected a DEBUG record mentioning '{fake_file}' but found none. "
-                f"Records: {[r.getMessage() for r in caplog.records]}"
-            )
-    finally:
-        manager.shutdown()
+# TEST-1 GAP-6's virtual-memory-backed allocation feature (cleanup_virtual_memory,
+# _own_vm_files, _virtual_memory_path) was removed in the 2026-09-15 review
+# (finding B2): nothing ever populated _own_vm_files, so the feature always
+# acted on empty state in production.
 
 
 # ---------------------------------------------------------------------------

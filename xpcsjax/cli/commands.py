@@ -119,11 +119,15 @@ def _dispatch_fit(
     cfg_manager: ConfigManager,
 ) -> int:
     """Load data → run NLSQ → save → plot. Returns 0 / 2."""
-    # Load + filter experimental data
+    # Load + filter experimental data. Exceptions propagate un-logged: the
+    # single log_exception call in main.py is the one place a fit-pipeline
+    # failure gets reported, tagged with the phase that raised it (see the
+    # ``xpcsjax_phase`` attribute set below) rather than being logged three
+    # times on the way up (audit C18).
     try:
         data = load_and_validate_data(args, cfg_manager)
     except Exception as exc:
-        log_exception(logger, exc, context={"command": "load_data"})
+        exc.xpcsjax_phase = "load_data"  # type: ignore[attr-defined]
         raise
 
     try:
@@ -143,7 +147,7 @@ def _dispatch_fit(
     try:
         result: OptimizationResult = run_nlsq(args, cfg_manager, data)
     except Exception as exc:
-        log_exception(logger, exc, context={"command": "run_nlsq"})
+        exc.xpcsjax_phase = "run_nlsq"  # type: ignore[attr-defined]
         raise
 
     # Persist results
@@ -158,7 +162,7 @@ def _dispatch_fit(
                 args=args,
             )
         except Exception as exc:
-            log_exception(logger, exc, context={"command": "save_results"})
+            exc.xpcsjax_phase = "save_results"  # type: ignore[attr-defined]
             raise
     else:
         logger.warning(

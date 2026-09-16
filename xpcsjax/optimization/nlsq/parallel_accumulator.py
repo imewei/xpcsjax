@@ -16,7 +16,7 @@ from __future__ import annotations
 import multiprocessing
 import multiprocessing.shared_memory
 import os
-import pickle  # noqa: S403 — used for ProcessPoolExecutor error handling only
+import pickle
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -484,9 +484,9 @@ def _ooc_worker_init(
     """
     import atexit
 
-    global _w_phi, _w_t1, _w_t2, _w_g2, _w_sigma  # noqa: PLW0603
-    global _w_chunk_boundaries, _w_compute_accumulators  # noqa: PLW0603
-    global _w_compute_chi2, _w_shm_handles  # noqa: PLW0603
+    global _w_phi, _w_t1, _w_t2, _w_g2, _w_sigma
+    global _w_chunk_boundaries, _w_compute_accumulators
+    global _w_compute_chi2, _w_shm_handles
 
     # Thread pinning
     os.environ["OMP_NUM_THREADS"] = str(threads_per_worker)

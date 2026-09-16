@@ -1,22 +1,35 @@
 """Regression tests for config_handling.py error-path hardening.
 
-Tests the three defensive guards introduced in Task 7:
-
 * L108: ``load_and_merge_config`` names the file in its load-failure message.
-* L149: ``apply_cli_overrides`` tolerates a config-manager double without
-  ``_normalize_analysis_mode``.
-* L158: ``apply_cli_overrides`` logs a warning when ``config['output']`` is
-  not a mapping before silently resetting it to ``{}``.
+
+The other two guards this file used to test (a config-manager double without
+``_normalize_analysis_mode``, and a logged warning for a non-dict
+``config['output']``) lived in ``config_handling.apply_cli_overrides``'s OWN
+mode/output-directory handling. That handling was deleted (audit B8):
+``load_and_merge_config`` now applies mode/output-dir overrides via
+``xpcsjax.service.config.load_config`` -- the SAME function the GUI uses --
+so ``apply_cli_overrides`` here only applies ``--initial-*`` parameter
+overrides. Two notes on what changed:
+
+* The ``_normalize_analysis_mode`` tolerance guard is gone entirely, matching
+  ``service/config.py``'s own comment that it deliberately does NOT guard
+  that call (its only real caller always constructs a genuine ConfigManager).
+* The non-dict-``output`` case is still handled safely in
+  ``service/config.py`` (it resets to ``{}``), but SILENTLY -- that
+  implementation is marked ``# pragma: no cover — defensive`` there rather
+  than logging a warning. This is a minor, known behavior regression from
+  the old CLI-side warning; left to the config/service owner to decide
+  whether to add logging there.
 """
 
 from __future__ import annotations
 
 import argparse
-import logging
 
 import pytest
 
 from xpcsjax.cli import config_handling
+from xpcsjax.config import ConfigManager
 
 
 def test_load_failure_names_the_file(tmp_path):
@@ -31,26 +44,52 @@ def test_load_failure_names_the_file(tmp_path):
     assert str(bad) in str(exc.value)  # error names which config failed
 
 
-def test_normalize_gate_tolerates_object_without_method():
-    # apply_cli_overrides(config_manager, args) reads config_manager.config and,
-    # when args.mode is set, calls config_manager._normalize_analysis_mode().
-    # A config-manager-shaped double WITHOUT that method must not crash the
-    # override (the defensive gate, formerly `except AttributeError: pass`).
-    class _NoNormalize:
-        config = {"analysis_mode": "static_anisotropic"}
+def _write_static_isotropic_config(tmp_path) -> str:
+    cfg = tmp_path / "static_isotropic.yaml"
+    cfg.write_text(
+        """
+analysis_mode: "static_isotropic"
+analyzer_parameters:
+  dt: 1.0
+  start_frame: 1
+  end_frame: 10
+  scattering:
+    wavevector_q: 0.01
+experimental_data:
+  data_folder_path: "/tmp"
+  data_file_name: "dummy.hdf"
+"""
+    )
+    return str(cfg)
 
-    config_handling.apply_cli_overrides(
-        _NoNormalize(), argparse.Namespace(mode="static_isotropic", output=None)
-    )  # no exception == gate works
+
+def test_initial_override_resolver_failure_raises_value_error(tmp_path, monkeypatch):
+    # A11 (xpcsjax/cli/config_handling.py:261): a resolver failure while
+    # applying --initial-* overrides must abort the run with a ValueError
+    # naming the failure, not silently drop the override and fall back to
+    # YAML/registry defaults.
+    config_manager = ConfigManager(_write_static_isotropic_config(tmp_path))
+
+    def _boom():
+        raise RuntimeError("resolver exploded")
+
+    monkeypatch.setattr(config_manager, "get_active_parameters", _boom)
+    args = argparse.Namespace(initial_D0=1234.5)
+
+    with pytest.raises(ValueError, match="cannot apply --initial"):
+        config_handling.apply_cli_overrides(config_manager, args)
 
 
-def test_non_dict_output_block_is_logged(caplog):
-    # When config['output'] is not a mapping, the reset must be logged (not silent).
-    class _BadConfig:
-        config = {"output": "not_a_dict"}
+def test_initial_override_lands_in_initial_parameters_values(tmp_path):
+    # Green companion: a well-formed --initial-D0 override must be written
+    # into the canonical config["initial_parameters"]["values"] block that
+    # ConfigManager.get_initial_parameters() reads back from.
+    config_manager = ConfigManager(_write_static_isotropic_config(tmp_path))
+    args = argparse.Namespace(initial_D0=4242.0)
 
-    with caplog.at_level(logging.WARNING):
-        config_handling.apply_cli_overrides(
-            _BadConfig(), argparse.Namespace(mode=None, output="/tmp/out")
-        )
-    assert any("output" in r.message for r in caplog.records)
+    config_handling.apply_cli_overrides(config_manager, args)
+
+    names = config_manager.config["initial_parameters"]["parameter_names"]
+    values = config_manager.config["initial_parameters"]["values"]
+    assert values[names.index("D0")] == pytest.approx(4242.0)
+    assert config_manager.get_initial_parameters()["D0"] == pytest.approx(4242.0)

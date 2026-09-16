@@ -329,7 +329,9 @@ class ShearSensitivityWeighting:
         """
         return self._weights_jax
 
-    def apply_weights_to_loss(self, residuals: Array, phi_indices: Array) -> Array:
+    def apply_weights_to_loss(
+        self, residuals: Array, phi_indices: Array, weights: Array | None = None
+    ) -> Array:
         """Apply angle weights to residuals for loss computation.
 
         Computes a shear-weighted SUM of squared errors (NOT a weighted mean):
@@ -347,6 +349,11 @@ class ShearSensitivityWeighting:
             Residuals array of shape (n_data,).
         phi_indices : jax.Array
             Phi index for each data point, shape (n_data,).
+        weights : jax.Array, optional
+            Per-angle weight table to use instead of ``self._weights_jax``.
+            Callers that trace this table as a jitted function argument
+            (rather than a closure capture) pass it here so `jax.jit` does
+            not bake a stale copy in as a trace-time constant.
 
         Returns
         -------
@@ -357,13 +364,12 @@ class ShearSensitivityWeighting:
             return jnp.mean(residuals**2) * len(residuals)
 
         # Lookup weights for each data point
-        weights = self._weights_jax[phi_indices.astype(jnp.int32)]
+        weight_table = self._weights_jax if weights is None else weights
+        weights_per_point = weight_table[phi_indices.astype(jnp.int32)]
 
         # Weighted mean squared error
-        weighted_residuals_sq = weights * residuals**2
-        weighted_loss = jnp.sum(weighted_residuals_sq)
-
-        return weighted_loss
+        weighted_residuals_sq = weights_per_point * residuals**2
+        return jnp.sum(weighted_residuals_sq)
 
     def compute_weighted_mse(self, residuals: Array, phi_indices: Array) -> Array:
         """Compute weighted MSE (for gradient computation).
@@ -387,9 +393,7 @@ class ShearSensitivityWeighting:
         weights = self._weights_jax[phi_indices.astype(jnp.int32)]
 
         # Weighted mean: sum(w * r^2) / sum(w)
-        weighted_mse = jnp.sum(weights * residuals**2) / jnp.sum(weights)
-
-        return weighted_mse
+        return jnp.sum(weights * residuals**2) / jnp.sum(weights)
 
     def get_diagnostics(self) -> dict:
         """Get weighting diagnostics.

@@ -344,8 +344,7 @@ def _estimate_initial_jacobian_norms(
 
     try:
         jac = _jax_jacobian(sample_residual_vector, params)
-        norms = np.linalg.norm(jac, axis=0) * sample.get("scale", 1.0)
-        return norms
+        return np.linalg.norm(jac, axis=0) * sample.get("scale", 1.0)
     except (
         ValueError,
         RuntimeError,
@@ -374,8 +373,7 @@ def _compute_final_jacobian_norms(
             jac_subset = jacobian[idx]
             scale = np.sqrt(total_rows / float(len(idx)))
 
-        norms = np.linalg.norm(jac_subset, axis=0) * scale
-        return norms
+        return np.linalg.norm(jac_subset, axis=0) * scale
     except (
         ValueError,
         RuntimeError,

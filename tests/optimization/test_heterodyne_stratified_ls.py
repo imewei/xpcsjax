@@ -1146,6 +1146,6 @@ def test_dispatcher_routes_constant_to_stratified_ls_at_1m(monkeypatch):
         nlsq_pkg, "_estimate_heterodyne_points", lambda c2, phi: 1_500_000, raising=True
     )
 
-    res = nlsq_pkg._fit_nlsq_heterodyne(data, cfg)  # noqa: SLF001
+    res = nlsq_pkg._fit_nlsq_heterodyne(data, cfg)
     assert called.get("strat") is True, "constant >=1M must route to stratified-LS"
     assert res.nlsq_diagnostics["per_angle_mode"] == "constant"

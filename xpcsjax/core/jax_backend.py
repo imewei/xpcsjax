@@ -24,6 +24,16 @@ g₂(φ,t₁,t₂) = offset + contrast × [g₁(φ,t₁,t₂)]²
 Where g₁ = g₁_diffusion × g₁_shear captures:
 - Anomalous diffusion: g₁_diff = exp[-q²/2 ∫ D(t')dt']
 - Time-dependent shear: g₁_shear = [sinc(Φ)]²
+
+Relationship to ``xpcsjax.core.physics_nlsq``:
+    Two g1/g2 kernel families coexist by design and are NOT interchangeable:
+    this module provides the dual element-wise/meshgrid kernels used by
+    ``core/models.py``, ``optimization/nlsq/fit_computation.py``, and
+    ``optimization/nlsq/core.py``, while ``physics_nlsq.py`` provides the
+    meshgrid-only engine path (via ``model_adapter.py`` / ``residual.py``)
+    that is rtol=1e-10 golden-pinned. Both export a public
+    ``compute_g2_scaled`` with the same 9-arg signature but different
+    degenerate-point handling — do not merge them.
 """
 
 import threading
@@ -58,18 +68,7 @@ from xpcsjax.core.physics_utils import (
 )
 from xpcsjax.utils.logging import get_logger, log_performance
 
-JAX_AVAILABLE = True
-NUMPY_GRADIENTS_AVAILABLE = False
-
 logger = get_logger(__name__)
-
-# Performance tracking for fallback warnings
-_fallback_stats = {
-    "gradient_calls": 0,
-    "hessian_calls": 0,
-    "jit_bypassed": 0,
-    "vmap_loops": 0,
-}
 
 # Meshgrid cache for repeated computations with same time arrays
 # Key: (t1_hash, t2_hash) where hash includes shape, dtype, and content digest
@@ -286,9 +285,12 @@ def reset_cache_stats() -> None:
         }
 
 
-# Global flags for availability checking
-jax_available = JAX_AVAILABLE
-numpy_gradients_available = NUMPY_GRADIENTS_AVAILABLE if not JAX_AVAILABLE else False
+# jax is an unconditional hard dependency (pyproject.toml); these two flags are
+# kept as a compat shim for external readers (e.g. xpcsjax.data.*) for one
+# release rather than always-True/False constants computed from removed
+# JAX_AVAILABLE/NUMPY_GRADIENTS_AVAILABLE internals.
+jax_available = True
+numpy_gradients_available = False
 
 
 # Core physics computations with discrete numerical integration
@@ -400,11 +402,8 @@ def _compute_g1_diffusion_core(
             # For meshgrid with indexing="ij": t1 varies along rows (axis 0), constant along columns
             # So extract first COLUMN to get unique t1 values
             time_array = t1[:, 0]  # Extract first column for unique t1 values
-        elif t1.ndim == 0:
-            # Handle 0-dimensional (scalar) input
-            time_array = jnp.atleast_1d(t1)
         else:
-            # Handle 1D and other cases
+            # Handle 0-D (scalar), 1D, and other cases identically
             time_array = jnp.atleast_1d(t1)
 
         # Step 2: Calculate D(t) at each time point
@@ -499,15 +498,14 @@ def _compute_g1_shear_core(
             # Element-wise mode (flat arrays for heatmap generation):
             # return 1D ones to match g1_diff shape in _compute_g1_total_core
             return jnp.ones_like(t1)
-        else:
-            # Matrix mode: return (n_phi, n_times, n_times) to broadcast with g1_diff.
-            # atleast_1d handles a 0-d scalar t1 the same way the general
-            # (shear-active) branch below already does.
-            t1_matrix = jnp.atleast_1d(t1)
-            phi_array = jnp.atleast_1d(phi)
-            n_phi = phi_array.shape[0]
-            n_times = t1_matrix.shape[0]
-            return jnp.ones((n_phi, n_times, n_times))
+        # Matrix mode: return (n_phi, n_times, n_times) to broadcast with g1_diff.
+        # atleast_1d handles a 0-d scalar t1 the same way the general
+        # (shear-active) branch below already does.
+        t1_matrix = jnp.atleast_1d(t1)
+        phi_array = jnp.atleast_1d(phi)
+        n_phi = phi_array.shape[0]
+        n_times = t1_matrix.shape[0]
+        return jnp.ones((n_phi, n_times, n_times))
 
     gamma_dot_0, beta, gamma_dot_offset, phi0 = (
         params[3],
@@ -569,11 +567,8 @@ def _compute_g1_shear_core(
             # For meshgrid with indexing="ij": t1 varies along rows (axis 0), constant along columns
             # So extract first COLUMN to get unique t1 values
             time_array = t1[:, 0]  # Extract first column for unique t1 values
-        elif t1.ndim == 0:
-            # Handle 0-dimensional (scalar) input
-            time_array = jnp.atleast_1d(t1)
         else:
-            # Handle 1D and other cases
+            # Handle 0-D (scalar), 1D, and other cases identically
             time_array = jnp.atleast_1d(t1)
 
         # Step 2: Calculate γ̇(t) at each time point
@@ -790,13 +785,12 @@ def _compute_g2_scaled_core(
 
     # Homodyne physics: g₂ = offset + contrast × [g₁]²
     # The baseline "1" is included in the offset parameter (offset ≈ 1.0 for physical data)
-    g2 = offset + contrast * g1**2
+    return offset + contrast * g1**2
 
     # P0-3: Removed hard jnp.clip(g2, 0.5, 2.5) — it kills gradients at boundaries.
     # For NLSQ (TRF optimizer), the bounds are enforced via parameter bounds, not g2 clipping.
     # For NUTS/MCMC, hard clips create zero-gradient plateaus that stall the sampler.
     # Physical range (0.5-2.5) is enforced through parameter priors instead.
-    return g2  # type: ignore[no-any-return]
 
 
 # =============================================================================
@@ -1449,14 +1443,13 @@ def batch_chi_squared(
 def validate_backend() -> dict[str, Any]:
     """Validate computational backends with comprehensive diagnostics."""
     results: dict[str, Any] = {
-        "jax_available": JAX_AVAILABLE,
+        "jax_available": jax_available,
         "numpy_gradients_available": numpy_gradients_available,
         "gradient_support": False,
         "hessian_support": False,
         "backend_type": "jax_native",
         "performance_estimate": "optimal (1x)",
         "recommendations": cast(list[str], []),
-        "fallback_stats": _fallback_stats.copy(),
         "test_results": cast(dict[str, str], {}),
     }
 
@@ -1547,9 +1540,8 @@ def get_performance_summary() -> dict[str, Any]:
     """Get performance summary and recommendations."""
     return {
         "backend_type": "jax_native",
-        "jax_available": JAX_AVAILABLE,
+        "jax_available": jax_available,
         "numpy_gradients_available": numpy_gradients_available,
-        "fallback_stats": _fallback_stats.copy(),
         "performance_multiplier": "1x",
         "recommendations": _get_performance_recommendations(),
     }

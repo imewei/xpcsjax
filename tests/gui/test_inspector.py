@@ -4,10 +4,10 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from pathlib import Path  # noqa: E402
+from pathlib import Path
 
-from xpcsjax.gui.result_loader import ResultSummary  # noqa: E402
-from xpcsjax.gui.views.inspector import InspectorDock  # noqa: E402
+from xpcsjax.gui.result_loader import ResultSummary
+from xpcsjax.gui.views.inspector import InspectorDock
 
 
 def _summary():

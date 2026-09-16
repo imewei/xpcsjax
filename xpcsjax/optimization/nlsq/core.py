@@ -368,12 +368,11 @@ def fit_nlsq_jax(
                 )
                 cmaes_result.sigma_is_default = _sigma_is_default
                 return cmaes_result
-            else:
-                logger.warning(
-                    "[CMA-ES] Enabled in config but not available (evosax not installed). "
-                    "Install with: pip install nlsq[evosax]. "
-                    "Falling back to multi-start or local optimization."
-                )
+            logger.warning(
+                "[CMA-ES] Enabled in config but not available (evosax not installed). "
+                "Install with: pip install nlsq[evosax]. "
+                "Falling back to multi-start or local optimization."
+            )
 
         # Multi-start is second priority
         multi_start_dict = nlsq_dict.get("multi_start", {})
@@ -389,11 +388,10 @@ def fit_nlsq_jax(
                 ms_result = multistart_result.to_optimization_result()
                 ms_result.sigma_is_default = _sigma_is_default
                 return ms_result
-            else:
-                logger.warning(
-                    "[Multi-Start] Enabled in config but not available. "
-                    "Falling back to local optimization."
-                )
+            logger.warning(
+                "[Multi-Start] Enabled in config but not available. "
+                "Falling back to local optimization."
+            )
 
         logger.debug("No global optimization enabled, using local optimization")
 
@@ -897,9 +895,8 @@ def _normalize_data_to_object(data: Any, config: Any, logger: Any) -> Any:
                 logger.warning(f"Error reading dt from config: {e}")
 
         return data_obj
-    else:
-        _ensure_positive_sigma(data)
-        return data
+    _ensure_positive_sigma(data)
+    return data
 
 
 def _validate_data(data: dict[str, Any]) -> None:
@@ -1201,18 +1198,17 @@ def _get_default_initial_params(analysis_mode: AnalysisMode) -> dict[str, float]
             "D_offset": 0.0,
         }
     # Laminar flow mode (7 parameters)
-    else:
-        return {
-            "contrast": 0.5,  # Generic default - should be replaced with data estimate
-            "offset": 1.0,  # Generic default - should be replaced with data estimate
-            "D0": 10000.0,
-            "alpha": -1.5,
-            "D_offset": 0.0,
-            "gamma_dot_t0": 0.001,
-            "beta": 0.0,
-            "gamma_dot_t_offset": 0.0,
-            "phi0": 0.0,
-        }
+    return {
+        "contrast": 0.5,  # Generic default - should be replaced with data estimate
+        "offset": 1.0,  # Generic default - should be replaced with data estimate
+        "D0": 10000.0,
+        "alpha": -1.5,
+        "D_offset": 0.0,
+        "gamma_dot_t0": 0.001,
+        "beta": 0.0,
+        "gamma_dot_t_offset": 0.0,
+        "phi0": 0.0,
+    }
 
 
 def _get_parameter_bounds(
@@ -1256,18 +1252,17 @@ def _get_param_names(analysis_mode: AnalysisMode) -> list[str]:
     """
     if "static" in analysis_mode.lower():
         return ["contrast", "offset", "D0", "alpha", "D_offset"]
-    else:
-        return [
-            "contrast",
-            "offset",
-            "D0",
-            "alpha",
-            "D_offset",
-            "gamma_dot_t0",
-            "beta",
-            "gamma_dot_t_offset",
-            "phi0",
-        ]
+    return [
+        "contrast",
+        "offset",
+        "D0",
+        "alpha",
+        "D_offset",
+        "gamma_dot_t0",
+        "beta",
+        "gamma_dot_t_offset",
+        "phi0",
+    ]
 
 
 def _get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
@@ -1286,18 +1281,11 @@ def _get_physical_param_names(analysis_mode: AnalysisMode) -> list[str]:
     list[str]
         List of physical parameter names
     """
-    if "static" in analysis_mode.lower():
-        return ["D0", "alpha", "D_offset"]
-    else:
-        return [
-            "D0",
-            "alpha",
-            "D_offset",
-            "gamma_dot_t0",
-            "beta",
-            "gamma_dot_t_offset",
-            "phi0",
-        ]
+    from xpcsjax.optimization.nlsq.nlsq_settings import (
+        get_physical_param_names,
+    )
+
+    return get_physical_param_names(analysis_mode)
 
 
 def _params_to_array(params: dict[str, float], analysis_mode: AnalysisMode) -> jnp.ndarray:
@@ -1312,20 +1300,19 @@ def _params_to_array(params: dict[str, float], analysis_mode: AnalysisMode) -> j
                 params["D_offset"],
             ],
         )
-    else:
-        return jnp.array(
-            [
-                params["contrast"],
-                params["offset"],
-                params["D0"],
-                params["alpha"],
-                params["D_offset"],
-                params["gamma_dot_t0"],
-                params["beta"],
-                params["gamma_dot_t_offset"],
-                params["phi0"],
-            ],
-        )
+    return jnp.array(
+        [
+            params["contrast"],
+            params["offset"],
+            params["D0"],
+            params["alpha"],
+            params["D_offset"],
+            params["gamma_dot_t0"],
+            params["beta"],
+            params["gamma_dot_t_offset"],
+            params["phi0"],
+        ],
+    )
 
 
 def _bounds_to_arrays(
@@ -1635,9 +1622,8 @@ def fit_nlsq_multistart(
         # (but not fixed_parameters) position is left exactly as passed in
         # here, and _SingleFitWorker later restores that slot from it. Using
         # lower_bounds silently moved an excluded parameter to its lower
-        # bound instead of leaving it at its initial value (dev-suite:
-        # three-brain deep-review finding). `initial_params` here is a
-        # name-keyed dict (see the custom_starts block below, which already
+        # bound instead of leaving it at its initial value. `initial_params`
+        # here is a name-keyed dict (see the custom_starts block below, which already
         # assumes every physical_names entry is present); fall back to the
         # bounds midpoint when no initial values were provided at all,
         # mirroring _run_sequential_optimization's identical strategy.
@@ -1946,19 +1932,18 @@ def fit_nlsq_cmaes(
                     per_angle_scaling=per_angle_scaling,
                 )
                 return ms_result.to_optimization_result()
-            else:
-                logger.info(
-                    f"[CMA-ES] Scale ratio < {nlsq_config.cmaes_scale_threshold}, "
-                    "falling back to local NLSQ optimization"
-                )
-                # Use _skip_global_selection=True to avoid infinite loop
-                return fit_nlsq_jax(
-                    data=data,
-                    config=config,
-                    initial_params=initial_params,
-                    per_angle_scaling=per_angle_scaling,
-                    _skip_global_selection=True,
-                )
+            logger.info(
+                f"[CMA-ES] Scale ratio < {nlsq_config.cmaes_scale_threshold}, "
+                "falling back to local NLSQ optimization"
+            )
+            # Use _skip_global_selection=True to avoid infinite loop
+            return fit_nlsq_jax(
+                data=data,
+                config=config,
+                initial_params=initial_params,
+                per_angle_scaling=per_angle_scaling,
+                _skip_global_selection=True,
+            )
 
     # Prepare data arrays for CMA-ES
     # Need to build model function and flatten data
@@ -2415,8 +2400,8 @@ def fit_nlsq_cmaes(
             # value may not equal the configured override yet (this runs
             # BEFORE resolve_optimized_physical_parameters/the fixed-value
             # restore further below) -- read the configured value directly
-            # instead of trusting x0 (dev-suite:three-brain deep-review
-            # finding, same class as hybrid_streaming.py's initial_phi0 fix).
+            # instead of trusting x0 (same class as hybrid_streaming.py's
+            # initial_phi0 fix).
             _cmaes_fixed_phi0 = (
                 param_manager.get_fixed_parameters().get("phi0") if HAS_PARAMETER_MANAGER else None
             )
@@ -2564,9 +2549,7 @@ def fit_nlsq_cmaes(
             )
 
             # Compute g2 = offset + contrast * g1^2
-            g2_all = offset_per_point + contrast_per_point * g1_all**2
-
-            return g2_all
+            return offset_per_point + contrast_per_point * g1_all**2
 
         if _cmaes_phys_free_mask is not None:
             from xpcsjax.optimization.nlsq.parameter_utils import restore_by_mask_jax
@@ -2937,12 +2920,11 @@ def fit_nlsq_cmaes(
 
         # Determine quality flag using reduced chi-squared thresholds
         # consistent with NLSQWrapper's 3-level system (wrapper.py:3577-3583)
-        if reduced_chi_squared < 1.5:
-            quality_flag = "good"
-        elif reduced_chi_squared < 3.0:
-            quality_flag = "marginal"
-        else:
-            quality_flag = "poor"
+        from xpcsjax.optimization.nlsq.results import (
+            quality_flag_from_reduced_chi2,
+        )
+
+        quality_flag = quality_flag_from_reduced_chi2(reduced_chi_squared)
 
     except ValueError as e:
         if (

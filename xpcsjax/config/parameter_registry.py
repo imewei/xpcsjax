@@ -80,6 +80,24 @@ class AnalysisMode(StrEnum):
             f"Unknown analysis mode: {raw!r}. Expected one of {[e.value for e in cls]}."
         )
 
+    @classmethod
+    def try_parse(cls, raw: str, default: AnalysisMode) -> AnalysisMode:
+        """Non-raising :meth:`parse`.
+
+        For call sites that must tolerate strings the registry rejects
+        (deferred mode validation is intentional — see ``ConfigManager``'s
+        ``_normalize_analysis_mode``). Calls :meth:`parse` with
+        ``allow_bare_static=True`` — every existing tolerant call site this
+        replaces already treated a bare ``"static"`` as the angle-resolved
+        ``STATIC_ANISOTROPIC`` variant, so this preserves that behavior
+        rather than tightening it. Falls back to ``default`` on any other
+        :class:`ValueError` from :meth:`parse` (unrecognized mode strings).
+        """
+        try:
+            return cls.parse(raw, allow_bare_static=True)
+        except ValueError:
+            return default
+
 
 @dataclass(frozen=True)
 class ParameterInfo:

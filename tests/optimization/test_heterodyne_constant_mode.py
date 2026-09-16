@@ -183,7 +183,7 @@ def _build_minimal_heterodyne_model():
         return HeterodyneModel.from_config(cfg.config)
 
 
-def _build_synthetic_c2_stack(n_phi: int, n_t: int, model) -> np.ndarray:  # noqa: ARG001
+def _build_synthetic_c2_stack(n_phi: int, n_t: int, model) -> np.ndarray:
     """Forward-evaluate the model at each phi to build a (n_phi, N, N) stack.
 
     ``n_t`` is consumed implicitly via ``model.n_times``; the parameter is

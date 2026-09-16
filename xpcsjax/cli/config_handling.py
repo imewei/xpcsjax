@@ -20,12 +20,10 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-try:
-    import yaml as _yaml
-except ImportError:  # pragma: no cover
-    _yaml = None  # type: ignore[assignment]
+import yaml as _yaml
 
 from xpcsjax.config.manager import ConfigManager
+from xpcsjax.service.config import load_config as _service_load_config
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -113,14 +111,24 @@ def load_and_merge_config(
     # Pre-validate YAML syntax so that a malformed file raises with the path
     # named rather than silently falling back to ConfigManager defaults.
     _yaml_path = Path(yaml_path)
-    if _yaml_path.suffix.lower() in (".yaml", ".yml") and _yaml is not None:
+    if _yaml_path.suffix.lower() in (".yaml", ".yml"):
         try:
             with _yaml_path.open(encoding="utf-8") as _f:
                 _yaml.safe_load(_f)
         except Exception as e:
             raise ValueError(f"Failed to load config from {yaml_path}: {e}") from e
     try:
-        config_manager = ConfigManager(str(yaml_path))
+        # Mode + output-directory overrides are owned by
+        # xpcsjax.service.config.load_config -- the SAME function the GUI uses
+        # -- so the CLI no longer carries its own copy of that logic (it used
+        # to, and had silently drifted: e.g. tolerating a config-manager double
+        # without ``_normalize_analysis_mode``, which the service version
+        # deliberately does not).
+        config_manager = _service_load_config(
+            yaml_path,
+            mode=getattr(cli_args, "mode", None),
+            output_dir=getattr(cli_args, "output", None),
+        )
     except Exception as e:
         raise ValueError(f"Failed to load config from {yaml_path}: {e}") from e
     apply_cli_overrides(config_manager, cli_args)
@@ -131,11 +139,9 @@ def apply_cli_overrides(
     config_manager: ConfigManager,
     args: argparse.Namespace,
 ) -> None:
-    """Mutate ``config_manager.config`` in place from CLI flags.
+    """Apply CLI ``--initial-*`` parameter overrides.
 
-    Applies the mode override, the output-directory override, and the
-    ``--initial-*`` parameter overrides. Precedence is CLI args > YAML >
-    parameter-registry defaults.
+    Precedence is CLI args > YAML > parameter-registry defaults.
 
     Parameters
     ----------
@@ -146,53 +152,14 @@ def apply_cli_overrides(
 
     Notes
     -----
-    NLSQ runtime knobs (``--multistart`` / ``--max-iterations`` /
-    ``--tolerance`` / verbosity) are intentionally *not* handled here; they are
-    owned by :func:`xpcsjax.cli.optimization_runner.apply_cli_overrides`, the
-    single authority for the ``optimization.nlsq.*`` block.
+    Mode and output-directory overrides are NOT handled here -- they are
+    applied by :func:`xpcsjax.service.config.load_config` inside
+    :func:`load_and_merge_config`, before this function ever runs. NLSQ
+    runtime knobs (``--multistart`` / ``--max-iterations`` / ``--tolerance`` /
+    verbosity) are also not handled here; they are owned by
+    :func:`xpcsjax.service.fit.apply_overrides`, the single authority for the
+    ``optimization.nlsq.*`` block.
     """
-    config = config_manager.config
-    if config is None:  # pragma: no cover — load_config never returns None
-        return
-
-    # --- mode override ---
-    cli_mode = getattr(args, "mode", None)
-    if cli_mode is not None:
-        old_mode = config.get("analysis_mode")
-        config["analysis_mode"] = cli_mode
-        if old_mode != cli_mode:
-            logger.info("CLI override: analysis_mode = %s (was %s)", cli_mode, old_mode)
-        # Re-normalize after mutation.
-        # Defensive: lightweight config-manager doubles may omit this private method.
-        _normalize = getattr(config_manager, "_normalize_analysis_mode", None)
-        if callable(_normalize):  # pragma: no cover
-            _normalize()
-
-    # --- output dir override ---
-    # Canonical schema (per the shipped templates) is ``output.directory``.
-    if getattr(args, "output", None) is not None:
-        out = config.setdefault("output", {})
-        if not isinstance(out, dict):
-            logger.warning(
-                "config 'output' expected a mapping, got %s; resetting to {}",
-                type(out).__name__,
-            )
-            out = {}
-            config["output"] = out
-        old = out.get("directory")
-        out["directory"] = str(args.output)
-        logger.info("CLI override: output.directory = %s (was %s)", args.output, old)
-
-    # NOTE: NLSQ runtime knobs (--multistart / --multistart-n /
-    # --max-iterations / --tolerance / verbosity) are intentionally NOT
-    # handled here. They are owned by
-    # ``optimization_runner.apply_cli_overrides`` (the single authority for
-    # the ``optimization.nlsq.*`` block), which writes the canonical keys
-    # the NLSQ engine actually reads (multi_start.enable, ftol/xtol, ...).
-    # Writing them in two places previously double-applied with divergent
-    # keys and clobbered YAML settings.
-
-    # --- parameter overrides ---
     _apply_parameter_overrides(config_manager, args)
 
 
@@ -280,15 +247,15 @@ def _apply_parameter_overrides(
     if not overrides:
         return
 
-    # Resolve the active parameter order and current (resolved) values.
+    # Resolve the active parameter order and current (resolved) values. An
+    # explicit CLI --initial-* value that cannot be honoured must abort the
+    # run, not silently fall back to the YAML/registry defaults the user was
+    # trying to override.
     try:
         active_names = list(config_manager.get_active_parameters())
         current: dict[str, float] = dict(config_manager.get_initial_parameters())
     except Exception as e:
-        logger.warning(
-            "Could not resolve active parameters; CLI --initial-* overrides skipped: %s", e
-        )
-        return
+        raise ValueError(f"cannot apply --initial-* overrides: {e}") from e
 
     # get_initial_parameters() only back-fills registry midpoint defaults when
     # config["initial_parameters"]["values"] is entirely null; a partial,
@@ -298,10 +265,7 @@ def _apply_parameter_overrides(
     # a midpoint default -- losing previously-present parameters with no log.
     missing = [name for name in active_names if name not in current]
     if missing:
-        try:
-            midpoints = config_manager._calculate_midpoint_defaults()  # noqa: SLF001
-        except Exception:
-            midpoints = {}
+        midpoints = config_manager._calculate_midpoint_defaults()
         for name in missing:
             if name in midpoints:
                 current[name] = midpoints[name]

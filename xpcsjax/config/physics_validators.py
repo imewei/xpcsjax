@@ -29,92 +29,18 @@ xpcsjax.config.heterodyne_physics_validators : Sibling validators for the
     14-parameter heterodyne (``two_component``) model.
 """
 
-import math
-from collections.abc import Callable
-from dataclasses import dataclass
-from enum import StrEnum
 from typing import Any
 
+from xpcsjax.config.physics_validation_base import (
+    SEVERITY_PRIORITY,
+    ConstraintRule,
+    ConstraintSeverity,
+    PhysicsViolation,
+)
+from xpcsjax.config.physics_validation_base import is_non_finite as _is_non_finite
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-def _is_non_finite(value: float) -> bool:
-    """Return ``True`` for ``NaN`` / ``±inf``; ``False`` for finite or non-numeric.
-
-    IEEE-754 makes every relational comparison with ``NaN`` return ``False``, so
-    the rule predicates in :data:`PHYSICS_CONSTRAINTS` would silently *accept* a
-    ``NaN``; this helper lets :func:`validate_single_parameter` flag it instead.
-    A non-numeric ``value`` returns ``False`` so it falls through to the existing
-    rule loop (which already tolerates non-numerics via its ``except`` clause).
-    """
-    try:
-        return not math.isfinite(value)
-    except (TypeError, ValueError):
-        return False
-
-
-# Severity levels for constraint violations
-class ConstraintSeverity(StrEnum):
-    """Severity levels for physics constraint violations.
-
-    StrEnum (a str subclass): members compare equal to their string values, so
-    existing ``== "error"`` checks and f-string formatting are unchanged, while
-    static checkers now treat the set as closed. Mirrors the heterodyne
-    ConstraintSeverity in heterodyne_physics_validators.py (previously this homodyne
-    copy was a plain class with bare string constants).
-    """
-
-    ERROR = "error"  # Physically impossible
-    WARNING = "warning"  # Unusual but possible
-    INFO = "info"  # Noteworthy observation
-
-
-@dataclass
-class PhysicsViolation:
-    """A single triggered physics constraint violation.
-
-    Attributes
-    ----------
-    param : str
-        Name of the offending parameter.
-    value : float
-        The value that triggered the violation.
-    message : str
-        Human-readable explanation of why the value is suspect.
-    severity : ConstraintSeverity
-        Severity of the violation (``error`` / ``warning`` / ``info``).
-    """
-
-    param: str
-    value: float
-    message: str
-    severity: ConstraintSeverity
-
-    def format(self) -> str:
-        """Render the violation as a single human-readable line."""
-        return f"{self.param} = {self.value:.3e}: {self.message} [{self.severity}]"
-
-
-@dataclass
-class ConstraintRule:
-    """A single physics constraint rule for one parameter.
-
-    Attributes
-    ----------
-    condition : collections.abc.Callable
-        Predicate over the parameter value; returns ``True`` when the value
-        violates the rule.
-    message : str
-        Human-readable explanation attached to a triggered violation.
-    severity : ConstraintSeverity
-        Severity assigned to a triggered violation.
-    """
-
-    condition: Callable[[float], bool]  # Returns True if violated
-    message: str
-    severity: ConstraintSeverity
 
 
 # Physics constraints registry: param_name -> list of rules
@@ -212,13 +138,6 @@ PHYSICS_CONSTRAINTS: dict[str, list[ConstraintRule]] = {
             severity=ConstraintSeverity.ERROR,
         ),
     ],
-}
-
-# Severity priority mapping for filtering
-SEVERITY_PRIORITY = {
-    ConstraintSeverity.ERROR: 3,
-    ConstraintSeverity.WARNING: 2,
-    ConstraintSeverity.INFO: 1,
 }
 
 

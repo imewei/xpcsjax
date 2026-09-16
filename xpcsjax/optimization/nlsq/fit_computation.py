@@ -262,13 +262,12 @@ def get_physical_param_count(analysis_mode: AnalysisMode) -> int:
     """
     if analysis_mode in ("static_anisotropic", "static_isotropic"):
         return 3  # D0, alpha, D_offset
-    elif analysis_mode == "laminar_flow":
+    if analysis_mode == "laminar_flow":
         return 7  # D0, alpha, D_offset, gamma_dot_t0, beta, gamma_dot_t_offset, phi0
-    else:
-        raise ValueError(
-            f"Unknown analysis_mode: '{analysis_mode}'. "
-            "Expected 'static_anisotropic', 'static_isotropic', or 'laminar_flow'"
-        )
+    raise ValueError(
+        f"Unknown analysis_mode: '{analysis_mode}'. "
+        "Expected 'static_anisotropic', 'static_isotropic', or 'laminar_flow'"
+    )
 
 
 def extract_parameters_from_result(

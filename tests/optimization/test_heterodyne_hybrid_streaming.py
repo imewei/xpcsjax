@@ -681,7 +681,7 @@ def test_flat_multistart_precedence_over_hybrid(monkeypatch):
     assert joint.get("yes") is True  # routed to fit_nlsq_multi_phi (owns the escape)
 
 
-def test_flat_multistart_skips_stratified_ls(monkeypatch):  # noqa: N802 - "1M" pins the boundary
+def test_flat_multistart_skips_stratified_ls(monkeypatch):
     """Flat ``multistart=True`` + >=1M points must NOT take the stratified-LS local
     path — it must fall through to fit_nlsq_multi_phi, which owns the joint
     multistart escape.

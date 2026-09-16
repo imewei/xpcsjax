@@ -25,7 +25,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from xpcsjax.config.parameter_manager import ParameterManager
     from xpcsjax.config.parameter_registry import AnalysisMode
+    from xpcsjax.core.models import PhysicsModelBase
 
 # Handle YAML dependency
 try:
@@ -50,21 +52,13 @@ except ImportError:
     yaml_module = None
     _YAMLError = _NoYAMLError
 
-# Import minimal logging
-try:
-    from xpcsjax.utils.logging import get_logger
-
-    HAS_LOGGING = True
-except ImportError:
-    import logging
-    from typing import Any as _Any
-
-    HAS_LOGGING = False
-
-    def get_logger(name: str, **kwargs: _Any) -> logging.Logger:  # type: ignore[misc]
-        """Return a stdlib logger (fallback when xpcsjax logging is unavailable)."""
-        return logging.getLogger(name)
-
+from xpcsjax.config.types import (
+    PARAMETER_NAME_MAPPING,
+    BoundDict,
+    coerce_finite_float,
+    dict_section,
+)
+from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -552,7 +546,7 @@ class ConfigManager:
         # validation point) instead of an AttributeError from str.lower().
         return "static" in self.analysis_mode.value.lower()
 
-    def get_model(self) -> Any:
+    def get_model(self) -> "PhysicsModelBase":
         """Construct the physics model class for this config's analysis mode.
 
         Thin wrapper over :func:`xpcsjax.core.models.make_model` so that engine
@@ -606,7 +600,7 @@ class ConfigManager:
             return {"enabled": False}
         return angle_filtering
 
-    def _get_parameter_manager(self) -> Any:
+    def _get_parameter_manager(self) -> "ParameterManager":
         """Get or create cached ParameterManager.
 
         This avoids creating a new ParameterManager on every config access,
@@ -625,6 +619,14 @@ class ConfigManager:
             # Order: explicit two_component → static (via is_static_mode_enabled)
             # → laminar_flow fallback. Use AnalysisMode members (not raw strings)
             # so the value typechecks at the ParameterManager boundary.
+            #
+            # Synonym matching delegates to AnalysisMode.try_parse (the single
+            # source of truth for mode-string synonyms, M-8) instead of
+            # reimplementing the substring checks locally. is_static_mode_enabled()
+            # still gates on the strict AnalysisMode(raw) accessor, so a
+            # genuinely invalid analysis_mode (not a two_component synonym, not
+            # an exact static_* value) still raises ValueError here exactly as
+            # before — this refactor only removes the duplicated synonym table.
             raw_mode = ""
             if self.config:
                 cfg_mode = self.config.get("analysis_mode", "")
@@ -632,28 +634,19 @@ class ConfigManager:
                     raw_mode = cfg_mode.lower()
 
             analysis_mode: AnalysisMode
-            if (
-                "two_component" in raw_mode
-                or "two-component" in raw_mode
-                or "heterodyne" in raw_mode
+            if AnalysisMode.try_parse(raw_mode, default=AnalysisMode.LAMINAR_FLOW) == (
+                AnalysisMode.TWO_COMPONENT
             ):
                 analysis_mode = AnalysisMode.TWO_COMPONENT
             elif self.is_static_mode_enabled():
-                # Preserve an explicit isotropic/anisotropic choice.
-                if "anisotropic" in raw_mode:
-                    analysis_mode = AnalysisMode.STATIC_ANISOTROPIC
-                elif "isotropic" in raw_mode:
-                    analysis_mode = AnalysisMode.STATIC_ISOTROPIC
-                elif raw_mode == "":
-                    # Absent analysis_mode: match the .analysis_mode property's
-                    # canonical default of config.get("analysis_mode",
-                    # "static_isotropic") so the two resolution paths agree.
-                    analysis_mode = AnalysisMode.STATIC_ISOTROPIC
-                else:
-                    # A bare "static" (and other static-containing strings)
-                    # normalizes to the angular-resolved variant, mirroring
-                    # AnalysisMode's own normalization.
-                    analysis_mode = AnalysisMode.STATIC_ANISOTROPIC
+                # raw_mode here is "" (no config / absent key) or exactly one of
+                # "static_anisotropic" / "static_isotropic" — is_static_mode_enabled's
+                # strict AnalysisMode(raw) gate rejects any other string before
+                # this branch is reached. Default to STATIC_ISOTROPIC to match
+                # the .analysis_mode property's own absent-key default.
+                analysis_mode = AnalysisMode.try_parse(
+                    raw_mode, default=AnalysisMode.STATIC_ISOTROPIC
+                )
             else:
                 analysis_mode = AnalysisMode.LAMINAR_FLOW
 
@@ -666,7 +659,7 @@ class ConfigManager:
     def get_parameter_bounds(
         self,
         parameter_names: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[BoundDict]:
         """Get parameter bounds from configuration (cached).
 
         Uses cached ParameterManager internally for improved performance.
@@ -840,10 +833,7 @@ class ConfigManager:
                     f"initial_parameters.values is null, calculating mid-point defaults for {len(param_names_config)} parameters"
                 )
                 return self._calculate_midpoint_defaults()
-            else:
-                raise ValueError(
-                    "initial_parameters.values is null and use_midpoint_defaults is False"
-                )
+            raise ValueError("initial_parameters.values is null and use_midpoint_defaults is False")
 
         # Validate that values is a list
         if not isinstance(param_values, list):
@@ -855,12 +845,6 @@ class ConfigManager:
                 f"Number of values ({len(param_values)}) does not match "
                 f"number of parameter_names ({len(param_names_config)})"
             )
-
-        # Get ParameterManager for name mapping (used for validation)
-        _param_manager = self._get_parameter_manager()  # noqa: F841
-
-        # Import name mapping once at the top of this section
-        from xpcsjax.config.types import PARAMETER_NAME_MAPPING, coerce_finite_float
 
         # Build initial parameters dict with name mapping
         initial_params_dict: dict[str, float] = {}
@@ -883,8 +867,8 @@ class ConfigManager:
         # explicitly-configured per-angle scaling value whenever
         # active_parameters is set.
         per_angle_scaling_keys: set[str] = set()
-        per_angle_scaling = initial_params.get("per_angle_scaling")
-        if per_angle_scaling and isinstance(per_angle_scaling, dict):
+        per_angle_scaling = dict_section(initial_params, "per_angle_scaling", warn=False)
+        if per_angle_scaling:
             # Extract contrast and offset arrays. A bare scalar means the same
             # thing as a length-1 list (single value applied to all angles) —
             # normalize so it isn't silently dropped by the isinstance(list)
@@ -896,89 +880,114 @@ class ConfigManager:
             if isinstance(offset_values, (int, float)):
                 offset_values = [offset_values]
 
-            if contrast_values is not None and isinstance(contrast_values, list):
-                if len(contrast_values) == 1:
-                    # Single-angle: use scalar contrast
-                    initial_params_dict["contrast"] = coerce_finite_float(
-                        contrast_values[0],
-                        context="initial_parameters.per_angle_scaling.contrast[0]",
-                    )
-                    per_angle_scaling_keys.add("contrast")
-                    logger.info(
-                        f"Loaded scalar contrast from per_angle_scaling: {contrast_values[0]}"
-                    )
-                else:
-                    # Multi-angle: use per-angle contrast_0, contrast_1, ...
-                    for idx, val in enumerate(contrast_values):
-                        key = f"contrast_{idx}"
-                        initial_params_dict[key] = coerce_finite_float(
-                            val,
-                            context=f"initial_parameters.per_angle_scaling.contrast[{idx}]",
-                        )
-                        per_angle_scaling_keys.add(key)
-                    logger.info(f"Loaded {len(contrast_values)} per-angle contrast values")
-
-            if offset_values is not None and isinstance(offset_values, list):
-                if len(offset_values) == 1:
-                    # Single-angle: use scalar offset
-                    initial_params_dict["offset"] = coerce_finite_float(
-                        offset_values[0],
-                        context="initial_parameters.per_angle_scaling.offset[0]",
-                    )
-                    per_angle_scaling_keys.add("offset")
-                    logger.info(f"Loaded scalar offset from per_angle_scaling: {offset_values[0]}")
-                else:
-                    # Multi-angle: use per-angle offset_0, offset_1, ...
-                    for idx, val in enumerate(offset_values):
-                        key = f"offset_{idx}"
-                        initial_params_dict[key] = coerce_finite_float(
-                            val,
-                            context=f"initial_parameters.per_angle_scaling.offset[{idx}]",
-                        )
-                        per_angle_scaling_keys.add(key)
-                    logger.info(f"Loaded {len(offset_values)} per-angle offset values")
+            self._load_scaling_values(
+                "contrast", contrast_values, initial_params_dict, per_angle_scaling_keys
+            )
+            self._load_scaling_values(
+                "offset", offset_values, initial_params_dict, per_angle_scaling_keys
+            )
 
         # Filter by active_parameters if specified (per-angle-scaling keys are
         # exempt — see the comment at their injection above).
         active_params_config = initial_params.get("active_parameters")
-        if active_params_config and isinstance(active_params_config, list):
-            # Map active parameter names to canonical names
-            active_canonical = set()
-            for name in active_params_config:
-                canonical = PARAMETER_NAME_MAPPING.get(name, name)
-                active_canonical.add(canonical)
-
-            # Filter to only active parameters (plus exempt per-angle-scaling keys)
-            initial_params_dict = {
-                k: v
-                for k, v in initial_params_dict.items()
-                if k in active_canonical or k in per_angle_scaling_keys
-            }
-            logger.info(
-                f"Filtered to {len(initial_params_dict)} active parameters: {list(initial_params_dict.keys())}"
-            )
+        initial_params_dict = self._filter_active_parameters(
+            initial_params_dict, active_params_config, per_angle_scaling_keys
+        )
 
         # Exclude fixed_parameters
         fixed_params = initial_params.get("fixed_parameters")
-        if fixed_params and isinstance(fixed_params, dict):
-            # Map fixed parameter names to canonical names
-            fixed_canonical = set()
-            for name in fixed_params.keys():
-                canonical = PARAMETER_NAME_MAPPING.get(name, name)
-                fixed_canonical.add(canonical)
-
-            # Remove fixed parameters from initial_params_dict
-            initial_params_dict = {
-                k: v for k, v in initial_params_dict.items() if k not in fixed_canonical
-            }
-            logger.info(
-                f"Excluded {len(fixed_canonical)} fixed parameters, "
-                f"{len(initial_params_dict)} remaining"
-            )
+        initial_params_dict = self._drop_fixed_parameters(initial_params_dict, fixed_params)
 
         logger.info(f"Loaded initial parameters from config: {list(initial_params_dict.keys())}")
 
         return initial_params_dict
+
+    @staticmethod
+    def _load_scaling_values(
+        kind: str,
+        values: list[float] | None,
+        initial_params_dict: dict[str, float],
+        per_angle_scaling_keys: set[str],
+    ) -> None:
+        """Load one per-angle-scaling (contrast or offset) array in place.
+
+        Extracted from :meth:`get_initial_parameters`, whose contrast and
+        offset blocks were line-for-line symmetric apart from ``kind``.
+        Mutates ``initial_params_dict`` and ``per_angle_scaling_keys``.
+
+        Parameters
+        ----------
+        kind : str
+            ``"contrast"`` or ``"offset"``.
+        values : list of float, optional
+            The (already scalar-normalized) values from
+            ``initial_parameters.per_angle_scaling.<kind>``. A ``None`` or
+            non-list value is a no-op.
+        initial_params_dict : dict[str, float]
+            Accumulator to write ``kind`` (single-angle) or ``kind_N``
+            (multi-angle) keys into.
+        per_angle_scaling_keys : set[str]
+            Accumulator recording which keys were injected here, so the
+            active-parameters filter can exempt them.
+        """
+        if values is None or not isinstance(values, list):
+            return
+        if len(values) == 1:
+            # Single-angle: use scalar value
+            initial_params_dict[kind] = coerce_finite_float(
+                values[0], context=f"initial_parameters.per_angle_scaling.{kind}[0]"
+            )
+            per_angle_scaling_keys.add(kind)
+            logger.info(f"Loaded scalar {kind} from per_angle_scaling: {values[0]}")
+        else:
+            # Multi-angle: use per-angle kind_0, kind_1, ...
+            for idx, val in enumerate(values):
+                key = f"{kind}_{idx}"
+                initial_params_dict[key] = coerce_finite_float(
+                    val, context=f"initial_parameters.per_angle_scaling.{kind}[{idx}]"
+                )
+                per_angle_scaling_keys.add(key)
+            logger.info(f"Loaded {len(values)} per-angle {kind} values")
+
+    @staticmethod
+    def _filter_active_parameters(
+        initial_params_dict: dict[str, float],
+        active_params_config: list[str] | None,
+        per_angle_scaling_keys: set[str],
+    ) -> dict[str, float]:
+        """Filter ``initial_params_dict`` to ``active_params_config``, if set.
+
+        Per-angle-scaling keys are always exempt (see the comment at their
+        injection in :meth:`get_initial_parameters`). A falsy or non-list
+        ``active_params_config`` is a no-op (returns the input unchanged).
+        """
+        if not active_params_config or not isinstance(active_params_config, list):
+            return initial_params_dict
+        active_canonical = {PARAMETER_NAME_MAPPING.get(name, name) for name in active_params_config}
+        filtered = {
+            k: v
+            for k, v in initial_params_dict.items()
+            if k in active_canonical or k in per_angle_scaling_keys
+        }
+        logger.info(f"Filtered to {len(filtered)} active parameters: {list(filtered.keys())}")
+        return filtered
+
+    @staticmethod
+    def _drop_fixed_parameters(
+        initial_params_dict: dict[str, float],
+        fixed_params: dict[str, float] | None,
+    ) -> dict[str, float]:
+        """Remove ``fixed_params`` (by canonical name) from ``initial_params_dict``.
+
+        A falsy or non-dict ``fixed_params`` is a no-op (returns the input
+        unchanged).
+        """
+        if not fixed_params or not isinstance(fixed_params, dict):
+            return initial_params_dict
+        fixed_canonical = {PARAMETER_NAME_MAPPING.get(name, name) for name in fixed_params}
+        filtered = {k: v for k, v in initial_params_dict.items() if k not in fixed_canonical}
+        logger.info(f"Excluded {len(fixed_canonical)} fixed parameters, {len(filtered)} remaining")
+        return filtered
 
     def _calculate_midpoint_defaults(self) -> dict[str, float]:
         """Calculate mid-point default values from parameter bounds.
@@ -1208,30 +1217,18 @@ class ConfigManager:
         logger.info(f"Analysis mode: {mode}")
 
         # Dataset info
-        exp_data = self.config.get("experimental_data", {})
-        if not isinstance(exp_data, dict):
-            exp_data = {}
+        exp_data = dict_section(self.config, "experimental_data", warn=False)
         file_path = exp_data.get("file_path")
         if file_path:
             logger.info(f"Data file: {file_path}")
 
         # Optimizer selection
-        optimization = self.config.get("optimization", {})
-        if not isinstance(optimization, dict):
-            logger.warning(
-                "optimization must be a dict, ignoring (got %s)", type(optimization).__name__
-            )
-            optimization = {}
+        optimization = dict_section(self.config, "optimization")
         method = optimization.get("method", "nlsq")
         logger.info(f"Optimizer: {method}")
 
         # Log dataset size estimate if available
-        nlsq_config = optimization.get("nlsq", {})
-        if not isinstance(nlsq_config, dict):
-            logger.warning(
-                "optimization.nlsq must be a dict, ignoring (got %s)", type(nlsq_config).__name__
-            )
-            nlsq_config = {}
+        nlsq_config = dict_section(optimization, "nlsq")
         memory_fraction = nlsq_config.get("memory_fraction")
         if memory_fraction:
             logger.debug(f"Memory fraction: {memory_fraction}")
@@ -1256,12 +1253,7 @@ class ConfigManager:
         if not self.config:
             return
 
-        optimization = self.config.get("optimization", {})
-        if not isinstance(optimization, dict):
-            logger.warning(
-                "optimization must be a dict, ignoring (got %s)", type(optimization).__name__
-            )
-            optimization = {}
+        optimization = dict_section(self.config, "optimization")
 
         # Warn about very high iteration limits
         nlsq_config = optimization.get("nlsq", {}) or optimization.get("lsq", {})
@@ -1328,13 +1320,9 @@ class ConfigManager:
                 mode = mode_raw
         else:
             mode = mode_raw
-        anti_deg = nlsq_config.get("anti_degeneracy", {})
-        if not isinstance(anti_deg, dict):
-            anti_deg = {}
+        anti_deg = dict_section(nlsq_config, "anti_degeneracy", warn=False)
         if mode == "laminar_flow":
-            hierarchical = anti_deg.get("hierarchical", {})
-            if not isinstance(hierarchical, dict):
-                hierarchical = {}
+            hierarchical = dict_section(anti_deg, "hierarchical", warn=False)
             if hierarchical.get("enable") is False:
                 logger.warning(
                     "hierarchical.enable=False for laminar_flow may cause "

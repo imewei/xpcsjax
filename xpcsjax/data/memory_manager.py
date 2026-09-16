@@ -1,38 +1,34 @@
-"""Advanced memory manager for the performance engine.
-
-Intelligent memory management for massive XPCS datasets with dynamic
-allocation, memory pools, pressure monitoring, and optimization strategies.
+"""Memory pressure monitoring and GC-pressure response for large XPCS fits.
 
 This module provides:
 
-- Dynamic memory allocation based on available system resources
-- Memory pool management for efficient buffer reuse
-- Memory pressure monitoring and adaptive responses
-- Garbage collection optimization to prevent fragmentation
-- Virtual memory optimization for large datasets
-- Memory-efficient data structures and algorithms
+- Real-time memory pressure monitoring (:class:`MemoryPressureMonitor`) with
+  WARNING/CRITICAL logging and a live-array-regime demotion so a large
+  in-memory NLSQ solve doesn't get treated as a leak.
+- :class:`AdvancedMemoryManager`, which wires that monitor to a
+  pressure-triggered GC response: rate-limited ``gc.collect()``, GC
+  threshold tuning, and a cooldown-gated ``jax.clear_caches()`` skip that
+  fixes a real regression (repeatedly clearing the JIT cache under live
+  JAX-array pressure forced XLA recompiles mid-solve, which spiked memory
+  and time instead of freeing anything — see
+  ``tests/data/test_memory_manager_cache_gating.py``).
 
-Key features
-------------
-- Real-time memory pressure detection and response
-- Intelligent memory allocation strategies based on workload patterns
-- Memory pool recycling to minimize allocation overhead
-- Background memory optimization and cleanup
-- Integration with system virtual memory for handling datasets larger than RAM
-- Proactive memory management to prevent out-of-memory conditions
+The multi-level cache / memory pool / virtual-memory-backed allocation
+machinery this module used to also carry (``MemoryPool``,
+``get_memory_stats``, ``optimize_for_workload``, ``cleanup_virtual_memory``)
+had no caller that ever populated it, so it always acted on empty state; it
+was removed in the 2026-09-15 review (finding B2).
 """
 
 import atexit
 import gc
 import logging
-import os
 import threading
 import time
 import weakref
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
 import psutil
@@ -241,38 +237,11 @@ class MemoryStats:
         """
         if self.memory_pressure < 0.6:
             return "low"
-        elif self.memory_pressure < 0.8:
+        if self.memory_pressure < 0.8:
             return "moderate"
-        elif self.memory_pressure < 0.9:
+        if self.memory_pressure < 0.9:
             return "high"
-        else:
-            return "critical"
-
-
-@dataclass
-class MemoryPool:
-    """Memory pool for efficient buffer reuse."""
-
-    pool_id: str
-    buffer_size: int
-    max_buffers: int
-    buffers: deque = field(default_factory=deque)
-    allocated_count: int = 0
-    hit_count: int = 0
-    miss_count: int = 0
-    creation_time: float = field(default_factory=time.time)
-    last_access_time: float = field(default_factory=time.time)
-
-    @property
-    def hit_rate(self) -> float:
-        """Return the buffer-reuse hit rate for this pool (0.0-1.0)."""
-        total_requests = self.hit_count + self.miss_count
-        return self.hit_count / max(total_requests, 1)
-
-    @property
-    def memory_usage_mb(self) -> float:
-        """Return the resident memory of buffered arrays in MB."""
-        return (len(self.buffers) * self.buffer_size * 8) / (1024 * 1024)
+        return "critical"
 
 
 class MemoryPressureMonitor:
@@ -336,8 +305,7 @@ class MemoryPressureMonitor:
         # Pressure history for trend analysis. Guarded by `_pressure_history_lock`
         # because the monitoring daemon appends while callers read via
         # `get_pressure_trend`. Keep the critical section leaf-only (append /
-        # snapshot): `get_memory_stats` already holds `_pools_lock` when it calls
-        # in, so acquiring anything else under this lock would invert that order.
+        # snapshot) to avoid lock-ordering surprises with any caller-held lock.
         self._pressure_history: deque = deque(maxlen=300)  # 5 minutes at 1s intervals
         self._pressure_history_lock = threading.Lock()
 
@@ -680,10 +648,9 @@ class MemoryPressureMonitor:
 
         if change > 0.05:
             return "increasing"
-        elif change < -0.05:
+        if change < -0.05:
             return "decreasing"
-        else:
-            return "stable"
+        return "stable"
 
     def __del__(self) -> None:
         """Destructor to ensure cleanup when garbage collected."""
@@ -714,10 +681,6 @@ class AdvancedMemoryManager:
         self.config = config or {}
         self.memory_config = self.config.get("memory", {})
 
-        # Memory pools for different buffer sizes
-        self._pools: dict[int, MemoryPool] = {}
-        self._pools_lock = threading.RLock()
-
         # Memory pressure monitoring
         warning_threshold = self.memory_config.get("warning_threshold", 0.75)
         critical_threshold = self.memory_config.get("critical_threshold", 0.9)
@@ -737,11 +700,6 @@ class AdvancedMemoryManager:
         self.pressure_monitor.register_warning_callback(self._handle_memory_warning)
         self.pressure_monitor.register_critical_callback(self._handle_memory_critical)
         self.pressure_monitor.register_recovery_callback(self._handle_memory_recovery)
-
-        # Memory allocation tracking
-        self._allocation_history: deque = deque(maxlen=1000)
-        self._total_allocated_mb = 0.0
-        self._allocation_lock = threading.Lock()
 
         # Garbage collection optimization
         self._gc_optimization_enabled = self.memory_config.get("gc_optimization", True)
@@ -780,18 +738,6 @@ class AdvancedMemoryManager:
         self._jax_cache_clear_cooldown_s: float = float(
             self.memory_config.get("jax_cache_clear_cooldown_s", 60.0)
         )
-
-        # Virtual memory support
-        self._virtual_memory_enabled = self.memory_config.get("virtual_memory", True)
-        default_vm_path = str(Path(os.path.expanduser("~/.cache/xpcsjax/vm")) / "xpcsjax_vm")
-        self._virtual_memory_path = self.memory_config.get(
-            "virtual_memory_path",
-            default_vm_path,
-        )
-        # Backing files created by THIS instance. The default vm path is shared
-        # by every manager that doesn't override it in config, so cleanup must
-        # not touch files another live instance/process created.
-        self._own_vm_files: set[str] = set()
 
         # Start monitoring
         if self.memory_config.get("enable_monitoring", True):
@@ -866,10 +812,6 @@ class AdvancedMemoryManager:
                 logger.debug(f"Garbage collection freed {collected} objects")
                 self._record_gc_result(collected)
 
-        # Clean up old pools
-        with logged_errors(logger, "cleanup_old_pools", policy="suppress", level=logging.DEBUG):
-            self._cleanup_old_pools()
-
         # Adjust GC thresholds to be more aggressive (divide from the captured
         # baseline, not the current value, so repeated warnings don't compound
         # the thresholds toward 0). Clamp to >=1 so a generation is never
@@ -939,13 +881,6 @@ class AdvancedMemoryManager:
             logger.debug("Performing emergency memory cleanup (live arrays; best-effort)")
         else:
             logger.warning("Performing emergency memory cleanup")
-
-        # Clear all memory pools (these ARE ours and always safe to drop).
-        with logged_errors(logger, "emergency_clear_pools", policy="suppress", level=logging.DEBUG):
-            with self._pools_lock:
-                for pool in self._pools.values():
-                    pool.buffers.clear()
-                self._pools.clear()
 
         # One collection — and stop if it frees nothing (live arrays, not
         # garbage). Looping 3× when the first pass already freed 0 is pure waste
@@ -1019,25 +954,6 @@ class AdvancedMemoryManager:
             jax.clear_caches()
             logger.debug("Cleared JAX compilation cache")
 
-    def _cleanup_old_pools(self) -> None:
-        """Clean up old or unused memory pools."""
-        current_time = time.time()
-        cleanup_threshold = 300  # 5 minutes
-
-        with self._pools_lock:
-            pools_to_remove = []
-
-            for pool_id, pool in self._pools.items():
-                if current_time - pool.last_access_time > cleanup_threshold:
-                    if pool.hit_rate < 0.1:  # Low hit rate
-                        pools_to_remove.append(pool_id)
-
-            for pool_id in pools_to_remove:
-                pool = self._pools[pool_id]
-                pool.buffers.clear()
-                del self._pools[pool_id]
-                logger.debug(f"Cleaned up unused pool: {pool_id}")
-
     def _optimize_garbage_collection(self) -> None:
         """Optimize garbage collection based on current conditions."""
         if not self._gc_optimization_enabled:
@@ -1061,153 +977,6 @@ class AdvancedMemoryManager:
 
         self._last_gc_time = current_time
 
-    def get_memory_stats(self) -> dict[str, Any]:
-        """Return comprehensive memory statistics.
-
-        Returns
-        -------
-        dict
-            Nested dictionary with ``system_memory``, ``pool_management``,
-            ``allocation_performance``, and ``optimization_status`` sections.
-        """
-        with self._pools_lock:
-            pool_stats = {}
-            total_pool_memory = 0.0
-
-            for pool_id, pool in self._pools.items():
-                pool_memory = pool.memory_usage_mb
-                total_pool_memory += pool_memory
-
-                pool_stats[pool_id] = {
-                    "buffer_size": pool.buffer_size,
-                    "buffer_count": len(pool.buffers),
-                    "allocated_count": pool.allocated_count,
-                    "max_buffers": pool.max_buffers,
-                    "hit_rate": pool.hit_rate,
-                    "memory_usage_mb": pool_memory,
-                }
-
-        # Calculate allocation statistics
-        with self._allocation_lock:
-            recent_allocations = [
-                a
-                for a in self._allocation_history
-                if time.time() - a["timestamp"] < 60  # Last minute
-            ]
-
-            successful_allocations = [a for a in recent_allocations if a["success"]]
-
-            avg_allocation_time = 0.0
-            if successful_allocations:
-                avg_allocation_time = sum(
-                    a["allocation_time_ms"] for a in successful_allocations
-                ) / len(successful_allocations)
-
-            allocation_success_rate = len(successful_allocations) / max(
-                len(recent_allocations),
-                1,
-            )
-
-        return {
-            "system_memory": {
-                "total_gb": self.pressure_monitor.stats.total_memory_gb,
-                "available_gb": self.pressure_monitor.stats.available_memory_gb,
-                "used_gb": self.pressure_monitor.stats.used_memory_gb,
-                "pressure": self.pressure_monitor.stats.memory_pressure,
-                "pressure_level": self.pressure_monitor.stats.get_pressure_level(),
-                "pressure_trend": self.pressure_monitor.get_pressure_trend(),
-            },
-            "pool_management": {
-                "active_pools": len(self._pools),
-                "total_pool_memory_mb": total_pool_memory,
-                "pool_stats": pool_stats,
-            },
-            "allocation_performance": {
-                "total_allocated_mb": self._total_allocated_mb,
-                "avg_allocation_time_ms": avg_allocation_time,
-                "allocation_success_rate": allocation_success_rate,
-                "recent_allocations": len(recent_allocations),
-            },
-            "optimization_status": {
-                "gc_optimization_enabled": self._gc_optimization_enabled,
-                "virtual_memory_enabled": self._virtual_memory_enabled,
-                "monitoring_active": self.pressure_monitor._monitoring_active,
-            },
-        }
-
-    def optimize_for_workload(self, workload_type: str, dataset_size_gb: float) -> None:
-        """Tune memory management for a workload profile.
-
-        Adjusts the GC threshold multiplier and warning threshold per workload
-        type and enlarges pool capacities for datasets larger than 10 GB.
-
-        Parameters
-        ----------
-        workload_type : str
-            One of ``"streaming"``, ``"batch"``, or ``"interactive"``.
-            Unrecognized values leave the current tuning unchanged.
-        dataset_size_gb : float
-            Expected dataset size in GB.
-        """
-        logger.info(
-            f"Optimizing memory management for {workload_type} workload, "
-            f"dataset size: {dataset_size_gb:.1f}GB",
-        )
-
-        if workload_type == "streaming":
-            # Optimize for streaming workload
-            self._gc_threshold_multiplier = 1.5  # More frequent GC
-            self.pressure_monitor.warning_threshold = 0.7  # Earlier warning
-
-        elif workload_type == "batch":
-            # Optimize for batch processing
-            self._gc_threshold_multiplier = 3.0  # Less frequent GC
-            self.pressure_monitor.warning_threshold = 0.8  # Later warning
-
-        elif workload_type == "interactive":
-            # Optimize for interactive use
-            self._gc_threshold_multiplier = 2.0  # Balanced GC
-            self.pressure_monitor.warning_threshold = 0.75  # Standard warning
-
-        # Adjust pool sizes based on dataset size
-        if dataset_size_gb > 10.0:
-            # Large dataset - bigger pools
-            with self._pools_lock:
-                for pool in self._pools.values():
-                    pool.max_buffers = min(pool.max_buffers * 2, 64)
-
-        logger.info(f"Memory optimization applied for {workload_type} workload")
-
-    def cleanup_virtual_memory(self) -> None:
-        """Clean up the virtual memory files created by this instance."""
-        try:
-            for file in list(self._own_vm_files):
-                self._own_vm_files.discard(file)
-                try:
-                    os.remove(file)
-                    logger.debug(f"Cleaned up virtual memory file: {file}")
-                except FileNotFoundError:
-                    # Already removed by the atexit-registered per-file _cleanup_vm
-                    # closure (registered at allocation time) -- idempotent cleanup,
-                    # not an error.
-                    pass
-                except Exception as exc:
-                    log_once(
-                        logger,
-                        logging.DEBUG,
-                        f"{id(self)}:memmgr:cleanup_vm_file:{file}",
-                        "Failed to cleanup virtual memory file %s: %s",
-                        file,
-                        exc,
-                    )
-        except Exception as exc:
-            log_exception(
-                logger,
-                exc,
-                context={"operation": "cleanup_virtual_memory"},
-                level=logging.DEBUG,
-            )
-
     def shutdown(self) -> None:
         """Shutdown memory manager and cleanup resources."""
         logger.info("Shutting down advanced memory manager")
@@ -1217,17 +986,6 @@ class AdvancedMemoryManager:
             logger, "shutdown_stop_monitoring", policy="suppress", level=logging.DEBUG
         ):
             self.pressure_monitor.stop_monitoring()
-
-        # Clear all pools
-        with logged_errors(logger, "shutdown_clear_pools", policy="suppress", level=logging.DEBUG):
-            with self._pools_lock:
-                for pool in self._pools.values():
-                    pool.buffers.clear()
-                self._pools.clear()
-
-        # Cleanup virtual memory files
-        with logged_errors(logger, "shutdown_cleanup_vm", policy="suppress", level=logging.DEBUG):
-            self.cleanup_virtual_memory()
 
         # Restore process-wide GC thresholds if pressure handling altered them.
         # Only _handle_memory_recovery did this before, so a shutdown that
@@ -1268,7 +1026,6 @@ __all__ = [
     "AdvancedMemoryManager",
     "MemoryPressureMonitor",
     "MemoryStats",
-    "MemoryPool",
     "MemoryManagerError",
     "MemoryPressureError",
     "AllocationError",

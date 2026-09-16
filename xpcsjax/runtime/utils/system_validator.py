@@ -217,7 +217,7 @@ class SystemValidator:
         for test in self._tests:
             try:
                 result = test()
-            except Exception as exc:  # noqa: BLE001 - we want any failure mapped to ERROR
+            except Exception as exc:
                 result = ValidationResult(
                     success=False,
                     severity=Severity.ERROR,
@@ -322,7 +322,7 @@ class SystemValidator:
             device-enumeration error, or x64 being disabled.
         """
         try:
-            import jax  # noqa: PLC0415
+            import jax
         except ImportError as exc:
             return ValidationResult(
                 success=False,
@@ -334,7 +334,7 @@ class SystemValidator:
 
         try:
             devices = jax.devices()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ValidationResult(
                 success=False,
                 severity=Severity.ERROR,
@@ -429,7 +429,7 @@ class SystemValidator:
             package cannot be located.
         """
         try:
-            import xpcsjax  # noqa: PLC0415
+            import xpcsjax
         except ImportError as exc:
             return ValidationResult(
                 success=False,
@@ -469,7 +469,7 @@ class SystemValidator:
             unavailable.
         """
         try:
-            import psutil  # noqa: PLC0415
+            import psutil
         except ImportError as exc:
             return ValidationResult(
                 success=False,

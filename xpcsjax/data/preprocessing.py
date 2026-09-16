@@ -48,79 +48,16 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-# Core dependencies
-try:
-    import numpy as np
+# numpy, scipy, jax, xpcsjax.utils.logging, and xpcsjax.core.diagonal_correction
+# are all pyproject.toml hard dependencies / in-tree modules (2026-09-15
+# review, finding B3) — none of these imports can fail in any supported
+# install.
+import numpy as np
+from scipy import signal, stats
+from scipy.ndimage import gaussian_filter, median_filter
 
-    HAS_NUMPY = True
-except ImportError:
-    HAS_NUMPY = False
-    np = None  # type: ignore[assignment]
-
-# JAX integration with fallback
-try:
-    from xpcsjax.core.jax_backend import jax_available
-
-    HAS_JAX = True
-except ImportError:
-    HAS_JAX = False
-    jax_available = False
-
-# Scipy for advanced algorithms
-try:
-    from scipy import signal, stats
-    from scipy.ndimage import gaussian_filter, median_filter
-
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-    ndimage = None
-    signal = None
-    stats = None
-    median_filter = None
-    gaussian_filter = None
-
-# V2 logging integration
-try:
-    from xpcsjax.utils.logging import get_logger, log_calls, log_performance, log_phase
-
-    HAS_V2_LOGGING = True
-except ImportError:
-    import logging
-    from contextlib import contextmanager
-
-    HAS_V2_LOGGING = False
-
-    def get_logger(name):  # type: ignore[no-untyped-def,misc]
-        return logging.getLogger(name)
-
-    def log_performance(*args, **kwargs):  # type: ignore[no-untyped-def,misc]
-        def decorator(func):  # type: ignore[no-untyped-def]
-            return func
-
-        return decorator
-
-    def log_calls(*args, **kwargs):  # type: ignore[no-untyped-def,misc]
-        def decorator(func):  # type: ignore[no-untyped-def]
-            return func
-
-        return decorator
-
-    @contextmanager
-    def log_phase(name, **kwargs):  # type: ignore[no-untyped-def,misc]
-        """Fallback log_phase for environments without v2 logging."""
-        yield type("PhaseContext", (), {"duration": 0.0, "memory_peak_gb": None})()
-
-
-# Diagonal correction from unified module
-try:
-    from xpcsjax.core.diagonal_correction import apply_diagonal_correction
-
-    HAS_DIAGONAL_CORRECTION = True
-except ImportError:
-    HAS_DIAGONAL_CORRECTION = False
-    apply_diagonal_correction = None  # type: ignore[assignment]
-
+from xpcsjax.core.diagonal_correction import apply_diagonal_correction
+from xpcsjax.utils.logging import get_logger, log_calls, log_performance, log_phase
 
 logger = get_logger(__name__)
 
@@ -331,12 +268,6 @@ class PreprocessingPipeline:
                 f"Unknown noise reduction method: {noise_method}",
             )
 
-        # Check required dependencies
-        if noise_method in ["wiener", "savgol"] and not HAS_SCIPY:
-            logger.warning(
-                f"Noise reduction method '{noise_method}' requires scipy - falling back to 'none'",
-            )
-
     def _get_enabled_stages(self) -> list[PreprocessingStage]:
         """Get list of enabled preprocessing stages based on configuration."""
         # The top-level preprocessing.enabled flag (documented and defaulted
@@ -434,15 +365,14 @@ class PreprocessingPipeline:
                         raise PreprocessingError(
                             f"Pipeline aborted at stage {stage.value}: {e}",
                         ) from e
-                    else:
-                        logger.warning(
-                            "Continuing pipeline after stage '%s' failure "
-                            "(abort_on_error=False): the data passed downstream has "
-                            "NOT had this operation applied. PreprocessingResult."
-                            "success may still be True; inspect stage_results to see "
-                            "which operations were skipped.",
-                            stage.value,
-                        )
+                    logger.warning(
+                        "Continuing pipeline after stage '%s' failure "
+                        "(abort_on_error=False): the data passed downstream has "
+                        "NOT had this operation applied. PreprocessingResult."
+                        "success may still be True; inspect stage_results to see "
+                        "which operations were skipped.",
+                        stage.value,
+                    )
 
             # Calculate final metrics
             provenance.total_duration = time.time() - start_time
@@ -586,43 +516,22 @@ class PreprocessingPipeline:
             c2_exp = np.asarray(c2_exp, dtype=np.float64)
             corrected_data["c2_exp"] = np.asarray(corrected_data["c2_exp"], dtype=np.float64)
 
-        # Use unified module if available
-        if HAS_DIAGONAL_CORRECTION and apply_diagonal_correction is not None:
-            extra_kwargs = {
-                k: v for k, v in config.items() if k not in ("method", "enabled", "backend")
-            }
-            for i in range(len(c2_exp)):
-                corrected_data["c2_exp"][i] = apply_diagonal_correction(
-                    c2_exp[i],
-                    method=method,
-                    backend="numpy",
-                    **extra_kwargs,
-                )
-        else:
-            # Fallback to local implementations
-            if method == "basic":
-                for i in range(len(c2_exp)):
-                    corrected_data["c2_exp"][i] = self._basic_diagonal_correction(c2_exp[i])
-            elif method == "statistical":
-                for i in range(len(c2_exp)):
-                    corrected_data["c2_exp"][i] = self._statistical_diagonal_correction(
-                        c2_exp[i],
-                        config,
-                    )
-            elif method == "interpolation":
-                for i in range(len(c2_exp)):
-                    corrected_data["c2_exp"][i] = self._interpolation_diagonal_correction(
-                        c2_exp[i],
-                        config,
-                    )
-            else:
-                logger.warning(
-                    f"Unknown diagonal correction method: {method}, using statistical",
-                )
-                return self._correct_diagonal_enhanced(
-                    data,
-                    {**config, "method": "statistical"},
-                )
+        # xpcsjax.core.diagonal_correction is a hard, always-present in-tree
+        # module (2026-09-15 review, finding B3) — the local
+        # _basic_diagonal_correction/_statistical_diagonal_correction/
+        # _interpolation_diagonal_correction fallbacks below are unreachable
+        # from here now; they stay defined for direct test coverage / as a
+        # documented deprecated alternative.
+        extra_kwargs = {
+            k: v for k, v in config.items() if k not in ("method", "enabled", "backend")
+        }
+        for i in range(len(c2_exp)):
+            corrected_data["c2_exp"][i] = apply_diagonal_correction(
+                c2_exp[i],
+                method=method,
+                backend="numpy",
+                **extra_kwargs,
+            )
 
         return corrected_data
 
@@ -682,10 +591,7 @@ class PreprocessingPipeline:
                     neighbors.append(c2_mat[i, i + offset])
 
             if neighbors:
-                if HAS_SCIPY:
-                    neighbors_arr = np.array(neighbors)
-                else:
-                    neighbors_arr = neighbors  # type: ignore[assignment]
+                neighbors_arr = np.array(neighbors)
 
                 # Apply statistical estimator (NaN-safe: off-diagonal c2 values
                 # can be NaN for failed measurement points)
@@ -695,16 +601,12 @@ class PreprocessingPipeline:
                     c2_corrected[i, i] = np.nanmean(neighbors_arr)
                 elif estimator == "trimmed_mean":
                     trim_fraction = config.get("trim_fraction", 0.2)
-                    if HAS_SCIPY:
-                        # Filter NaN before trim_mean (scipy has no NaN-safe variant)
-                        finite_neighbors = neighbors_arr[np.isfinite(neighbors_arr)]
-                        if finite_neighbors.size > 0:
-                            c2_corrected[i, i] = stats.trim_mean(finite_neighbors, trim_fraction)
-                        else:
-                            c2_corrected[i, i] = np.nan
+                    # Filter NaN before trim_mean (scipy has no NaN-safe variant)
+                    finite_neighbors = neighbors_arr[np.isfinite(neighbors_arr)]
+                    if finite_neighbors.size > 0:
+                        c2_corrected[i, i] = stats.trim_mean(finite_neighbors, trim_fraction)
                     else:
-                        # Fallback to median
-                        c2_corrected[i, i] = np.nanmedian(neighbors_arr)
+                        c2_corrected[i, i] = np.nan
                 else:
                     logger.warning(f"Unknown estimator: {estimator}, using median")
                     c2_corrected[i, i] = np.nanmedian(neighbors_arr)
@@ -909,80 +811,60 @@ class PreprocessingPipeline:
         if method == NoiseReductionMethod.MEDIAN:
             # Median filtering
             kernel_size = config.get("kernel_size", 3)
-            if HAS_SCIPY:
-                for i in range(len(c2_exp)):
-                    denoised_data["c2_exp"][i] = median_filter(
-                        c2_exp[i],
-                        size=kernel_size,
-                    )
-            else:
-                logger.warning("Scipy not available for median filtering, skipping")
-                return data
+            for i in range(len(c2_exp)):
+                denoised_data["c2_exp"][i] = median_filter(
+                    c2_exp[i],
+                    size=kernel_size,
+                )
 
         elif method == NoiseReductionMethod.GAUSSIAN:
             # Gaussian smoothing
             sigma = config.get("sigma", 1.0)
-            if HAS_SCIPY:
-                for i in range(len(c2_exp)):
-                    denoised_data["c2_exp"][i] = gaussian_filter(c2_exp[i], sigma=sigma)
-            else:
-                logger.warning("Scipy not available for gaussian filtering, skipping")
-                return data
+            for i in range(len(c2_exp)):
+                denoised_data["c2_exp"][i] = gaussian_filter(c2_exp[i], sigma=sigma)
 
         elif method == NoiseReductionMethod.WIENER:
             # Wiener filtering
-            if HAS_SCIPY:
-                noise_variance = config.get("noise_variance", None)
-                for i in range(len(c2_exp)):
-                    # Apply Wiener filter
-                    denoised_data["c2_exp"][i] = signal.wiener(
-                        c2_exp[i],
-                        noise=noise_variance,
-                    )
-            else:
-                logger.warning(
-                    "Scipy not available for Wiener filtering, falling back to gaussian",
+            noise_variance = config.get("noise_variance", None)
+            for i in range(len(c2_exp)):
+                # Apply Wiener filter
+                denoised_data["c2_exp"][i] = signal.wiener(
+                    c2_exp[i],
+                    noise=noise_variance,
                 )
-                return self._reduce_noise(data, {**config, "method": "gaussian"})
 
         elif method == NoiseReductionMethod.SAVGOL:
             # Savitzky-Golay filtering
-            if HAS_SCIPY:
-                window_length = config.get("window_length", 5)
-                polyorder = config.get("polyorder", 2)
+            window_length = config.get("window_length", 5)
+            polyorder = config.get("polyorder", 2)
 
-                for i in range(len(c2_exp)):
-                    c2_matrix = c2_exp[i]
-                    # Apply along each row and column
-                    filtered_matrix = c2_matrix.copy()
+            for i in range(len(c2_exp)):
+                c2_matrix = c2_exp[i]
+                # Apply along each row and column
+                filtered_matrix = c2_matrix.copy()
 
-                    # Filter rows. scipy.signal.savgol_filter accepts
-                    # window_length == len(x); a strict ">" excluded that
-                    # valid boundary and silently skipped smoothing for a
-                    # row/column exactly as long as the configured window.
-                    for row in range(c2_matrix.shape[0]):
-                        if c2_matrix.shape[1] >= window_length:
-                            filtered_matrix[row, :] = signal.savgol_filter(
-                                c2_matrix[row, :],
-                                window_length,
-                                polyorder,
-                            )
+                # Filter rows. scipy.signal.savgol_filter accepts
+                # window_length == len(x); a strict ">" excluded that
+                # valid boundary and silently skipped smoothing for a
+                # row/column exactly as long as the configured window.
+                for row in range(c2_matrix.shape[0]):
+                    if c2_matrix.shape[1] >= window_length:
+                        filtered_matrix[row, :] = signal.savgol_filter(
+                            c2_matrix[row, :],
+                            window_length,
+                            polyorder,
+                        )
 
-                    # Filter columns
-                    for col in range(c2_matrix.shape[1]):
-                        if c2_matrix.shape[0] >= window_length:
-                            filtered_matrix[:, col] = signal.savgol_filter(
-                                filtered_matrix[:, col],
-                                window_length,
-                                polyorder,
-                            )
+                # Filter columns
+                for col in range(c2_matrix.shape[1]):
+                    if c2_matrix.shape[0] >= window_length:
+                        filtered_matrix[:, col] = signal.savgol_filter(
+                            filtered_matrix[:, col],
+                            window_length,
+                            polyorder,
+                        )
 
-                    denoised_data["c2_exp"][i] = filtered_matrix
-            else:
-                logger.warning(
-                    "Scipy not available for Savitzky-Golay filtering, falling back to median",
-                )
-                return self._reduce_noise(data, {**config, "method": "median"})
+                denoised_data["c2_exp"][i] = filtered_matrix
 
         return denoised_data
 

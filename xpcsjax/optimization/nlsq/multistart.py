@@ -646,8 +646,7 @@ def include_custom_starts(
     logger.info(f"Including {len(custom_array)} custom starting point(s)")
 
     # Prepend custom starts so they're always included
-    combined = np.vstack([custom_array, generated_starts])
-    return combined
+    return np.vstack([custom_array, generated_starts])
 
 
 # =============================================================================
@@ -1205,6 +1204,51 @@ def _pool_worker_init_concurrency(n_workers: int) -> None:
     set_fit_concurrency_env(n_workers)
 
 
+def _run_start_safely(
+    idx: int,
+    start: NDArray[np.float64],
+    optimize_func: Callable[[int, NDArray[np.float64]], SingleStartResult],
+    progress: MultiStartProgressTracker,
+) -> SingleStartResult:
+    """Run one start, update ``progress``, and never raise.
+
+    Shared by the sequential branch of :func:`_run_full_strategy` and the
+    sequential-fallback branch of :func:`_run_parallel_with_progress` (used to
+    be two copies of this try/except/progress-update block). On
+    ``ValueError``/``RuntimeError``/``OSError`` synthesizes a failed
+    :class:`SingleStartResult` (``chi_squared=inf``, ``success=False``) rather
+    than propagating, so one bad start never aborts the rest of the multistart
+    sweep.
+    """
+    try:
+        result = optimize_func(idx, start)
+        progress.update(
+            start_idx=idx,
+            success=result.success,
+            chi_squared=result.chi_squared,
+            message=result.message,
+            wall_time=result.wall_time,
+        )
+        return result
+    except (ValueError, RuntimeError, OSError) as e:
+        logger.debug(f"Optimization {idx + 1} raised exception: {e}")
+        failed_result = SingleStartResult(
+            start_idx=idx,
+            initial_params=start,
+            final_params=start,
+            chi_squared=np.inf,
+            success=False,
+            message=str(e),
+        )
+        progress.update(
+            start_idx=idx,
+            success=False,
+            chi_squared=np.inf,
+            message=str(e),
+        )
+        return failed_result
+
+
 def _run_full_strategy(
     data: dict[str, Any],
     starts: NDArray[np.float64],
@@ -1269,33 +1313,7 @@ def _run_full_strategy(
         ) as progress:
             for idx, start in enumerate(starts):
                 logger.debug(f"Starting optimization {idx + 1}/{n_starts}")
-                try:
-                    result = worker(idx, start)
-                    results.append(result)
-                    progress.update(
-                        start_idx=idx,
-                        success=result.success,
-                        chi_squared=result.chi_squared,
-                        message=result.message,
-                        wall_time=result.wall_time,
-                    )
-                except (ValueError, RuntimeError, OSError) as e:
-                    logger.debug(f"Optimization {idx + 1} raised exception: {e}")
-                    failed_result = SingleStartResult(
-                        start_idx=idx,
-                        initial_params=start,
-                        final_params=start,
-                        chi_squared=np.inf,
-                        success=False,
-                        message=str(e),
-                    )
-                    results.append(failed_result)
-                    progress.update(
-                        start_idx=idx,
-                        success=False,
-                        chi_squared=np.inf,
-                        message=str(e),
-                    )
+                results.append(_run_start_safely(idx, start, worker, progress))
         return results
 
     # Parallel mode - progress bar updated as results complete
@@ -1305,9 +1323,7 @@ def _run_full_strategy(
         enable_progress_bar=enable_progress_bar,
         verbose=verbose,
     ) as progress:
-        results = _run_parallel_with_progress(worker, starts, n_workers, progress)
-
-    return results
+        return _run_parallel_with_progress(worker, starts, n_workers, progress)
 
 
 def _run_parallel_with_progress(
@@ -1424,25 +1440,24 @@ def _run_parallel_with_progress(
                     # starts launch (see timeout branch above).
                     executor.shutdown(wait=False, cancel_futures=True)
                     break
-                else:
-                    # Non-fatal error for this worker
-                    logger.warning(f"Worker {idx} failed: {e}")
-                    failed_result = SingleStartResult(
-                        start_idx=idx,
-                        initial_params=starts[idx],
-                        final_params=starts[idx],
-                        chi_squared=np.inf,
-                        success=False,
-                        message=str(e),
-                    )
-                    results.append(failed_result)
-                    completed_count += 1
-                    progress.update(
-                        start_idx=idx,
-                        success=False,
-                        chi_squared=np.inf,
-                        message=str(e),
-                    )
+                # Non-fatal error for this worker
+                logger.warning(f"Worker {idx} failed: {e}")
+                failed_result = SingleStartResult(
+                    start_idx=idx,
+                    initial_params=starts[idx],
+                    final_params=starts[idx],
+                    chi_squared=np.inf,
+                    success=False,
+                    message=str(e),
+                )
+                results.append(failed_result)
+                completed_count += 1
+                progress.update(
+                    start_idx=idx,
+                    success=False,
+                    chi_squared=np.inf,
+                    message=str(e),
+                )
 
         if not fallback_to_sequential:
             executor.shutdown(wait=True)
@@ -1501,33 +1516,7 @@ def _run_parallel_with_progress(
         )
         for idx, start in remaining:
             logger.debug(f"Starting sequential optimization for start {idx}")
-            try:
-                result = optimize_func(idx, start)
-                results.append(result)
-                progress.update(
-                    start_idx=idx,
-                    success=result.success,
-                    chi_squared=result.chi_squared,
-                    message=result.message,
-                    wall_time=result.wall_time,
-                )
-            except (ValueError, RuntimeError, OSError) as e:
-                logger.debug(f"Sequential optimization {idx + 1} failed: {e}")
-                failed_result = SingleStartResult(
-                    start_idx=idx,
-                    initial_params=start,
-                    final_params=start,
-                    chi_squared=np.inf,
-                    success=False,
-                    message=str(e),
-                )
-                results.append(failed_result)
-                progress.update(
-                    start_idx=idx,
-                    success=False,
-                    chi_squared=np.inf,
-                    message=str(e),
-                )
+            results.append(_run_start_safely(idx, start, optimize_func, progress))
 
     # Sort by start_idx for consistent ordering
     results.sort(key=lambda r: r.start_idx)

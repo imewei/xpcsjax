@@ -24,7 +24,7 @@ class QueueLogHandler(logging.Handler):
             self._emitter.emit(
                 LogLine(run_id="", seq=0, level=record.levelname, msg=record.getMessage())
             )
-        except Exception:  # noqa: BLE001 — a logging handler must not raise
+        except Exception:
             pass
 
 
@@ -45,8 +45,8 @@ class BannerLogHandler(logging.Handler):
         try:
             from xpcsjax.gui.ipc.diagnostics import classify_banner
 
-            banner = classify_banner(record.levelname, record.getMessage())
+            banner = classify_banner(record.getMessage())
             if banner is not None:
                 self._emitter.emit(banner)
-        except Exception:  # noqa: BLE001 — a logging handler must not raise
+        except Exception:
             pass

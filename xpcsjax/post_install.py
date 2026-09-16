@@ -41,13 +41,13 @@ def detect_shell_type() -> Literal["bash", "zsh", "fish", "unknown"]:
     """
     # Check SHELL environment variable
     shell_path = os.environ.get("SHELL", "")
-    shell_name = os.path.basename(shell_path)
+    shell_name = Path(shell_path).name
 
     if "zsh" in shell_name:
         return "zsh"
-    elif "bash" in shell_name:
+    if "bash" in shell_name:
         return "bash"
-    elif "fish" in shell_name:
+    if "fish" in shell_name:
         return "fish"
 
     # Fallback: check parent process name
@@ -59,9 +59,9 @@ def detect_shell_type() -> Literal["bash", "zsh", "fish", "unknown"]:
             pname = parent.name().lower()
             if "zsh" in pname:
                 return "zsh"
-            elif "bash" in pname:
+            if "bash" in pname:
                 return "bash"
-            elif "fish" in pname:
+            if "fish" in pname:
                 return "fish"
     except (ImportError, OSError, AttributeError):
         pass
@@ -327,12 +327,11 @@ def install_shell_completion(
 
     if detected_shell == "zsh":
         return install_zsh_completion(venv_path, verbose)
-    elif detected_shell == "fish":
+    if detected_shell == "fish":
         if verbose:
             print("Shell completion is not provided for fish (bash/zsh only); skipping.")
         return True
-    else:
-        return install_bash_completion(venv_path, verbose)
+    return install_bash_completion(venv_path, verbose)
 
 
 def install_completion_activation(
@@ -370,10 +369,9 @@ def install_completion_activation(
 
     if detected_shell in ("bash", "zsh", "unknown"):
         return _install_completion_bash_activation(venv_path, verbose)
-    elif detected_shell == "fish":
+    if detected_shell == "fish":
         return True
-    else:
-        return False
+    return False
 
 
 def _install_completion_bash_activation(
@@ -529,10 +527,9 @@ def install_xla_activation(
 
     if detected_shell in ("bash", "zsh", "unknown"):
         return _install_xla_bash_activation(venv_path, verbose)
-    elif detected_shell == "fish":
+    if detected_shell == "fish":
         return _install_xla_fish_activation(venv_path, verbose)
-    else:
-        return False
+    return False
 
 
 def _install_xla_bash_activation(

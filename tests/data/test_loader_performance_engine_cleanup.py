@@ -1,18 +1,16 @@
-"""Regression test: XPCSDataLoader must not leak its PerformanceEngine's
-monitoring thread.
+"""Regression test: XPCSDataLoader.close() must shut down its memory_manager.
 
-Both PerformanceEngine.shutdown() and AdvancedMemoryManager.shutdown() were
-already fully implemented (thread join, executor shutdown, cache/mmap
-cleanup) but nothing on XPCSDataLoader ever called them, so every loader
-built with the (default-on) performance engine enabled left its
-"PerformanceMonitoring" daemon thread running for the life of the process —
-and everything it transitively kept alive (cache, worker pools, h5py
-handles) along with it.
+``xpcsjax.data.performance_engine`` (and the loader's ``performance_engine``
+attribute, always ``None`` in production) was removed in the 2026-09-15
+review (finding B1) — it had zero production callers. The memory_manager
+shutdown contract these tests originally shared a file with is real and
+stays covered here.
 """
 
 from __future__ import annotations
 
-from xpcsjax.data.performance_engine import PerformanceEngine
+from unittest.mock import MagicMock
+
 from xpcsjax.data.xpcs_loader import XPCSDataLoader
 
 
@@ -21,24 +19,8 @@ def _bare_loader() -> XPCSDataLoader:
     return XPCSDataLoader.__new__(XPCSDataLoader)
 
 
-def test_close_stops_performance_engine_monitoring_thread():
-    loader = _bare_loader()
-    loader.performance_engine = PerformanceEngine({})
-    loader.memory_manager = None
-
-    monitoring_thread = loader.performance_engine._monitoring_thread
-    assert monitoring_thread is not None
-    assert monitoring_thread.is_alive()
-
-    loader.close()
-
-    assert not monitoring_thread.is_alive()
-    assert loader.performance_engine is None
-
-
 def test_close_is_idempotent_and_safe_with_no_components():
     loader = _bare_loader()
-    loader.performance_engine = None
     loader.memory_manager = None
 
     loader.close()
@@ -47,24 +29,17 @@ def test_close_is_idempotent_and_safe_with_no_components():
 
 def test_context_manager_closes_on_exit():
     loader = _bare_loader()
-    loader.performance_engine = PerformanceEngine({})
-    loader.memory_manager = None
-    monitoring_thread = loader.performance_engine._monitoring_thread
+    mm = MagicMock()
+    loader.memory_manager = mm
 
     with loader:
-        assert monitoring_thread.is_alive()
+        mm.shutdown.assert_not_called()
 
-    assert not monitoring_thread.is_alive()
+    mm.shutdown.assert_called_once()
 
 
 def test_close_calls_memory_manager_shutdown():
-    """The memory_manager.shutdown() branch — untested when every other
-    test in this file sets memory_manager=None.
-    """
-    from unittest.mock import MagicMock
-
     loader = _bare_loader()
-    loader.performance_engine = None
     mm = MagicMock()
     loader.memory_manager = mm
 
@@ -72,3 +47,9 @@ def test_close_calls_memory_manager_shutdown():
 
     mm.shutdown.assert_called_once()
     assert loader.memory_manager is None
+
+
+def test_performance_engine_attribute_no_longer_exists():
+    """B1: the attribute (always None) was removed along with the module."""
+    loader = _bare_loader()
+    assert not hasattr(loader, "performance_engine")

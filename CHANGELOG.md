@@ -29,6 +29,27 @@ the rendered documentation.
 
 ### Changed
 
+- **`xpcsjax.cli.config_template.validate_config` renamed to
+  `validate_config_file` and returns a `ValidationReport`** (was a `bool`
+  that also printed). Printing now happens only in the `config_generator`
+  command layer; `xpcsjax.service.config.validate_config(dict)` is
+  unchanged. (codebase review item F2)
+
+- **GUI: cancelling a fit no longer blocks the UI thread.**
+  (`xpcsjax/gui/ipc/handle.py`, `controllers/fit_queue.py`, item A10)
+  `WorkerHandle.cancel()` signals the worker and drives the
+  join → SIGKILL escalation from a `QTimer` (poll 250 ms, escalate 5 s, give
+  up 7 s), emitting `reaped`; the previous fully synchronous sequence
+  (up to ~9 s per worker) survives only for the atexit/close-event path,
+  where no event loop runs. Cancelling a worker that has just exited still
+  reaps it and emits `reaped`.
+
+- **Heterodyne config classes renamed** `ParameterManager` →
+  `HeterodyneParameterManager`, `ParameterSpace` →
+  `HeterodyneParameterSpace`, `ValidationResult` →
+  `HeterodyneValidationResult` (`xpcsjax/config/heterodyne_*.py`, item F1).
+  The old bare names remain importable as aliases for one release.
+
 - **Retired the "xpcsjax is NLSQ-only; Bayesian sampling is permanently out of
   scope; use the upstream `homodyne` package" scope statement.** Removed from
   the four config templates, the `xpcsjax --help` / `xpcsjax-config` text, the
@@ -37,7 +58,114 @@ the rendered documentation.
   message now reads `Unsupported optimization method: ...; only 'nlsq' is
   implemented.`).
 
+- **`repair_nan_values` (quality control) now defaults to `False`.**
+  (`xpcsjax/data/quality_controller.py`) Median-filling non-finite `c2_exp`
+  values reaches the fit indistinguishable from measured data; it must now
+  be enabled explicitly via `quality_control.repair_nan_values: true`. When
+  enabled, each repair now logs at WARNING with the count of values
+  replaced, instead of being silent at DEBUG. None of the four shipped
+  config templates set this key, so they all pick up the new default. Also
+  removed `_repair_scaling_issues` (and its `repair_scaling_issues` config
+  field) entirely: its mean-based heuristic divided/multiplied the whole
+  `c2_exp` stack by 10/100, which its own comment already documented as
+  capable of corrupting valid raw-count data — no safe setting existed.
+
+- **Non-finite floats (`NaN`/`+-Inf`) in persisted JSON now always encode as
+  `null`, never the strings `"Infinity"`/`"-Infinity"`.** (`xpcsjax/io/json_utils.py`)
+  `io.json_safe`/`json_serializer` previously encoded `+-Inf` as those strings
+  while `service.persist` (a separate, now-deleted copy of the same sanitizer)
+  encoded both `NaN` and `+-Inf` as `null` — so a diverged/degenerate fit's
+  `nlsq_result.json` (via persist) and its `parameters.json`/
+  `analysis_results_nlsq.json`/`convergence_metrics.json` siblings (via
+  `io.nlsq_writers`, in the same output directory) disagreed on the same
+  value. `io.json_safe` is now the single sanitizer (`service.persist`
+  delegates to it); any downstream JSON reader that special-cased the
+  `"Infinity"` string convention should treat `null` as the non-finite
+  sentinel for both NaN and +-Inf.
+
+- **`core/` and `config/` dead-code and duplication cleanup (codebase review,
+  no numerical or CLI-facing behavior change unless noted).** Removed
+  unreachable `except ImportError` shims for in-package/hard-dependency
+  modules (`config/parameter_manager.py`'s physics-validator fallback and its
+  dead `_validate_physical_constraints_fallback`, `config/manager.py`'s
+  logging fallback, `core/diagonal_correction.py`'s JAX/scipy shims,
+  `core/physics_factors.py`'s `jnp = np` fallback) and dead diagnostics
+  (`core/jax_backend.py`'s always-zero `_fallback_stats`). Consolidated the
+  homodyne/heterodyne physics-validator machinery
+  (`ConstraintSeverity`/`PhysicsViolation`/`ConstraintRule`/severity-priority
+  ordering/the non-finite predicate) into a new shared
+  `config/physics_validation_base.py`; the two sibling modules keep their own
+  constraint tables and differing defaults. Added
+  `AnalysisMode.try_parse()` (non-raising sibling of `.parse()`) and a
+  `config/types.py::dict_section()` helper, replacing ~10 independently
+  reimplemented mode-string / config-section-normalization sites across
+  `config/manager.py`, `config/parameter_manager.py`, `core/models.py`,
+  `core/homodyne_model.py`. Extracted `ConfigManager._load_scaling_values`
+  / `_filter_active_parameters` / `_drop_fixed_parameters` from
+  `get_initial_parameters`, and `heterodyne_parameter_space.py::_validate_tie`
+  from `_apply_tied_parameters`'s per-tie loop, to reduce cyclomatic
+  complexity; both keep every prior code path and error/warning message
+  string identical. Renamed the heterodyne-specific
+  `ParameterManager`/`ParameterSpace`/`ValidationResult` classes (which share
+  a name but not a contract with their homodyne counterparts) to
+  `HeterodyneParameterManager`/`HeterodyneParameterSpace`/
+  `HeterodyneValidationResult`, keeping the old names as module-level aliases
+  for one release. One small behavior change:
+  `heterodyne_parameter_space.py`'s `parameter_space` section lookup
+  (previously a bare `config_dict.get("parameter_space") or {}` with no
+  type guard) now goes through `dict_section()`, so a wrong-type
+  `parameter_space` value logs a warning and degrades to `{}` instead of
+  raising `AttributeError` on the first `.get()` call downstream.
+
+### Removed
+
+- **`xpcsjax/data/performance_engine.py` (`PerformanceEngine`,
+  `AdaptiveChunker`, `MultiLevelCache`, `MemoryMapManager`) — never
+  constructed anywhere in the package.** Also removed the dead `MemoryPool`
+  class and unused `AdvancedMemoryManager` methods, and the
+  `quality_control.repair_scaling_issues` and
+  `performance.performance_engine_enabled` config keys that gated the
+  deleted code; the only remaining knob under `performance` is
+  `memory_pressure_monitoring`.
+
 ### Fixed
+
+- **APS-U loader no longer mislabels data after a bad bin index.**
+  (`xpcsjax/data/hdf5_readers.py`, codebase review 2026-09-15 item A1) An
+  out-of-range correlation-matrix bin index used to skip the matrix but not
+  its `(q, phi)` pair, so every later matrix carried the next pair's labels,
+  and the follow-up count mismatch truncated on a warning. Both now raise
+  `XPCSDataFormatError` (the APS-old reader already did).
+
+- **NPZ cache is keyed to its source HDF5 file; a changed source is a cache
+  miss, not an error.** (`xpcsjax/data/npz_cache.py`, `xpcs_loader.py`;
+  items A2 + review follow-up) `cache_metadata` now records
+  `source_file`/`source_size`/`source_mtime_ns`. A name or size mismatch
+  raises `CacheStaleError` internally, which the loader turns into a WARNING,
+  an HDF5 re-read and a cache rewrite; an mtime-only mismatch (a
+  content-preserving `cp`/`rsync`/restore) warns and serves the cache.
+  Caches written before this release lack the keys and are served with a
+  warning. A cache reused as the `data_file_name` (`.npz` override) is not
+  validated against itself.
+
+- **CLI `--initial-*` overrides can no longer be silently dropped.**
+  (`xpcsjax/cli/config_handling.py`, item A11) When the active-parameter
+  resolver fails, the CLI raises `ValueError("cannot apply --initial-*
+  overrides ...")` instead of warning and running the fit on the YAML values
+  the user overrode.
+
+- **L3's CV penalty is now differentiable at uniform per-angle groups (and
+  L2's gradient sees live L5 shear weights).**
+  (`xpcsjax/optimization/nlsq/adaptive_regularization.py`,
+  `strategies/hybrid_streaming.py`) The L3 CV² regularizer went through
+  `jnp.std`, whose gradient is `0/0 = NaN` for a uniform per-angle group —
+  every group is uniform at the quantile-seeded x0, so that block's gradient
+  was NaN from the first L-BFGS step and those parameters never moved on the
+  streaming L2 path. CV² is now `var/mean²` (identical value, smooth
+  gradient). (Also fixed in this release: the jitted `value_and_grad` had
+  captured the shear weighter's weight table as a trace-time constant,
+  freezing the phi0 feedback at iteration 0; the weights are now a traced
+  argument.)
 
 - **Homodyne (`static_*` / `laminar_flow`) uncertainties follow the same
   one-rule covariance contract as heterodyne; three Critical audit findings
@@ -145,6 +273,23 @@ the rendered documentation.
   full-budget) uncertainties therefore now report NaN with the flag set;
   parameters are unaffected. The plain adapter-returned-no-covariance fallback
   keeps its pinv fallback (mirrors laminar's `strategies/stratified_ls.py`).
+- **`NLSQWrapper.fit`'s two out-of-core (`OUT_OF_CORE`, >75% RAM) return
+  paths — the initial strategy decision and the post-stratification
+  recheck — had drifted on `reduced_chi_squared`'s DOF for a static
+  (`static_anisotropic` / `static_isotropic`) analysis mode with an explicit
+  `per_angle_mode: "constant"` token.** The initial branch resolved the token
+  with the plain (non-pinned) resolver, reporting DOF = `n_physical` (3 for a
+  3-physical-parameter fixture); the recheck branch already used
+  `resolve_per_angle_mode_static_pinned`, which pins static modes to the dense
+  `individual` layout regardless of the requested token, reporting
+  DOF = `n_physical + 2*n_phi` (13 for `n_phi=5`) for the identical dense
+  `popt`. Both branches are now one function
+  (`wrapper_out_of_core_route.run_out_of_core_route`) using the pinned
+  resolver, so this can't drift again; the initial branch's DOF for this case
+  moves from 3 to 13 (the bug), matching the recheck branch's pre-existing
+  (correct) value. Also re-raises `MemoryError` from the >=1 M stratified-LS
+  route instead of falling through to the dense in-memory `curve_fit_large`
+  path, which needs strictly *more* memory than the route that just OOM'd.
 
 ## [0.1.7] - 2026-09-04
 

@@ -10,7 +10,7 @@ def _recording_callback():
 
     def cb(iteration, cost, params, info=None, **kwargs):
         seen.append((int(iteration), np.asarray(params, dtype=np.float64).copy()))
-        return None
+        return
 
     return cb, seen
 

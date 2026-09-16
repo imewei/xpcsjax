@@ -511,9 +511,8 @@ def execute_optimization_with_fallback(
                     "Recovery actions" in str(e) or "Suggestions" in str(e)
                 ):
                     raise
-                else:
-                    raise RuntimeError(
-                        f"Optimization failed with all strategies: {[s.value for s in strategy_attempts]}"
-                    ) from e
+                raise RuntimeError(
+                    f"Optimization failed with all strategies: {[s.value for s in strategy_attempts]}"
+                ) from e
 
     return popt, pcov, info, recovery_actions, convergence_status

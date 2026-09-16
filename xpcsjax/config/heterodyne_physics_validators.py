@@ -26,52 +26,40 @@ xpcsjax.config.physics_validators : Sibling validators for the homodyne models.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+from xpcsjax.config.physics_validation_base import (
+    SEVERITY_PRIORITY,
+    ConstraintRule,
+    ConstraintSeverity,
+)
+from xpcsjax.config.physics_validation_base import PhysicsViolation as _BasePhysicsViolation
+from xpcsjax.config.physics_validation_base import is_non_finite as _is_non_finite
 
 if TYPE_CHECKING:
     pass
 
 
-class ConstraintSeverity(Enum):
-    """Severity level for physics constraint violations."""
-
-    ERROR = "error"
-    WARNING = "warning"
-    INFO = "info"
-
-
-@dataclass(frozen=True)
-class PhysicsViolation:
+class PhysicsViolation(_BasePhysicsViolation):
     """A single triggered physics constraint violation.
 
-    Attributes
-    ----------
-    parameter : str
-        Name of the offending parameter (or a composite label such as
-        ``"f0+f3"`` for cross-parameter checks).
-    value : float or None
-        The value that triggered the violation.
-    message : str
-        Human-readable explanation, typically including the value.
-    severity : ConstraintSeverity
-        Severity of the violation.
+    Same fields as :class:`~xpcsjax.config.physics_validation_base.PhysicsViolation`
+    (canonical ``.param`` name). ``.parameter`` is kept as a read-only alias for
+    one release for this module's existing external readers.
     """
 
-    parameter: str
-    value: float | None
-    message: str
-    severity: ConstraintSeverity
+    @property
+    def parameter(self) -> str:
+        """Alias for :attr:`param` (pre-unification field name)."""
+        return self.param
 
 
 @dataclass
-class ValidationResult:
+class HeterodyneValidationResult:
     """Outcome of a parameter validation, partitioned by severity.
 
     Truthy when :attr:`is_valid` is ``True`` (no errors), via
@@ -99,24 +87,12 @@ class ValidationResult:
         return self.is_valid
 
 
-@dataclass(frozen=True)
-class ConstraintRule:
-    """A single physics constraint rule for one parameter.
-
-    Attributes
-    ----------
-    check : collections.abc.Callable
-        Predicate over the parameter value; returns ``True`` when the value
-        violates the rule.
-    message : str
-        Human-readable explanation attached to a triggered violation.
-    severity : ConstraintSeverity
-        Severity assigned to a triggered violation.
-    """
-
-    check: Callable[[float], bool]
-    message: str
-    severity: ConstraintSeverity
+# Back-compat alias (pre-unification name, F1): kept for one release so
+# external readers of ``ValidationResult`` (a name collision with homodyne's
+# distinct-contract ``core.physics.ValidationResult``) keep working. Every
+# reference below this point uses the old name too, resolved through this
+# alias.
+ValidationResult = HeterodyneValidationResult
 
 
 PHYSICS_CONSTRAINTS: dict[str, list[ConstraintRule]] = {
@@ -199,20 +175,6 @@ PHYSICS_CONSTRAINTS: dict[str, list[ConstraintRule]] = {
 }
 
 
-def _is_non_finite(value: float) -> bool:
-    """Return ``True`` for ``NaN`` / ``±inf``; ``False`` for finite or non-numeric.
-
-    IEEE-754 makes relational comparisons with ``NaN`` return ``False``, so most
-    rules would silently accept it (only the ``f0`` / ``f3`` ``not (0 <= v <= 1)``
-    rules catch it, by accident). This helper lets
-    :func:`validate_single_parameter` flag non-finite values uniformly.
-    """
-    try:
-        return not bool(np.isfinite(value))
-    except (TypeError, ValueError):
-        return False
-
-
 def validate_single_parameter(
     param: str,
     value: float,
@@ -236,12 +198,7 @@ def validate_single_parameter(
     list of PhysicsViolation
         Violations triggered for this parameter, possibly empty.
     """
-    severity_order = {
-        ConstraintSeverity.INFO: 0,
-        ConstraintSeverity.WARNING: 1,
-        ConstraintSeverity.ERROR: 2,
-    }
-    min_level = severity_order[min_severity]
+    min_level = SEVERITY_PRIORITY[min_severity]
 
     violations: list[PhysicsViolation] = []
     rules = PHYSICS_CONSTRAINTS.get(param, [])
@@ -251,10 +208,10 @@ def validate_single_parameter(
     # rules (D_offset_ref, D_offset_sample, v_offset, f2, phi0) — the relational
     # rules below accept NaN silently, since NaN compares False to everything.
     if _is_non_finite(value):
-        if severity_order[ConstraintSeverity.ERROR] >= min_level:
+        if SEVERITY_PRIORITY[ConstraintSeverity.ERROR] >= min_level:
             violations.append(
                 PhysicsViolation(
-                    parameter=param,
+                    param=param,
                     value=value,
                     message=f"{param}={value:.3e}: non-finite value "
                     "(NaN or infinity is physically impossible)",
@@ -264,12 +221,12 @@ def validate_single_parameter(
         return violations
 
     for rule in rules:
-        if severity_order[rule.severity] < min_level:
+        if SEVERITY_PRIORITY[rule.severity] < min_level:
             continue
-        if rule.check(value):
+        if rule.condition(value):
             violations.append(
                 PhysicsViolation(
-                    parameter=param,
+                    param=param,
                     value=value,
                     message=f"{param}={value:.3e}: {rule.message}",
                     severity=rule.severity,
@@ -308,21 +265,16 @@ def validate_cross_parameter_constraints(
     - ``v0 <= 0`` (``info``): the two-component model expects a positive
       velocity.
     """
-    severity_order = {
-        ConstraintSeverity.INFO: 0,
-        ConstraintSeverity.WARNING: 1,
-        ConstraintSeverity.ERROR: 2,
-    }
-    min_level = severity_order[min_severity]
+    min_level = SEVERITY_PRIORITY[min_severity]
     violations: list[PhysicsViolation] = []
 
     # f0 + f3 > 1
     if "f0" in params and "f3" in params:
         total = params["f0"] + params["f3"]
-        if total > 1.0 and severity_order[ConstraintSeverity.ERROR] >= min_level:
+        if total > 1.0 and SEVERITY_PRIORITY[ConstraintSeverity.ERROR] >= min_level:
             violations.append(
                 PhysicsViolation(
-                    parameter="f0+f3",
+                    param="f0+f3",
                     value=total,
                     message=f"f0 + f3 = {total:.3f} > 1; total fraction exceeds unity",
                     severity=ConstraintSeverity.ERROR,
@@ -332,10 +284,10 @@ def validate_cross_parameter_constraints(
     # D_offset_ref / D0_ref ratio
     if "D_offset_ref" in params and "D0_ref" in params and params["D0_ref"] > 0:
         ratio = params["D_offset_ref"] / params["D0_ref"]
-        if abs(ratio) > 0.5 and severity_order[ConstraintSeverity.WARNING] >= min_level:
+        if abs(ratio) > 0.5 and SEVERITY_PRIORITY[ConstraintSeverity.WARNING] >= min_level:
             violations.append(
                 PhysicsViolation(
-                    parameter="D_offset_ref/D0_ref",
+                    param="D_offset_ref/D0_ref",
                     value=ratio,
                     message=f"|D_offset_ref/D0_ref| = {abs(ratio):.3f} > 0.5; offset dominates diffusion",
                     severity=ConstraintSeverity.WARNING,
@@ -345,10 +297,10 @@ def validate_cross_parameter_constraints(
     # D_offset_sample / D0_sample ratio
     if "D_offset_sample" in params and "D0_sample" in params and params["D0_sample"] > 0:
         ratio = params["D_offset_sample"] / params["D0_sample"]
-        if abs(ratio) > 0.5 and severity_order[ConstraintSeverity.WARNING] >= min_level:
+        if abs(ratio) > 0.5 and SEVERITY_PRIORITY[ConstraintSeverity.WARNING] >= min_level:
             violations.append(
                 PhysicsViolation(
-                    parameter="D_offset_sample/D0_sample",
+                    param="D_offset_sample/D0_sample",
                     value=ratio,
                     message=f"|D_offset_sample/D0_sample| = {abs(ratio):.3f} > 0.5; offset dominates diffusion",
                     severity=ConstraintSeverity.WARNING,
@@ -359,11 +311,11 @@ def validate_cross_parameter_constraints(
     if (
         "v0" in params
         and params["v0"] <= 0
-        and severity_order[ConstraintSeverity.INFO] >= min_level
+        and SEVERITY_PRIORITY[ConstraintSeverity.INFO] >= min_level
     ):
         violations.append(
             PhysicsViolation(
-                parameter="v0",
+                param="v0",
                 value=params["v0"],
                 message=f"v0={params['v0']:.3e} is non-positive; two-component model requires positive velocity",
                 severity=ConstraintSeverity.INFO,

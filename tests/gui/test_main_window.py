@@ -4,10 +4,10 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QObject, Signal  # noqa: E402
-from PySide6.QtGui import QAction, QCloseEvent  # noqa: E402
+from PySide6.QtGui import QAction, QCloseEvent
 
-from xpcsjax.gui.result_loader import ResultSummary  # noqa: E402
+from tests.gui.ipc_fakes import FakeHandle as _FakeHandle
+from xpcsjax.gui.result_loader import ResultSummary
 
 
 def _window(qtbot):
@@ -85,7 +85,10 @@ def test_show_result_renders_summary(qtbot, tmp_path):
     # Simulate a finished run: first set it running (to set _active_run_id), then finish.
     win._queue.run_status_changed.emit(run_id, "running")
     win._queue.run_finished.emit(run_id, str(tmp_path), summary)
-    assert "converged" in win.result_text()
+    # tmp_path has no viz bundle -> load_viz_bundle returns None, but that load
+    # now runs on a QThreadPool worker thread (D10); wait for it to fall back
+    # to the text summary via the queued `reaped`-driven signal.
+    qtbot.waitUntil(lambda: "converged" in win.result_text(), timeout=5000)
     assert "1234.5" in win.result_text() or "D0" in win.result_text()
 
 
@@ -126,29 +129,6 @@ def test_close_event_calls_queue_shutdown(qtbot, monkeypatch):
     monkeypatch.setattr(win._queue, "shutdown", lambda: called.__setitem__("shutdown", True))
     win.closeEvent(QCloseEvent())
     assert called["shutdown"] is True
-
-
-class _FakeHandle(QObject):
-    """Minimal WorkerHandle stand-in: never spawns a real process."""
-
-    event = Signal(object)
-
-    def __init__(self, job):
-        super().__init__()
-        self.job = job
-        self._alive = False
-
-    def start(self):
-        self._alive = True
-
-    def cancel(self):
-        self._alive = False
-
-    def is_running(self):
-        return self._alive
-
-    def shutdown(self):
-        self._alive = False
 
 
 def test_close_project_stops_active_and_pending_runs(qtbot, tmp_path):

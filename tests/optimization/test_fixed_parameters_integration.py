@@ -33,9 +33,7 @@ from xpcsjax.optimization.nlsq.core import fit_nlsq_jax
 # upstream bug (it bounds elements, not the SVD workspace).
 pytestmark = [
     pytest.mark.filterwarnings("ignore:Ill-conditioned Jacobian:UserWarning"),
-    pytest.mark.filterwarnings(
-        "ignore:Could not compute SVD for condition number:UserWarning"
-    ),
+    pytest.mark.filterwarnings("ignore:Could not compute SVD for condition number:UserWarning"),
 ]
 
 TRUE_PHYSICAL_LAMINAR = {
@@ -961,3 +959,64 @@ def test_heterodyne_fixed_scaling_parameter_survives_real_fit():
     assert offset_indices, f"no per-angle offset_i entries in {param_names_offset}"
     for idx in offset_indices:
         assert abs(params_offset[idx] - offset) < 1e-4
+
+
+def test_hybrid_streaming_l5_weight_updates_reach_the_jitted_gradient(monkeypatch):
+    """PR #79 review: the jitted L2 loss/gradient must see live L5 weights.
+
+    ``jax.jit(value_and_grad(loss_fn))`` with the shear weighter's
+    ``_weights_jax`` captured as a closure constant froze the L5 phi0 feedback
+    at iteration 0 (``update_phi0`` rebinds that array every outer iteration,
+    but the compiled gradient kept the trace-time copy) -- and disagreed with
+    the un-jitted ``loss_fn`` handed to ``HierarchicalOptimizer.fit``. The
+    weights are now a traced argument. This drives the two callables the
+    optimizer receives directly: rebinding the weight table must change the
+    gradient, and the jitted value must track the un-jitted loss.
+    """
+    import jax.numpy as jnp
+
+    import xpcsjax.optimization.nlsq.strategies.hybrid_streaming as hybrid_streaming_module
+
+    captured: dict = {}
+    _RealHier = hybrid_streaming_module.HierarchicalOptimizer
+    _RealShearWeighter = hybrid_streaming_module.ShearSensitivityWeighting
+    weighters: list = []
+
+    class _SpyShearWeighter(_RealShearWeighter):  # type: ignore[misc, valid-type]
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            weighters.append(self)
+
+    class _SpyHier(_RealHier):  # type: ignore[misc, valid-type]
+        def fit(self, *, loss_fn, grad_fn, p0, **kwargs):
+            captured["loss_fn"] = loss_fn
+            captured["grad_fn"] = grad_fn
+            res = super().fit(loss_fn=loss_fn, grad_fn=grad_fn, p0=p0, **kwargs)
+            captured["x"] = np.asarray(res.x, dtype=np.float64)  # converged reduced vector
+            return res
+
+    monkeypatch.setattr(hybrid_streaming_module, "ShearSensitivityWeighting", _SpyShearWeighter)
+    monkeypatch.setattr(hybrid_streaming_module, "HierarchicalOptimizer", _SpyHier)
+
+    data, cm = _hybrid_streaming_fake_stratify_and_config(
+        per_angle_mode="individual",
+        monkeypatch=monkeypatch,
+        n_phi=5,
+        fixed_parameters={"phi0": 5.0},
+    )
+    result = fit_nlsq_jax(data, cm, use_adapter=False)
+    assert result.recovery_actions == ["hybrid_streaming_optimizer_method"]
+    assert len(weighters) == 1 and weighters[0].config.enable
+    sw = weighters[0]
+    x = captured["x"]
+
+    g_before = np.asarray(captured["grad_fn"](x))
+    loss_before = float(captured["loss_fn"](x))
+    # Rebind the weight table exactly as update_phi0 does (a NEW array).
+    sw._weights_jax = sw._weights_jax * jnp.linspace(0.2, 5.0, sw._weights_jax.shape[0])
+    g_after = np.asarray(captured["grad_fn"](x))
+    loss_after = float(captured["loss_fn"](x))
+
+    assert np.all(np.isfinite(g_before)) and np.all(np.isfinite(g_after))
+    assert not np.allclose(g_before, g_after), "jitted gradient ignored the rebound L5 weights"
+    assert loss_after != pytest.approx(loss_before)

@@ -13,8 +13,11 @@ from xpcsjax.config.heterodyne_parameter_names import (
     ALL_PARAM_NAMES_WITH_SCALING,
     SCALING_PARAMS,
 )
-from xpcsjax.config.heterodyne_parameter_space import ParameterSpace, registry_info
-from xpcsjax.config.heterodyne_physics_validators import ValidationResult, validate_parameters
+from xpcsjax.config.heterodyne_parameter_space import HeterodyneParameterSpace, registry_info
+from xpcsjax.config.heterodyne_physics_validators import (
+    HeterodyneValidationResult,
+    validate_parameters,
+)
 from xpcsjax.config.types import BoundDict
 from xpcsjax.utils.logging import get_logger
 
@@ -25,7 +28,7 @@ logger = get_logger(__name__)
 
 
 @dataclass
-class ParameterManager:
+class HeterodyneParameterManager:
     """Manage heterodyne parameter values, constraints, and transformations.
 
     Provides the bridge between configuration and optimization by:
@@ -41,7 +44,7 @@ class ParameterManager:
     default for repeated bound and active-parameter queries.
     """
 
-    space: ParameterSpace = field(default_factory=ParameterSpace)
+    space: HeterodyneParameterSpace = field(default_factory=HeterodyneParameterSpace)
 
     # Performance caching — populated lazily via __post_init__
     _bounds_cache: dict[tuple[str, ...], list[BoundDict]] = field(
@@ -543,7 +546,7 @@ class ParameterManager:
         ParameterManager
             Configured manager wrapping a ParameterSpace built from ``config``.
         """
-        space = ParameterSpace.from_config(config)
+        space = HeterodyneParameterSpace.from_config(config)
         if space.n_varying == 0:
             raise ValueError(
                 "Nothing left to optimize: active_parameters/fixed_parameters "
@@ -756,7 +759,7 @@ class ParameterManager:
         self,
         params: dict[str, float] | np.ndarray | None = None,
         severity_level: str = "warning",
-    ) -> ValidationResult:
+    ) -> HeterodyneValidationResult:
         """Validate physics-based constraints beyond simple bound checking.
 
         Checks for physically impossible or unusual parameter combinations
@@ -794,7 +797,7 @@ class ParameterManager:
 
         if severity_level == "error":
             # Suppress warnings, keep only errors
-            return ValidationResult(
+            return HeterodyneValidationResult(
                 is_valid=len(result.errors) == 0,
                 errors=result.errors,
                 warnings=[],
@@ -819,3 +822,10 @@ class ParameterManager:
             f"scaling_varying={n_varying_scaling}, "
             f"total={self.get_total_parameter_count()})"
         )
+
+
+# Back-compat alias (pre-unification name, F1): kept for one release so
+# external readers of ``ParameterManager`` (a name collision with homodyne's
+# distinct-contract ``config.parameter_manager.ParameterManager``) keep
+# working.
+ParameterManager = HeterodyneParameterManager

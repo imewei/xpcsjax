@@ -4,6 +4,7 @@ This module provides helper functions for JSON serialization of numpy arrays
 and other complex objects.
 """
 
+import datetime
 import math
 from pathlib import Path
 from typing import Any
@@ -16,16 +17,18 @@ import numpy as np
 _JSON_ARRAY_SIZE_LIMIT = 1_000
 
 
-def _sanitize_float(v: float) -> float | str | None:
+def _sanitize_float(v: float) -> float | None:
     """Convert non-finite floats to JSON-safe representations.
 
-    JSON spec does not support NaN, Inf, or -Inf. These are converted to
-    None (NaN) or string representations (Inf/-Inf) to prevent json.dump crashes.
+    JSON spec does not support NaN, Inf, or -Inf. Both are converted to
+    ``None`` -- a single convention shared with ``service.persist``, so a
+    diverged fit reads the same (``null``) whether it was written by the CLI
+    or the GUI worker. (A prior version encoded +-inf as the strings
+    "Infinity"/"-Infinity", which is not a JSON number and disagreed with
+    persist's None convention for the same case.)
     """
-    if math.isnan(v):
+    if math.isnan(v) or math.isinf(v):
         return None
-    if math.isinf(v):
-        return "Infinity" if v > 0 else "-Infinity"
     return v
 
 
@@ -57,18 +60,19 @@ def json_safe(value: Any) -> Any:
             (k.item() if isinstance(k, (np.integer, np.floating, np.bool_)) else k): json_safe(v)
             for k, v in value.items()
         }
-    elif isinstance(value, (list, tuple)):
-        # Same OOM guard as the ndarray branch below: a plain list/tuple can
+    if isinstance(value, (list, tuple, set)):
+        # Same OOM guard as the ndarray branch below: a plain list/tuple/set can
         # arrive already-`.tolist()`'d (e.g. from an upstream caller), which
-        # would otherwise bypass the size limit entirely.
+        # would otherwise bypass the size limit entirely. Sets are accepted so
+        # callers (e.g. service.persist) don't need to convert to list first.
         if len(value) > _JSON_ARRAY_SIZE_LIMIT:
             raise ValueError(
-                f"List/tuple with {len(value)} elements is too large to embed "
+                f"List/tuple/set with {len(value)} elements is too large to embed "
                 f"in JSON (limit {_JSON_ARRAY_SIZE_LIMIT}). Save large arrays as "
                 f"NPZ instead."
             )
         return [json_safe(v) for v in value]
-    elif hasattr(value, "size") and hasattr(value, "tolist") and not np.isscalar(value):
+    if hasattr(value, "size") and hasattr(value, "tolist") and not np.isscalar(value):
         # Covers np.ndarray and other array-likes (e.g. jax.Array) alike —
         # both expose .size/.tolist() and fail np.isscalar(), so a dedicated
         # np.ndarray branch ahead of this one would be pure duplication.
@@ -80,26 +84,25 @@ def json_safe(value: Any) -> Any:
                 f"(limit {_JSON_ARRAY_SIZE_LIMIT}). Save large arrays as NPZ instead."
             )
         return json_safe(value.tolist())
-    elif isinstance(value, (np.integer, np.floating)):
+    if isinstance(value, (np.integer, np.floating)):
         v = value.item()
         if isinstance(v, float):
             return _sanitize_float(v)
         return v
-    elif isinstance(value, (np.bool_,)):
+    if isinstance(value, (np.bool_,)):
         return bool(value)
-    elif isinstance(value, float):
+    if isinstance(value, float):
         return _sanitize_float(value)
-    elif isinstance(value, complex):
+    if isinstance(value, complex):
         # Complex numbers are not JSON-serializable; split into real/imag pair.
         return {"real": _sanitize_float(value.real), "imag": _sanitize_float(value.imag)}
-    elif isinstance(value, Path):
+    if isinstance(value, (Path, datetime.datetime, datetime.date)):
         return str(value)
-    elif hasattr(value, "tolist"):
+    if hasattr(value, "tolist"):
         # Recurse through json_safe so that custom array-like objects whose
         # tolist() returns floats containing NaN/Inf are properly sanitized.
         return json_safe(value.tolist())
-    else:
-        return value
+    return value
 
 
 def json_serializer(obj: Any) -> Any:
@@ -140,26 +143,25 @@ def json_serializer(obj: Any) -> Any:
         # convert to a plain list before json_safe ever sees it as an array,
         # silently bypassing the OOM guard this module exists to enforce.
         return json_safe(obj)
-    elif isinstance(obj, np.integer):
+    if isinstance(obj, np.integer):
         return int(obj)
-    elif isinstance(obj, np.floating):
+    if isinstance(obj, np.floating):
         v = float(obj)
         return _sanitize_float(v)
-    elif isinstance(obj, float):
+    if isinstance(obj, float):
         # Reached only when called directly — not via json.dump default= path
         # (the encoder handles float natively). Sanitize defensively.
         return _sanitize_float(obj)
-    elif isinstance(obj, int):
+    if isinstance(obj, int):
         # Plain int is natively handled by the encoder; if reached directly,
         # return as-is rather than converting to str().
         return obj
-    elif isinstance(obj, (np.bool_,)):
+    if isinstance(obj, (np.bool_,)):
         return bool(obj)
-    elif isinstance(obj, complex):
+    if isinstance(obj, complex):
         return {"real": _sanitize_float(obj.real), "imag": _sanitize_float(obj.imag)}
-    elif hasattr(obj, "tolist"):
+    if hasattr(obj, "tolist"):
         # Same sanitization for other array-like objects (e.g. jax.Array) —
         # pass obj itself so json_safe's array-like size guard applies.
         return json_safe(obj)
-    else:
-        return str(obj)
+    return str(obj)

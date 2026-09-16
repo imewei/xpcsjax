@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
-
 import numpy as np
 
 
@@ -61,17 +59,10 @@ def test_save_npz_none_covariance_uses_documented_shapes(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 # --tolerance must also write gtol so it can relax the gradient-norm criterion
 # (finding #20).
+#
+# The dead `optimization_runner.apply_cli_overrides` this test used to exercise
+# was deleted (audit B8: it had zero production callers -- run_nlsq calls
+# service.fit.run_fit directly). The same ftol/xtol/gtol-together behavior is
+# now covered directly against the service function it actually goes through:
+# see tests/service/test_fit_overrides.py::test_tolerance_relaxes_ftol_xtol_and_gtol_together.
 # ---------------------------------------------------------------------------
-def test_tolerance_override_sets_gtol() -> None:
-    from xpcsjax.cli.optimization_runner import apply_cli_overrides
-    from xpcsjax.config.manager import ConfigManager
-
-    cm = ConfigManager.__new__(ConfigManager)
-    cm.config = {}
-    args = argparse.Namespace(tolerance=1e-6)
-
-    apply_cli_overrides(args, cm)
-    nlsq = cm.config["optimization"]["nlsq"]
-    assert nlsq["ftol"] == 1e-6
-    assert nlsq["xtol"] == 1e-6
-    assert nlsq["gtol"] == 1e-6

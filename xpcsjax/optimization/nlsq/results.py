@@ -257,10 +257,9 @@ class OptimizationResult:
         """Human-readable one-line summary of the optimization outcome."""
         if self.convergence_status == "converged":
             return f"Optimization converged successfully. chi2={self.chi_squared:.6f}"
-        elif self.convergence_status == "max_iter":
+        if self.convergence_status == "max_iter":
             return "Optimization stopped: maximum iterations reached"
-        else:
-            return f"Optimization failed: {self.convergence_status}"
+        return f"Optimization failed: {self.convergence_status}"
 
     @property
     def physics_parameters(self) -> np.ndarray:
@@ -336,3 +335,16 @@ class UseSequentialOptimization:
 
     data: Any
     reason: str
+
+
+def quality_flag_from_reduced_chi2(reduced_chi_squared: float) -> QualityFlag:
+    """Map a reduced chi-squared to the ``good``/``marginal``/``poor`` bands.
+
+    Single owner of the ``<1.5`` / ``<3.0`` thresholds, previously copy-pasted
+    at four call sites across ``wrapper.py`` and ``core.py``.
+    """
+    if reduced_chi_squared < 1.5:
+        return "good"
+    if reduced_chi_squared < 3.0:
+        return "marginal"
+    return "poor"

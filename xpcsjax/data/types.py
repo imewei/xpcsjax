@@ -2,9 +2,9 @@
 
 Common dataclasses and type definitions shared across the data module.
 Extracted to prevent circular imports between :mod:`xpcsjax.data.optimization`
-and :mod:`xpcsjax.data.performance_engine`.
+and its consumers.
 
-This module provides foundation types that both modules need without
+This module provides foundation types the data-loading modules need without
 creating import cycles.
 
 The valid ``data_type`` strings recognized across the data layer are

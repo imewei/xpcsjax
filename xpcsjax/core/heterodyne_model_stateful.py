@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import jax.numpy as jnp
 import numpy as np
 
-from xpcsjax.config.heterodyne_parameter_manager import ParameterManager
+from xpcsjax.config.heterodyne_parameter_manager import HeterodyneParameterManager
 from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
 from xpcsjax.core.heterodyne_jax_backend import compute_c2_heterodyne, compute_residuals
 from xpcsjax.core.heterodyne_models import TwoComponentModel
@@ -51,7 +51,7 @@ class HeterodyneModel:
     _model: TwoComponentModel = field(default_factory=TwoComponentModel)
 
     # Parameter management
-    param_manager: ParameterManager = field(default_factory=ParameterManager)
+    param_manager: HeterodyneParameterManager = field(default_factory=HeterodyneParameterManager)
 
     # Physics factors (pre-computed from config)
     _factors: PhysicsFactors | None = field(default=None)
@@ -76,7 +76,7 @@ class HeterodyneModel:
         HeterodyneModel
             A configured model instance.
         """
-        param_manager = ParameterManager.from_config(config)
+        param_manager = HeterodyneParameterManager.from_config(config)
 
         # Read from analyzer_parameters (canonical) with legacy fallback
         # ``or {}``: a present-but-null YAML section (``scattering: null``)

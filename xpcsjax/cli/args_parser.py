@@ -31,9 +31,7 @@ def create_parser() -> argparse.ArgumentParser:
     """Build the xpcsjax CLI argument parser."""
     parser = argparse.ArgumentParser(
         prog="xpcsjax",
-        description=(
-            "xpcsjax — JAX-native NLSQ fitting for homodyne / heterodyne XPCS."
-        ),
+        description=("xpcsjax — JAX-native NLSQ fitting for homodyne / heterodyne XPCS."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -370,27 +368,15 @@ Exit codes:
     # ------------------------------------------------------------------
     # Version
     # ------------------------------------------------------------------
-    _add_version_arg(parser)
+    from xpcsjax import __version__ as _version
 
-    return parser
-
-
-def _add_version_arg(parser: argparse.ArgumentParser) -> None:
-    """Add ``--version`` with a best-effort version resolution."""
-    try:
-        import importlib.metadata as _md
-
-        version = _md.version("xpcsjax")
-    except Exception:  # pragma: no cover — uninstalled / dev tree
-        try:
-            from xpcsjax import __version__ as version
-        except Exception:
-            version = "unknown"
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {version}",
+        version=f"%(prog)s {_version}",
     )
+
+    return parser
 
 
 def validate_args(args: argparse.Namespace) -> list[str]:

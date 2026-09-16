@@ -67,7 +67,7 @@ def test_compute_jacobian_stats_handles_broken_residual() -> None:
     propagating the exception. The diagnostics path is best-effort, not
     fatal — a None return lets the caller fall through to a default."""
 
-    def broken(xdata, *params):  # noqa: ARG001
+    def broken(xdata, *params):
         raise RuntimeError("intentional")
 
     xdata = np.linspace(0.0, 1.0, 5)

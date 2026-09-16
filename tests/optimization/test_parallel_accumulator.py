@@ -30,7 +30,7 @@ def _shm_available() -> bool:
         s.close()
         s.unlink()
         return True
-    except Exception:  # noqa: BLE001 - any failure means SHM is unusable here
+    except Exception:
         return False
 
 

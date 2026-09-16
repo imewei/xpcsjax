@@ -22,7 +22,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from xpcsjax.optimization.nlsq.covariance import gauss_newton_covariance
+from xpcsjax.optimization.nlsq.covariance import (
+    _chunked_jacfwd_dense,
+    gauss_newton_covariance,
+)
 from xpcsjax.optimization.nlsq.heterodyne_memory import (
     NLSQStrategy,
     select_nlsq_strategy,
@@ -40,76 +43,6 @@ if TYPE_CHECKING:
     )
 
 _SHUFFLE_SEED = 42
-
-# Column-block width for the host covariance Jacobian (see _chunked_jacfwd_dense).
-# n_params is small (16 for two_component); 4 blocks of 4 tangents cap the
-# forward-AD tangent width at 4 instead of n_params while staying byte-identical.
-_COV_JACFWD_COL_BLOCK = 4
-
-
-def _chunked_jacfwd_dense(
-    fn: Callable[[np.ndarray], jnp.ndarray],
-    x: np.ndarray,
-    *,
-    col_block: int = _COV_JACFWD_COL_BLOCK,
-) -> np.ndarray:
-    """Column-blocked forward-mode Jacobian, numerically identical to ``jax.jacfwd``.
-
-    ``jax.jacfwd(fn)(x)`` builds the full ``(n_out, n_in)`` Jacobian by pushing
-    all ``n_in`` basis tangents through ``fn`` at once, so every intermediate of
-    ``fn`` is materialised at width ``n_in``. For the heterodyne stratified-LS
-    covariance ``n_out`` is the full support (~23M points) and ``n_in`` is the
-    16-ish joint parameters, so that ``n_in``-wide tangent is the dominant
-    transient — the ~3 GB+ spike that drives the post-solve memory peak.
-
-    Computing the columns in small blocks (each a ``vmap``'d JVP over ``col_block``
-    basis vectors, moved to host and released before the next block) yields the
-    SAME columns — ``jvp`` is exact and column order is preserved — while capping
-    the live tangent width at ``col_block``. The assembled ``J`` (and therefore
-    ``JᵀJ`` and the covariance) is byte-identical to ``jax.jacfwd`` up to XLA
-    fusion noise (≤ ULP); this only affects the post-solve covariance, never the
-    fit trajectory.
-
-    Parameters
-    ----------
-    fn : callable
-        ``params (n_in,) -> residuals (n_out,)`` (the joint residual). May be
-        ``jax.jit``-wrapped.
-    x : np.ndarray
-        Point at which to evaluate the Jacobian (the converged ``popt``).
-    col_block : int, optional
-        Number of parameter columns evaluated per block. Defaults to
-        :data:`_COV_JACFWD_COL_BLOCK`.
-
-    Returns
-    -------
-    np.ndarray, (n_out, n_in) float64
-        The dense Jacobian, matching ``np.asarray(jax.jacfwd(fn)(x))``.
-    """
-    x_jax = jnp.asarray(x, dtype=jnp.float64)
-    n_in = int(x_jax.shape[0])
-    eye = jnp.eye(n_in, dtype=x_jax.dtype)
-
-    def _jvp_col(tangent: jnp.ndarray) -> jnp.ndarray:
-        # jvp(fn, primal, e_j)[1] == d fn / d x_j == column j of the Jacobian.
-        return jax.jvp(fn, (x_jax,), (tangent,))[1]
-
-    jt: np.ndarray | None = None  # (n_in, n_out), filled block by block
-    for c0 in range(0, n_in, max(1, col_block)):
-        tangents = eye[c0 : c0 + max(1, col_block)]  # (b, n_in)
-        # (b, n_out): row r is column (c0 + r) of J. Pull to host and let the
-        # device buffer for this block free before the next block allocates.
-        block_cols = np.asarray(jax.vmap(_jvp_col)(tangents), dtype=np.float64)
-        if jt is None:
-            # Preallocate once (no concatenate copy): at ≥1 M points × tens of
-            # params the dense J is several GB, so a second copy is the peak.
-            jt = np.empty((n_in, block_cols.shape[1]), dtype=np.float64)
-        jt[c0 : c0 + block_cols.shape[0]] = block_cols
-
-    if jt is None:  # n_in == 0
-        return np.empty((0, 0), dtype=np.float64)
-    # (n_in, n_out) -> (n_out, n_in) as a view.
-    return jt.T
 
 
 def reorder_for_stratification(
@@ -1227,9 +1160,7 @@ def fit_heterodyne_stratified_least_squares(
     # A placeholder adapter covariance (singular / absent nlsq pcov, all-NaN +
     # ``covariance_is_placeholder``) is treated like an absent one: fall
     # through to the strict host recompute at popt rather than passing NaN on.
-    _adapter_cov_is_placeholder = bool(
-        (fit.metadata or {}).get("covariance_is_placeholder", False)
-    )
+    _adapter_cov_is_placeholder = bool((fit.metadata or {}).get("covariance_is_placeholder", False))
     _pcov_from_adapter = (
         np.asarray(fit.covariance, dtype=np.float64)
         if (

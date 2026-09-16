@@ -5,19 +5,62 @@ Provides type safety and IDE autocomplete for configuration dictionaries.
 """
 
 import math
+from collections.abc import Mapping
 from typing import Any, Literal, TypedDict
 
 from xpcsjax.config.parameter_registry import AnalysisMode, get_param_names
+from xpcsjax.utils.logging import get_logger
 
 # Closed vocabulary for the (auto-detected, largely vestigial) data_type field.
 DataType = Literal["aps_old", "aps_u"]
+
+logger = get_logger(__name__)
 
 __all__ = [
     "AnalysisMode",
     "DataType",
     "XpcsConfig",
     "coerce_finite_float",
+    "dict_section",
 ]  # re-export for back-compat
+
+
+def dict_section(cfg: Mapping[str, Any], key: str, *, warn: bool = True) -> dict[str, Any]:
+    """Fetch a config sub-section as a ``dict``, normalizing null/wrong-type to ``{}``.
+
+    A plain ``cfg.get(key, {})`` only substitutes the default when ``key`` is
+    absent -- an explicit YAML ``null`` (key present, value ``None``, e.g. a
+    blank ``section:`` block) yields ``None`` right through it. And neither
+    ``cfg.get(key, {})`` nor ``cfg.get(key) or {}`` validates that a *present*,
+    non-null value is actually a mapping, so a wrong-type value (a list, a
+    string) propagates downstream to crash on the first ``.get()`` call
+    instead of degrading gracefully. This normalizes both failure modes to
+    ``{}`` in one place.
+
+    Parameters
+    ----------
+    cfg : Mapping
+        Parent configuration mapping.
+    key : str
+        Section key to fetch.
+    warn : bool, default=True
+        Log a warning when the value is present, non-null, and not a dict.
+        Set ``False`` for call sites where a wrong type is an expected,
+        already-logged-elsewhere, or benign condition.
+
+    Returns
+    -------
+    dict
+        The section as a dict, or ``{}`` if absent, null, or wrong-typed.
+    """
+    value = cfg.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        if warn:
+            logger.warning("%s must be a dict, ignoring (got %s)", key, type(value).__name__)
+        return {}
+    return value
 
 
 def coerce_finite_float(value: Any, *, context: str) -> float:

@@ -43,34 +43,9 @@ from xpcsjax.utils.logging import get_logger
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike
 
-# Optional imports
-try:
-    import jax  # noqa: F401
-    import jax.numpy as jnp
-    from jax import jit, vmap
-
-    HAS_JAX = True
-except ImportError:
-    from collections.abc import Callable
-    from typing import TypeVar
-
-    HAS_JAX = False
-    jnp = np  # type: ignore[misc]
-
-    _F = TypeVar("_F", bound=Callable[..., object])
-
-    def jit(f: _F) -> _F:  # type: ignore[no-redef]  # noqa: E731, UP047
-        """No-op decorator when JAX is unavailable."""
-        return f
-
-    vmap = None  # type: ignore[assignment]
-
-try:
-    from scipy import stats
-
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
+import jax.numpy as jnp
+from jax import jit, vmap
+from scipy import stats
 
 logger = get_logger(__name__)
 
@@ -161,8 +136,7 @@ def apply_diagonal_correction(
                 f"JAX backend only supports 'basic' method, got '{method}'. Using 'basic' method."
             )
         return _diagonal_correction_jax(c2_mat)
-    else:
-        return _diagonal_correction_numpy(c2_mat, method, config)
+    return _diagonal_correction_numpy(c2_mat, method, config)
 
 
 def apply_diagonal_correction_batch(
@@ -219,8 +193,7 @@ def apply_diagonal_correction_batch(
                 f"JAX backend only supports 'basic' method, got '{method}'. Using 'basic' method."
             )
         return _diagonal_correction_batch_jax(c2_matrices)
-    else:
-        return _diagonal_correction_batch_numpy(c2_matrices, method, config)
+    return _diagonal_correction_batch_numpy(c2_matrices, method, config)
 
 
 # =============================================================================
@@ -231,19 +204,16 @@ def apply_diagonal_correction_batch(
 def _resolve_backend(arr: ArrayLike, backend: Backend) -> Literal["numpy", "jax"]:
     """Resolve the actual backend to use based on input and preference."""
     if backend == "jax":
-        if not HAS_JAX:
-            logger.warning("JAX not available, falling back to NumPy")
-            return "numpy"
         return "jax"
-    elif backend == "numpy":
+    if backend == "numpy":
         return "numpy"
-    else:  # auto
-        # Auto-detect based on input type
-        # Note: NumPy 2.x arrays have .device attribute for array API compliance,
-        # so we need to check the actual type, not just presence of .device
-        if _is_jax_array(arr):
-            return "jax"
-        return "numpy"
+    # auto
+    # Auto-detect based on input type
+    # Note: NumPy 2.x arrays have .device attribute for array API compliance,
+    # so we need to check the actual type, not just presence of .device
+    if _is_jax_array(arr):
+        return "jax"
+    return "numpy"
 
 
 def _is_jax_array(arr: ArrayLike) -> bool:
@@ -252,8 +222,6 @@ def _is_jax_array(arr: ArrayLike) -> bool:
     Note: NumPy 2.x arrays have .device attribute for array API compliance,
     so we check the module name to distinguish JAX arrays from NumPy arrays.
     """
-    if not HAS_JAX:
-        return False
     # Check module name to handle both jax.Array and jaxlib types
     type_module = type(arr).__module__
     return type_module.startswith(("jax", "jaxlib"))
@@ -263,68 +231,60 @@ def _is_jax_array(arr: ArrayLike) -> bool:
 # JAX IMPLEMENTATIONS (JIT-compiled)
 # =============================================================================
 
-if HAS_JAX:
 
-    @jit
-    def _diagonal_correction_jax_core(c2_mat: jnp.ndarray) -> jnp.ndarray:
-        """Core JAX implementation of basic diagonal correction (JIT-compiled).
+@jit
+def _diagonal_correction_jax_core(c2_mat: jnp.ndarray) -> jnp.ndarray:
+    """Core JAX implementation of basic diagonal correction (JIT-compiled).
 
-        Algorithm:
-        1. Extract side band: elements at (i, i+1) for i=0..N-2 (symmetrized)
-        2. Compute diagonal values as average of adjacent off-diagonals:
-           - diag[0] = side_band[0] (edge: one neighbor)
-           - diag[i] = (side_band[i-1] + side_band[i]) / 2 for i=1..N-2
-           - diag[N-1] = side_band[N-2] (edge: one neighbor)
-        3. Replace diagonal via a single scatter .at[diag_indices].set()
-        """
-        size = c2_mat.shape[0]
-        if size <= 1:
-            return c2_mat  # Nothing to correct for 1x1 or empty matrix
+    Algorithm:
+    1. Extract side band: elements at (i, i+1) for i=0..N-2 (symmetrized)
+    2. Compute diagonal values as average of adjacent off-diagonals:
+       - diag[0] = side_band[0] (edge: one neighbor)
+       - diag[i] = (side_band[i-1] + side_band[i]) / 2 for i=1..N-2
+       - diag[N-1] = side_band[N-2] (edge: one neighbor)
+    3. Replace diagonal via a single scatter .at[diag_indices].set()
+    """
+    size = c2_mat.shape[0]
+    if size <= 1:
+        return c2_mat  # Nothing to correct for 1x1 or empty matrix
 
-        # Extract side band: off-diagonal elements adjacent to main diagonal
-        indices_i = jnp.arange(size - 1)
-        indices_j = jnp.arange(1, size)
-        side_band = 0.5 * (c2_mat[indices_i, indices_j] + c2_mat[indices_j, indices_i])
+    # Extract side band: off-diagonal elements adjacent to main diagonal
+    indices_i = jnp.arange(size - 1)
+    indices_j = jnp.arange(1, size)
+    side_band = 0.5 * (c2_mat[indices_i, indices_j] + c2_mat[indices_j, indices_i])
 
-        # Compute diagonal values directly from side_band slices (no scatter ops):
-        # edges get one neighbor, interior points get average of two neighbors.
-        # This replaces 2 scatter-add ops + 1 division on a zeros array.
-        diag_val = jnp.concatenate(
-            [
-                side_band[:1],
-                (side_band[:-1] + side_band[1:]) * 0.5,
-                side_band[-1:],
-            ]
-        )
+    # Compute diagonal values directly from side_band slices (no scatter ops):
+    # edges get one neighbor, interior points get average of two neighbors.
+    # This replaces 2 scatter-add ops + 1 division on a zeros array.
+    diag_val = jnp.concatenate(
+        [
+            side_band[:1],
+            (side_band[:-1] + side_band[1:]) * 0.5,
+            side_band[-1:],
+        ]
+    )
 
-        # Replace diagonal with computed values (single scatter write)
-        diag_indices = jnp.diag_indices(size)
-        return c2_mat.at[diag_indices].set(diag_val)
+    # Replace diagonal with computed values (single scatter write)
+    diag_indices = jnp.diag_indices(size)
+    return c2_mat.at[diag_indices].set(diag_val)
 
-    def _diagonal_correction_jax(c2_mat: ArrayLike) -> jnp.ndarray:
-        """JAX implementation wrapper (handles type conversion)."""
-        c2_jax = jnp.asarray(c2_mat)
-        result: jnp.ndarray = _diagonal_correction_jax_core(c2_jax)
-        return result
 
-    # Hoist vmap to module level to prevent re-tracing on every call
-    _vmapped_diagonal_correction = vmap(_diagonal_correction_jax_core, in_axes=0)
+def _diagonal_correction_jax(c2_mat: ArrayLike) -> jnp.ndarray:
+    """JAX implementation wrapper (handles type conversion)."""
+    c2_jax = jnp.asarray(c2_mat)
+    result: jnp.ndarray = _diagonal_correction_jax_core(c2_jax)
+    return result
 
-    def _diagonal_correction_batch_jax(c2_matrices: ArrayLike) -> jnp.ndarray:
-        """Batch JAX implementation using vmap."""
-        c2_jax = jnp.asarray(c2_matrices)
-        result: jnp.ndarray = _vmapped_diagonal_correction(c2_jax)
-        return result
 
-else:
-    # Fallback stubs when JAX is not available
-    def _diagonal_correction_jax(c2_mat: ArrayLike) -> np.ndarray:  # type: ignore[misc]
-        """Fallback to NumPy when JAX not available."""
-        return _diagonal_correction_numpy(c2_mat, "basic", {})
+# Hoist vmap to module level to prevent re-tracing on every call
+_vmapped_diagonal_correction = vmap(_diagonal_correction_jax_core, in_axes=0)
 
-    def _diagonal_correction_batch_jax(c2_matrices: ArrayLike) -> np.ndarray:  # type: ignore[misc]
-        """Fallback to NumPy when JAX not available."""
-        return _diagonal_correction_batch_numpy(c2_matrices, "basic", {})
+
+def _diagonal_correction_batch_jax(c2_matrices: ArrayLike) -> jnp.ndarray:
+    """Batch JAX implementation using vmap."""
+    c2_jax = jnp.asarray(c2_matrices)
+    result: jnp.ndarray = _vmapped_diagonal_correction(c2_jax)
+    return result
 
 
 # =============================================================================
@@ -345,13 +305,13 @@ def _diagonal_correction_numpy(
 
     if method == "basic":
         return _basic_correction_numpy(c2_np)
-    elif method == "statistical":
+    if method == "statistical":
         return _statistical_correction_numpy(c2_np, config)
-    elif method == "interpolation":
+    if method == "interpolation":
         return _interpolation_correction_numpy(c2_np, config)
-    else:  # Defensive fallback for unknown method
-        logger.warning(f"Unknown method '{method}', using 'basic'")  # type: ignore[unreachable]
-        return _basic_correction_numpy(c2_np)
+    # Defensive fallback for unknown method
+    logger.warning(f"Unknown method '{method}', using 'basic'")  # type: ignore[unreachable]
+    return _basic_correction_numpy(c2_np)
 
 
 def _diagonal_correction_batch_numpy(
@@ -477,16 +437,12 @@ def _statistical_correction_numpy(
             elif estimator == "mean":
                 c2_corrected[i, i] = np.nanmean(neighbors_arr)
             elif estimator == "trimmed_mean":
-                if HAS_SCIPY:
-                    # Remove NaN before trimmed mean — scipy trim_mean propagates NaN
-                    finite_neighbors = neighbors_arr[np.isfinite(neighbors_arr)]
-                    if finite_neighbors.size > 0:
-                        c2_corrected[i, i] = stats.trim_mean(finite_neighbors, trim_fraction)
-                    else:
-                        c2_corrected[i, i] = np.nan
+                # Remove NaN before trimmed mean — scipy trim_mean propagates NaN
+                finite_neighbors = neighbors_arr[np.isfinite(neighbors_arr)]
+                if finite_neighbors.size > 0:
+                    c2_corrected[i, i] = stats.trim_mean(finite_neighbors, trim_fraction)
                 else:
-                    # Fallback to median if scipy not available
-                    c2_corrected[i, i] = np.nanmedian(neighbors_arr)
+                    c2_corrected[i, i] = np.nan
             else:  # Defensive fallback for unknown estimator
                 logger.warning(f"Unknown estimator '{estimator}', using median")  # type: ignore[unreachable]
                 c2_corrected[i, i] = np.nanmedian(neighbors_arr)
@@ -548,10 +504,7 @@ def get_diagonal_correction_methods() -> list[str]:
 
 def get_available_backends() -> list[str]:
     """Return list of available backends."""
-    backends = ["numpy"]
-    if HAS_JAX:
-        backends.append("jax")
-    return backends
+    return ["numpy", "jax"]
 
 
 # =============================================================================

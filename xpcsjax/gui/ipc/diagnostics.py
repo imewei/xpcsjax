@@ -38,11 +38,14 @@ def layer_status_from_diagnostics(diagnostics: dict | None) -> dict[str, bool]:
     }
 
 
-def classify_banner(level: str, message: str) -> Banner | None:
+def classify_banner(message: str) -> Banner | None:
     """Classify an engine log line into a Banner, or None if it is not a banner.
 
     Recognizes the stable engine prefixes; ``run_id``/``seq`` are placeholders
-    restamped by :class:`~xpcsjax.gui.ipc.emitter.EventEmitter`.
+    restamped by :class:`~xpcsjax.gui.ipc.emitter.EventEmitter`. Classification
+    is by message text alone -- the log record's level is not a signal here
+    (a banner's ``BannerKind`` comes from which engine prefix matched, not
+    from the record's severity), so it is not a parameter.
     """
     text = message.strip()
     # Engine emits two anti-degeneracy banner families: the controller's

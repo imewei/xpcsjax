@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Literal, TypedDict, TypeVar
+from typing import Any, Final, Literal, TypedDict, TypeVar
 
 import numpy as np
 
@@ -91,6 +91,22 @@ def _resolve_level_or(level: str | int | None, default: int) -> int:
     """
     resolved = _resolve_level(level)
     return default if resolved is None else resolved
+
+
+def _find_managed_handler(
+    root: logging.Logger, predicate: Callable[[logging.Handler], bool]
+) -> logging.Handler | None:
+    """Return the first ``_xpcsjax_managed`` handler on ``root`` matching ``predicate``, else None.
+
+    Shared by the console- and file-handler get-or-create scans in
+    :meth:`MinimalLogger.configure` -- reusing an existing handler on repeat
+    ``configure()`` calls avoids duplicating output and (for file handlers)
+    leaking an open fd.
+    """
+    for handler in root.handlers:
+        if predicate(handler):
+            return handler
+    return None
 
 
 class _ColorFormatter(logging.Formatter):
@@ -207,7 +223,7 @@ class JSONFormatter(logging.Formatter):
             ctx = getattr(record, "context", None)
             out["context"] = _json_safe(ctx) if ctx is not None else None
             return json.dumps(out, default=lambda o: repr(o)[:500])
-        except Exception:  # noqa: BLE001 - a formatter must never raise
+        except Exception:
             return json.dumps(
                 {
                     "level": getattr(record, "levelname", "UNKNOWN"),
@@ -218,7 +234,7 @@ class JSONFormatter(logging.Formatter):
             )
 
 
-class _ContextAdapter(logging.LoggerAdapter):
+class _ContextAdapter(logging.LoggerAdapter[logging.Logger]):
     """Logger adapter that prefixes messages with structured context."""
 
     def process(self, msg: str, kwargs: Any) -> tuple[str, Any]:
@@ -410,6 +426,75 @@ class LogConfiguration:
         )
 
 
+def _resolve_log_file_path(
+    file_cfg: Mapping[str, Any],
+    output_dir: Path | str | None,
+    run_id: str | None,
+    *,
+    warn_logger_name: str,
+) -> Path | None:
+    """Resolve the log file path from a ``file:`` config block, or None.
+
+    Builds ``base_dir / filename`` (substituting ``{run_id}``/``{timestamp}``/
+    ``<timestamp>`` placeholders when present), then validates it stays
+    contained under ``base_dir`` via
+    :func:`xpcsjax.utils.path_validation.validate_save_path`. Returns
+    ``None`` when file logging is disabled or the resolved path is unsafe.
+
+    A genuine ``ImportError`` from ``path_validation`` propagates rather than
+    being swallowed -- the call-time import already avoids the load-time
+    cycle (``path_validation`` imports this module), so a broken import here
+    is a real bug, not an expected optional-dependency gap.
+    """
+    if not file_cfg.get("enabled", False):
+        return None
+
+    if "path" in file_cfg:
+        base_dir = Path(file_cfg.get("path") or "./logs/")
+        if not base_dir.is_absolute():
+            base_dir = base_dir.resolve()
+    else:
+        base_dir = Path(output_dir) / "logs" if output_dir else Path("./logs")
+        base_dir = base_dir.resolve()
+    # A configured filename is honored as-is unless it contains a
+    # placeholder, in which case per-run uniqueness is opt-in:
+    #   ``{run_id}``                -> the run id (timestamp fallback)
+    #   ``<timestamp>`` / ``{timestamp}`` -> current YYYYmmdd_HHMMSS
+    # With no placeholder the filename is used verbatim (the
+    # RotatingFileHandler handles size-based rotation/backups). When no
+    # filename is configured at all, auto-generate a timestamped name.
+    configured_filename = file_cfg.get("filename")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_suffix = run_id or timestamp
+    if configured_filename is None:
+        filename = f"xpcsjax_analysis_{run_suffix}.log"
+    else:
+        filename = (
+            configured_filename.replace("{run_id}", run_suffix)
+            .replace("<timestamp>", timestamp)
+            .replace("{timestamp}", timestamp)
+        )
+    file_path = base_dir / filename
+    # Guard the (placeholder-substituted) filename against escaping
+    # base_dir via ".." components or an absolute override, mirroring
+    # the containment check validate_save_path/get_safe_output_dir
+    # already enforce elsewhere. Lazy import: path_validation imports
+    # from this module at module load time, so import at call time
+    # (after this module has finished loading) to avoid a cycle.
+    from xpcsjax.utils.path_validation import PathValidationError as _PathValidationError
+    from xpcsjax.utils.path_validation import validate_save_path as _validate_save_path
+
+    try:
+        return _validate_save_path(file_path, require_parent_exists=False, base_dir=base_dir)
+    except _PathValidationError as e:
+        logging.getLogger(warn_logger_name).warning(
+            "Unsafe log file path %r rejected (%s); file logging disabled.",
+            str(file_path),
+            e,
+        )
+        return None
+
+
 class MinimalLogger:
     """Configurable logger manager for the xpcsjax package.
 
@@ -536,15 +621,14 @@ class MinimalLogger:
 
         # Console handler — only reuse an existing managed handler to avoid duplicating
         # output when called multiple times (e.g., configure_from_dict with force=True).
-        console_handler: logging.Handler | None = None
-        for handler in root_logger.handlers:
-            if (
-                isinstance(handler, logging.StreamHandler)
-                and not isinstance(handler, logging.FileHandler)
-                and getattr(handler, "_xpcsjax_managed", False)
-            ):
-                console_handler = handler
-                break
+        console_handler = _find_managed_handler(
+            root_logger,
+            lambda h: (
+                isinstance(h, logging.StreamHandler)
+                and not isinstance(h, logging.FileHandler)
+                and getattr(h, "_xpcsjax_managed", False)
+            ),
+        )
 
         if console_level is not None:
             if console_handler is None:
@@ -583,15 +667,14 @@ class MinimalLogger:
                 # compare equal under a symlinked log directory, so use the
                 # same os.path.abspath() convention the handler itself uses.
                 target_path = os.path.abspath(str(file_path))
-                file_handler: logging.Handler | None = None
-                for handler in root_logger.handlers:
-                    if (
-                        isinstance(handler, logging.FileHandler)
-                        and getattr(handler, "_xpcsjax_managed", False)
-                        and getattr(handler, "baseFilename", None) == target_path
-                    ):
-                        file_handler = handler
-                        break
+                file_handler = _find_managed_handler(
+                    root_logger,
+                    lambda h: (
+                        isinstance(h, logging.FileHandler)
+                        and getattr(h, "_xpcsjax_managed", False)
+                        and getattr(h, "baseFilename", None) == target_path
+                    ),
+                )
 
                 if file_handler is None:
                     max_bytes = int(max_size_mb * 1024 * 1024)
@@ -710,63 +793,9 @@ class MinimalLogger:
             elif verbose:
                 console_level = "DEBUG"
 
-        file_path: Path | None = None
-        if file_cfg.get("enabled", False):
-            if "path" in file_cfg:
-                base_dir = Path(file_cfg.get("path") or "./logs/")
-                if not base_dir.is_absolute():
-                    base_dir = base_dir.resolve()
-            else:
-                base_dir = Path(output_dir) / "logs" if output_dir else Path("./logs")
-                base_dir = base_dir.resolve()
-            # A configured filename is honored as-is unless it contains a
-            # placeholder, in which case per-run uniqueness is opt-in:
-            #   ``{run_id}``                -> the run id (timestamp fallback)
-            #   ``<timestamp>`` / ``{timestamp}`` -> current YYYYmmdd_HHMMSS
-            # With no placeholder the filename is used verbatim (the
-            # RotatingFileHandler handles size-based rotation/backups). When no
-            # filename is configured at all, auto-generate a timestamped name.
-            configured_filename = file_cfg.get("filename")
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            run_suffix = run_id or timestamp
-            if configured_filename is None:
-                filename = f"xpcsjax_analysis_{run_suffix}.log"
-            else:
-                filename = (
-                    configured_filename.replace("{run_id}", run_suffix)
-                    .replace("<timestamp>", timestamp)
-                    .replace("{timestamp}", timestamp)
-                )
-            file_path = base_dir / filename
-            # Guard the (placeholder-substituted) filename against escaping
-            # base_dir via ".." components or an absolute override, mirroring
-            # the containment check validate_save_path/get_safe_output_dir
-            # already enforce elsewhere. Lazy import: path_validation imports
-            # from this module at module load time, so import at call time
-            # (after this module has finished loading) to avoid a cycle.
-            try:
-                from xpcsjax.utils.path_validation import (
-                    PathValidationError as _PathValidationError,
-                )
-                from xpcsjax.utils.path_validation import validate_save_path as _validate_save_path
-
-                file_path = _validate_save_path(
-                    file_path, require_parent_exists=False, base_dir=base_dir
-                )
-            except ImportError:
-                # path_validation unavailable (or itself broken): the traversal-containment
-                # check above is skipped and file_path is used unvalidated, rather than
-                # blocking logging entirely.
-                pass
-            except _PathValidationError as e:
-                logging.getLogger(self._root_logger_name).warning(
-                    "Unsafe log file path %r rejected (%s); file logging disabled.",
-                    str(file_path),
-                    e,
-                )
-                file_path = None
-
-        # Phase 1b: seed the context-local run_id (surfaced by ContextFilter)
+        file_path = _resolve_log_file_path(
+            file_cfg, output_dir, run_id, warn_logger_name=self._root_logger_name
+        )  # Phase 1b: seed the context-local run_id (surfaced by ContextFilter)
         # and thread the YAML format hint + quiet flag down to _configure_impl
         # as EXPLICIT parameters (read as locals under the configure() lock),
         # which performs the format/filter/env-DEBUG wiring with the configured
@@ -939,7 +968,7 @@ def _get_memory_gb() -> float | None:
     try:
         import psutil
 
-        return psutil.Process().memory_info().rss / (1024**3)
+        return float(psutil.Process().memory_info().rss) / (1024**3)
     except Exception:
         return None
 
@@ -1004,7 +1033,7 @@ def log_phase(
     if threshold_s <= 0:
         try:
             resolved_logger.log(level, "Phase '%s' started", name)
-        except Exception:  # noqa: BLE001 - logging must not abort the phase
+        except Exception:
             pass
 
     start_time = time.perf_counter()
@@ -1186,7 +1215,7 @@ def log_calls(
                         resolved_logger.log(level, "Calling %s(%s)", func_name, all_args)
                     else:
                         resolved_logger.log(level, "Calling %s", func_name)
-                except Exception:  # noqa: BLE001 - logging must not abort the decorated call
+                except Exception:
                     pass
 
             try:
@@ -1199,7 +1228,7 @@ def log_calls(
                             resolved_logger.log(level, "Completed %s -> %r", func_name, result)
                         else:
                             resolved_logger.log(level, "Completed %s", func_name)
-                    except Exception:  # noqa: BLE001 - logging must not abort the decorated call
+                    except Exception:
                         pass
 
                 return result
@@ -1207,7 +1236,7 @@ def log_calls(
             except Exception as e:
                 try:
                     resolved_logger.log(logging.ERROR, "Exception in %s: %s", func_name, e)
-                except Exception:  # noqa: BLE001 - logging must not mask original
+                except Exception:
                     pass
                 raise
 
@@ -1268,7 +1297,7 @@ def log_performance(
                             func_name,
                             duration,
                         )
-                    except Exception:  # noqa: BLE001 - logging must not abort the decorated call
+                    except Exception:
                         pass
 
                 return result
@@ -1283,7 +1312,7 @@ def log_performance(
                         duration,
                         e,
                     )
-                except Exception:  # noqa: BLE001 - logging must not mask original
+                except Exception:
                     pass
                 raise
 
@@ -1298,13 +1327,16 @@ _LOG_CONTEXT: contextvars.ContextVar[_LogContext | None] = contextvars.ContextVa
 _CONTEXT_FIELDS = ("run_id", "phase", "mode", "strategy")
 
 
+_UNSET: Final = object()
+
+
 def set_log_context(
     *,
-    run_id: str | None = ...,  # type: ignore[assignment]  # sentinel: not-passed vs None
-    phase: str | None = ...,  # type: ignore[assignment]
-    mode: str | None = ...,  # type: ignore[assignment]
-    strategy: str | None = ...,  # type: ignore[assignment]
-) -> contextvars.Token:
+    run_id: str | None | object = _UNSET,
+    phase: str | None | object = _UNSET,
+    mode: str | None | object = _UNSET,
+    strategy: str | None | object = _UNSET,
+) -> contextvars.Token[_LogContext | None]:
     """Set context-local log fields, returning a token for restoration.
 
     Only the four known fields (run_id, phase, mode, strategy) are accepted;
@@ -1314,14 +1346,13 @@ def set_log_context(
     the prior context (e.g. on scope exit).
     """
     cur: _LogContext = dict(_LOG_CONTEXT.get() or {})  # type: ignore[assignment]
-    _sentinel = ...
     for k, v in (
         ("run_id", run_id),
         ("phase", phase),
         ("mode", mode),
         ("strategy", strategy),
     ):
-        if v is _sentinel:
+        if v is _UNSET:
             continue
         if v is None:
             cur.pop(k, None)  # type: ignore[misc]
@@ -1330,7 +1361,7 @@ def set_log_context(
     return _LOG_CONTEXT.set(cur)
 
 
-def reset_log_context(token: contextvars.Token) -> None:
+def reset_log_context(token: contextvars.Token[_LogContext | None]) -> None:
     """Restore the log context to the state captured by ``token``."""
     _LOG_CONTEXT.reset(token)
 
@@ -1349,7 +1380,7 @@ def log_context(
     The prior context is restored on exit, so nested ``log_context`` blocks
     stack and unwind correctly.
     """
-    token = set_log_context(run_id=run_id, phase=phase, mode=mode, strategy=strategy)  # type: ignore[arg-type]
+    token = set_log_context(run_id=run_id, phase=phase, mode=mode, strategy=strategy)
     try:
         yield
     finally:
@@ -1405,7 +1436,7 @@ def log_once(logger: LoggerType, level: int, key: str, msg: str, *args: Any) -> 
     if _should_log_once(key):
         try:
             logger.log(level, msg, *args)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
 
@@ -1438,7 +1469,7 @@ def logged_errors(
                     context={"operation": operation, **context},
                     level=level,
                 )
-        except Exception:  # noqa: BLE001 - logging must not mask the original
+        except Exception:
             pass
         if policy == "reraise":
             raise

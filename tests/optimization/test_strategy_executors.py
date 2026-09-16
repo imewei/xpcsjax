@@ -239,7 +239,9 @@ def test_streaming_executor_calls_real_fit_api(monkeypatch: pytest.MonkeyPatch) 
     np.testing.assert_allclose(model(xdata, *p0), ydata - _resid(xdata, *p0))
 
 
-def test_streaming_executor_missing_pcov_is_nan_placeholder(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_streaming_executor_missing_pcov_is_nan_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class _NoPcov:
         def __init__(self, config: Any) -> None:
             pass

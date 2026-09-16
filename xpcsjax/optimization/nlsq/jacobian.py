@@ -4,6 +4,16 @@ This module extracts Jacobian-related functions from nlsq_wrapper.py
 to reduce file size and improve maintainability.
 
 Extracted from nlsq_wrapper.py as part of technical debt remediation (Dec 2025).
+
+Test-only module: none of ``compute_jacobian_condition_number``,
+``analyze_parameter_sensitivity``, or ``estimate_gradient_noise`` below has a
+production caller (only ``tests/optimization/test_jacobian.py`` and
+``test_nlsq_support_modules.py`` import this module). ``compute_jacobian_stats``
+itself used to be a verbatim copy of
+:func:`~xpcsjax.optimization.nlsq.parameter_utils.compute_jacobian_stats` --
+that one IS the production copy (``wrapper.py``'s CMA-ES phases import it, and
+it is re-exported through ``xpcsjax.optimization.nlsq.__all__``), so this
+module now re-exports it instead of shadowing it with a second definition.
 """
 
 from __future__ import annotations
@@ -15,79 +25,19 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from xpcsjax.optimization.nlsq.parameter_utils import (
+    compute_jacobian_stats,
+)
 from xpcsjax.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-
-def compute_jacobian_stats(
-    residual_fn: Callable[..., Any],
-    x_subset: np.ndarray,
-    params: np.ndarray,
-    scaling_factor: float,
-) -> tuple[np.ndarray | None, np.ndarray | None]:
-    """Compute Jacobian statistics for convergence diagnostics.
-
-    Computes the Jacobian matrix and derives:
-    - JTJ (Jacobian transpose times Jacobian) for Hessian approximation
-    - Column norms for parameter sensitivity analysis
-
-    Parameters
-    ----------
-    residual_fn : Callable
-        Residual function to differentiate.
-    x_subset : np.ndarray
-        Subset of x data for Jacobian computation.
-    params : np.ndarray
-        Current parameter values.
-    scaling_factor : float
-        Scaling factor for JTJ computation.
-
-    Returns
-    -------
-    tuple[np.ndarray | None, np.ndarray | None]
-        (JTJ matrix, column norms) or (None, None) on failure.
-    """
-    try:
-        params_jnp = jnp.asarray(params)
-        if hasattr(residual_fn, "jax_residual"):
-
-            def residual_vector(p):
-                return jnp.asarray(residual_fn.jax_residual(jnp.asarray(p))).reshape(-1)
-
-        else:
-
-            def residual_vector(p):
-                return jnp.asarray(residual_fn(x_subset, *tuple(p))).reshape(-1)
-
-        # Use jacfwd (JVP-based): O(n × cost_f) vs jacrev's O(m × cost_f).
-        # For XPCS m >> n (e.g., 20K residuals, 9 params), jacfwd is ~260x faster.
-        jac = jax.jacfwd(residual_vector)(params_jnp)
-        jac_np = np.asarray(jac)
-
-        # Performance Optimization (Spec 001 - FR-010, T048): Check condition number
-        # to determine optimal J^T J computation method.
-        # For ill-conditioned Jacobians (cond > 1e6), use QR-based computation.
-        try:
-            cond_number = np.linalg.cond(jac_np)
-        except np.linalg.LinAlgError:
-            cond_number = np.inf
-
-        if cond_number > 1e6:
-            # Performance Optimization (Spec 001 - FR-010, T049): QR-based J^T J
-            # For ill-conditioned Jacobians, J^T J = R^T R is more numerically stable.
-            # QR decomposition: J = Q @ R where Q is orthogonal, R is upper triangular.
-            Q, R = np.linalg.qr(jac_np)
-            jtj = R.T @ R * scaling_factor
-        else:
-            # Standard computation for well-conditioned Jacobians
-            jtj = jac_np.T @ jac_np * scaling_factor
-
-        col_norms = np.linalg.norm(jac_np, axis=0) * np.sqrt(scaling_factor)
-        return jtj, col_norms
-    except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
-        logger.debug("compute_jacobian_stats failed, returning (None, None): %s", e)
-        return None, None
+__all__ = [
+    "analyze_parameter_sensitivity",
+    "compute_jacobian_condition_number",
+    "compute_jacobian_stats",
+    "estimate_gradient_noise",
+]
 
 
 def compute_jacobian_condition_number(

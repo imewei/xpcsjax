@@ -90,7 +90,7 @@ def _source_xla_config(tmp_path: Path, mode: str) -> tuple[int, str, bool]:
     """
     script = 'source "$1" "$2"; echo "rc=$?"; echo "flags=${XLA_FLAGS:-}"'
     bash = _bash_executable()
-    proc = subprocess.run(  # noqa: S603
+    proc = subprocess.run(
         [bash, "-c", script, "bash", str(XLA_CONFIG_BASH), mode],
         capture_output=True,
         text=True,

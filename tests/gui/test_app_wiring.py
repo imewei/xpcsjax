@@ -4,9 +4,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from xpcsjax.gui.app import build_workbench  # noqa: E402
-from xpcsjax.gui.controllers.fit_queue import FitQueueController  # noqa: E402
-from xpcsjax.gui.views.main_window import MainWindow  # noqa: E402
+from xpcsjax.gui.app import build_workbench
+from xpcsjax.gui.controllers.fit_queue import FitQueueController
+from xpcsjax.gui.views.main_window import MainWindow
 
 
 def test_build_workbench_returns_wired_window(qtbot):

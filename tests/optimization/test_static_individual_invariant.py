@@ -246,7 +246,12 @@ def test_wrapper_dof_sites_resolve_through_static_pin():
     """Wiring: every large-data reduced-chi2 DOF computation in the wrapper must
     resolve its per-angle mode through the static-pinned resolver, never the bare
     resolver (which skips the pin and mis-sizes static DOF)."""
-    src = pathlib.Path("xpcsjax/optimization/nlsq/wrapper.py").read_text(encoding="utf-8")
+    # The large-data routes are split across wrapper.py and its extracted
+    # wrapper_*_route.py modules; the wiring contract spans all of them.
+    src = "".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted(pathlib.Path("xpcsjax/optimization/nlsq").glob("wrapper*.py"))
+    )
     assert src.count("effective_constrained_dof") >= 3
     assert "resolve_per_angle_mode_static_pinned" in src
 

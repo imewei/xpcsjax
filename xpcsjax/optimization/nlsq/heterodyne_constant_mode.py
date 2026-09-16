@@ -37,6 +37,7 @@ from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
     assemble_anti_degeneracy_diagnostics,
 )
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+from xpcsjax.optimization.nlsq.per_angle_mode import PerAngleMode
 from xpcsjax.optimization.nlsq.results import (
     ConvergenceStatus,
     OptimizationResult,
@@ -503,6 +504,79 @@ def _fit_joint_constant_multi_phi(
         nlsq_diagnostics=diagnostics,
         n_physics=None,
     )
+
+
+def l2_stage1_physics_warm_start(
+    *,
+    model: HeterodyneModel,
+    c2_data: np.ndarray,
+    phi_angles: np.ndarray,
+    config: NLSQConfig,
+    weights: np.ndarray | None,
+    physics_lower: np.ndarray,
+    physics_upper: np.ndarray,
+    resolved_mode: PerAngleMode,
+    n_physics_varying: int,
+    n_phi: int,
+) -> tuple[np.ndarray, float]:
+    """Run the L2 Stage-1 physics-only warm-start via the constant-mode solver.
+
+    Shared by :func:`heterodyne_core._fit_joint_averaged_multi_phi` (always
+    ``resolved_mode="averaged"``) and :func:`heterodyne_core._build_joint_problem`
+    (``resolved_mode`` from :func:`~xpcsjax.optimization.nlsq.per_angle_mode.resolve_per_angle_mode`).
+    Both previously carried a near-identical copy of this block; unifying it
+    here also fixes the drift where one copy hardcoded 2 averaged-scaling
+    params instead of deriving it from
+    ``resolved_mode`` via :func:`~xpcsjax.optimization.nlsq.per_angle_mode.n_optimized`
+    (numerically identical for ``resolved_mode="averaged"``, since
+    ``n_optimized("averaged", n_phi) == 2``).
+
+    Freezes per-angle quantile scaling and converges the physics block via
+    :func:`_fit_joint_constant_multi_phi`, then returns the converged physics
+    vector (clipped to ``[physics_lower, physics_upper]``) to warm-start the
+    caller's Stage-2 joint solve, along with Stage 1's ``chi_squared``.
+
+    Returns
+    -------
+    tuple[np.ndarray, float]
+        ``(physics_initial, hierarchical_stage1_chi2)``.
+    """
+    from xpcsjax.optimization.nlsq.per_angle_mode import n_optimized
+
+    final_scaling_dof = n_optimized(resolved_mode, n_phi)
+    logger.info(
+        "L2 Stage-1 warm-start (final mode: %s): per-angle quantile scaling "
+        "frozen for WARM-START ONLY; final fit optimizes %d %s scaling + "
+        "%d physics = %d params",
+        resolved_mode,
+        final_scaling_dof,
+        resolved_mode,
+        n_physics_varying,
+        final_scaling_dof + n_physics_varying,
+    )
+    stage1_result = _fit_joint_constant_multi_phi(
+        model=model,
+        c2_data=c2_data,
+        phi_angles=phi_angles,
+        config=config,
+        weights=weights,
+        warm_start_context=f"L2 Stage-1 -> final mode {resolved_mode}",
+    )
+    # ``stage1_result.parameters`` is the FULL 14-physics vector (expanded by
+    # ``expand_reduced_result``); reduce back to the varying subset before
+    # clipping against ``physics_lower``/``physics_upper`` (which are
+    # varying-only) — otherwise np.clip broadcasts (14,) against (n_varying,)
+    # and raises whenever any physics parameter is fixed.
+    stage1_physics_full = np.asarray(stage1_result.parameters, dtype=np.float64)
+    stage1_physics = model.param_manager.extract_varying(stage1_physics_full)
+    hierarchical_stage1_chi2 = float(stage1_result.chi_squared)
+    physics_initial = np.clip(stage1_physics, physics_lower, physics_upper)
+    logger.info(
+        "L2 hierarchical (%s) — Stage 1 done: chi2=%.6f, warm-starting stage 2 joint refine",
+        resolved_mode,
+        hierarchical_stage1_chi2,
+    )
+    return physics_initial, hierarchical_stage1_chi2
 
 
 # ---------------------------------------------------------------------------

@@ -32,15 +32,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-# The four production analysis modes, mirroring config_template._MODE_TO_TEMPLATE.
-# Duplicated as a literal (not imported) so this view stays import-light and
-# JAX-free; config_template validates the mode again at generation time.
-ANALYSIS_MODES: tuple[str, ...] = (
-    "static_anisotropic",
-    "static_isotropic",
-    "laminar_flow",
-    "two_component",
-)
+from xpcsjax.service.config import available_modes
+
+# The four production analysis modes, single-sourced from
+# xpcsjax.service.config.available_modes() (which xpcsjax.cli.config_template's
+# _MODE_TO_TEMPLATE and this dialog previously each duplicated as a literal).
+# xpcsjax.service.config is JAX-free -- verified empirically
+# (`import xpcsjax.service.config` never puts "jax" in sys.modules) -- so this
+# import does not violate the GUI process's JAX-free boundary.
+ANALYSIS_MODES: tuple[str, ...] = tuple(available_modes())
 
 
 def _parse_optional(text: str, caster: type, label: str) -> float | int | None:

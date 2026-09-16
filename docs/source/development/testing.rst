@@ -219,7 +219,6 @@ fits are excluded in :file:`pyproject.toml` under
        "xpcsjax/optimization/nlsq/recovery.py",
        "xpcsjax/optimization/nlsq/progress.py",
        "xpcsjax/optimization/nlsq/result_builder.py",
-       "xpcsjax/data/performance_engine.py",
        "xpcsjax/data/memory_manager.py",
        "xpcsjax/utils/path_validation.py",
    ]

@@ -25,8 +25,7 @@ from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
 
 
 def _cfg(mode: str) -> NLSQConfig:
-    c = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": mode})
-    return c
+    return NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": mode})
 
 
 def _singular_curve_fit(monkeypatch):
@@ -57,7 +56,9 @@ def test_build_result_from_nlsq_singular_marker_is_nan_not_inf():
     assert np.all(np.isnan(res0.uncertainties))
     assert res0.metadata["covariance_is_placeholder"] is True
     # An ABSENT solver covariance is the same case, never ``None``.
-    res_none = build_result_from_nlsq(nlsq_result=(popt, None), parameter_names=["a", "b"], n_data=10)
+    res_none = build_result_from_nlsq(
+        nlsq_result=(popt, None), parameter_names=["a", "b"], n_data=10
+    )
     assert res_none.covariance is not None and np.all(np.isnan(res_none.covariance))
     assert np.all(np.isnan(res_none.uncertainties))
     assert res_none.metadata["covariance_is_placeholder"] is True

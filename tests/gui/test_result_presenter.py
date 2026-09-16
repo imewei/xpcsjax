@@ -4,9 +4,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from xpcsjax.gui.result_loader import ResultSummary  # noqa: E402
-from xpcsjax.gui.views.main_window import MainWindow  # noqa: E402
-from xpcsjax.gui.views.main_window_support.result_presenter import (  # noqa: E402
+from xpcsjax.gui.result_loader import ResultSummary
+from xpcsjax.gui.views.main_window import MainWindow
+from xpcsjax.gui.views.main_window_support.result_presenter import (
     ResultPresenter,
 )
 
@@ -110,13 +110,18 @@ def _write_bundle(tmp_path) -> None:
 
 
 def test_show_result_with_bundle_uses_grid_when_bundle_found(qtbot, tmp_path):
-    """_show_result_with_bundle switches to the grid page (index 1) when a bundle loads."""
+    """_show_result_with_bundle switches to the grid page (index 1) when a bundle loads.
+
+    The bundle load runs on a QThreadPool worker thread (D10 fix) and applies
+    itself back to the UI via a queued signal, so this must wait for the
+    event loop to process it rather than asserting immediately.
+    """
     _write_bundle(tmp_path)
 
     win = _window(qtbot)
     summary = _summary(tmp_path)
     win._show_result_with_bundle(summary, str(tmp_path))
-    assert win._central_stack.currentIndex() == 1
+    qtbot.waitUntil(lambda: win._central_stack.currentIndex() == 1, timeout=5000)
 
 
 def test_show_result_with_bundle_falls_back_to_text_when_no_bundle(qtbot, tmp_path):
@@ -125,9 +130,73 @@ def test_show_result_with_bundle_falls_back_to_text_when_no_bundle(qtbot, tmp_pa
     win = _window(qtbot)
     summary = _summary(tmp_path, "no_bundle_converged")
     win._show_result_with_bundle(summary, str(tmp_path))
-    # Falls back to text page.
+    # Falls back to text page (async load off the UI thread; wait for it).
+    qtbot.waitUntil(lambda: "no_bundle_converged" in win.result_text(), timeout=5000)
     assert win._central_stack.currentIndex() == 0
-    assert "no_bundle_converged" in win.result_text()
+
+
+def test_show_result_with_bundle_discards_stale_load(qtbot, tmp_path, monkeypatch):
+    """A slower load for an earlier selection must not clobber a newer one.
+
+    Regression for the "finished-run-clobber" bug class: if run A's bundle
+    load is still in flight when the user (or a finishing run) switches the
+    panel to run B, A's load completing later must be a no-op rather than
+    overwriting B's already-applied result.
+
+    Made deterministic (D10 review finding): the stale load used to just run
+    on the QThreadPool and race the second ``_show_result_with_bundle`` call
+    -- if the pool finished the stale load first, the discard guard
+    (``result_dir != self._pending_result_dir``) was never exercised and the
+    test passed vacuously (verified: with the guard defeated it failed 5/5
+    at the time of writing, but only because the pool happened to be slower
+    than the second call). Block the stale load on a ``threading.Event``
+    until after the fresh call has completed, so the guard is always
+    actually exercised regardless of scheduling speed.
+    """
+    import threading
+
+    from xpcsjax.gui.views.main_window_support import result_presenter as rp_module
+
+    stale_dir = tmp_path / "stale"
+    fresh_dir = tmp_path / "fresh"
+    _write_bundle(stale_dir)
+    # fresh_dir has no bundle -> falls back to its own text summary.
+
+    win = _window(qtbot)
+    stale_summary = _summary(stale_dir, "stale_run")
+    fresh_summary = _summary(fresh_dir, "fresh_run")
+
+    release = threading.Event()
+    loaded_stale = threading.Event()
+    real_load_viz_bundle = rp_module.load_viz_bundle
+
+    def _blocking_load(result_dir):
+        is_stale = str(result_dir) == str(stale_dir)
+        if is_stale:
+            release.wait(timeout=5.0)
+        result = real_load_viz_bundle(result_dir)
+        if is_stale:
+            loaded_stale.set()
+        return result
+
+    monkeypatch.setattr(rp_module, "load_viz_bundle", _blocking_load)
+
+    # Simulate: stale load was requested (pending_result_dir set)...
+    win._show_result_with_bundle(stale_summary, str(stale_dir))
+    # ...then immediately superseded by a newer selection before it completes.
+    win._show_result_with_bundle(fresh_summary, str(fresh_dir))
+
+    qtbot.waitUntil(lambda: "fresh_run" in win.result_text(), timeout=5000)
+    # Now let the stale load finish and hit the discard guard.
+    release.set()
+    qtbot.waitUntil(lambda: loaded_stale.is_set(), timeout=5000)
+    # One more event-loop turn for the stale load's queued `finished` signal
+    # to actually be delivered/processed on the main thread.
+    qtbot.wait(50)
+
+    # The stale grid must never have been applied over the fresh text result.
+    assert win._central_stack.currentIndex() == 0
+    assert "stale_run" not in win.result_text()
 
 
 def test_show_result_with_bundle_none_result_dir_falls_back(qtbot, tmp_path):
@@ -154,3 +223,28 @@ def test_show_inspector_none_clears(qtbot):
     """show_inspector(None) clears the inspector without error."""
     win = _window(qtbot)
     win.show_inspector(None)
+
+
+def test_show_error_invalidates_in_flight_bundle_load(qtbot, monkeypatch, tmp_path):
+    """three-brain review (Codex): a bundle load for an earlier selection that
+    completes AFTER show_error() must not replace the failure panel."""
+    import threading
+
+    from xpcsjax.gui.views.main_window_support import result_presenter as rp
+
+    release = threading.Event()
+    real_load = rp.load_viz_bundle
+
+    def _blocking_load(result_dir):
+        release.wait(5.0)
+        return real_load(result_dir)
+
+    monkeypatch.setattr(rp, "load_viz_bundle", _blocking_load)
+    win = _window(qtbot)
+    pres = win._result_presenter
+    win._show_result_with_bundle(None, str(tmp_path))  # starts a (blocked) load
+    pres.show_error("boom")
+    assert pres._pending_result_dir is None
+    release.set()
+    qtbot.wait(300)  # let the stale load complete and be discarded
+    assert "FIT FAILED" in win._results.toPlainText()

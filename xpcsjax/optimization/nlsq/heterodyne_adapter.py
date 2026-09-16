@@ -16,7 +16,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # nlsq imports — MUST precede any JAX import so nlsq can set x64 mode
 # ---------------------------------------------------------------------------
-from nlsq import CurveFit, curve_fit, curve_fit_large  # noqa: E402
+from nlsq import CurveFit, curve_fit, curve_fit_large
 
 try:
     from nlsq import AdaptiveHybridStreamingOptimizer, HybridStreamingConfig
@@ -27,7 +27,7 @@ except ImportError:
     AdaptiveHybridStreamingOptimizer = None  # type: ignore[assignment,misc]
     HybridStreamingConfig = None  # type: ignore[assignment,misc]
 
-import jax.numpy as jnp  # noqa: E402 — must follow nlsq to preserve x64 init order
+import jax.numpy as jnp
 
 from xpcsjax.optimization.nlsq.gradient_monitor import _get_debug_curvefit_callback
 from xpcsjax.optimization.nlsq.heterodyne_adapter_base import NLSQAdapterBase
@@ -227,6 +227,77 @@ def _assess_convergence(
     return True, "Optimization converged", "tolerance"
 
 
+def _run_curve_fit(
+    *,
+    f: Callable[..., Any],
+    xdata: np.ndarray,
+    ydata: np.ndarray,
+    p0: np.ndarray,
+    bounds: tuple[np.ndarray, np.ndarray],
+    config: NLSQConfig,
+    callback: Callable[..., Any] | None,
+    n_data: int,
+    n_params: int,
+    callable_scope: object,
+    log_prefix: str,
+) -> Any:
+    """Resolve the solver method, fetch/create a cached ``CurveFit``, and run it.
+
+    Shared by ``NLSQAdapter.fit`` and ``fit_jax``, which previously carried
+    near-identical copies of this block.
+
+    Parameters
+    ----------
+    f
+        The ``(xdata, *params) -> residuals`` callable passed to ``CurveFit``.
+    callable_scope
+        Passed to :func:`get_or_create_fitter` so different residual closures
+        don't share a stateful fitter.
+    log_prefix
+        Distinguishes the two call sites in the settings log line (e.g.
+        ``"NLSQAdapter.fit"`` vs ``"NLSQAdapter.fit_jax"``).
+    """
+    fitter, cache_hit = get_or_create_fitter(
+        n_data=n_data,
+        n_params=n_params,
+        phi_angles=None,
+        scaling_mode="auto",
+        callable_scope=callable_scope,
+    )
+    if cache_hit:
+        logger.debug("CurveFit cache hit for shape (%d, %d)", n_data, n_params)
+
+    # Resolve method — dogbox is not supported by CurveFit
+    method = config.method
+    if method == "dogbox":
+        logger.warning("Method 'dogbox' not supported by CurveFit; using 'trf'")
+        method = "trf"
+
+    logger.info(
+        "%s settings: method=%s loss=%s gtol=%.2e max_nfev=%s x_scale=%s",
+        log_prefix,
+        method,
+        config.loss,
+        config.gtol,
+        config.max_nfev if config.max_nfev is not None else f"auto({100 * n_params})",
+        config.x_scale,
+    )
+    fit_kwargs = _optimizer_kwargs(config, method)
+    if callback is not None and "callback" not in fit_kwargs:
+        fit_kwargs["callback"] = callback
+    _dbg_cb = _get_debug_curvefit_callback()
+    if _dbg_cb is not None and "callback" not in fit_kwargs:
+        fit_kwargs["callback"] = _dbg_cb
+    return fitter.curve_fit(  # type: ignore[attr-defined,union-attr]
+        f=f,
+        xdata=xdata,
+        ydata=ydata,
+        p0=p0,
+        bounds=bounds,
+        **fit_kwargs,
+    )
+
+
 # ---------------------------------------------------------------------------
 # NLSQAdapter — primary JAX-traced adapter
 # ---------------------------------------------------------------------------
@@ -257,7 +328,6 @@ class NLSQAdapter(NLSQAdapterBase):
         initial_params: np.ndarray,
         bounds: tuple[np.ndarray, np.ndarray],
         config: NLSQConfig,
-        jacobian_fn: Callable[[np.ndarray], np.ndarray] | None = None,
         callback: Callable[..., Any] | None = None,
     ) -> NLSQResult:
         """Run NLSQ optimisation using nlsq.CurveFit.
@@ -276,8 +346,6 @@ class NLSQAdapter(NLSQAdapterBase):
             ``(lower, upper)`` bound arrays.
         config : NLSQConfig
             Optimisation configuration.
-        jacobian_fn : callable, optional
-            Analytic Jacobian (unused by CurveFit; kept for API compatibility).
         callback : callable, optional
             Per-iteration ``curve_fit`` callback
             ``(iteration, cost, params, info=None, **kwargs) -> None``. Strictly
@@ -315,43 +383,18 @@ class NLSQAdapter(NLSQAdapterBase):
                 # jnp.Array satisfies the ndarray protocol at runtime; ignore static mismatch.
                 return residual_fn(jnp.array(params, dtype=jnp.float64))  # type: ignore[arg-type]
 
-            fitter, cache_hit = get_or_create_fitter(
-                n_data=n_data,
-                n_params=n_params,
-                phi_angles=None,
-                scaling_mode="auto",
-                callable_scope=residual_fn,
-            )
-            if cache_hit:
-                logger.debug("CurveFit cache hit for shape (%d, %d)", n_data, n_params)
-
-            # Resolve method — dogbox is not supported by CurveFit
-            method = config.method
-            if method == "dogbox":
-                logger.warning("Method 'dogbox' not supported by CurveFit; using 'trf'")
-                method = "trf"
-
-            logger.info(
-                "NLSQAdapter settings: method=%s loss=%s gtol=%.2e max_nfev=%s x_scale=%s",
-                method,
-                config.loss,
-                config.gtol,
-                config.max_nfev if config.max_nfev is not None else f"auto({100 * n_params})",
-                config.x_scale,
-            )
-            fit_kwargs = _optimizer_kwargs(config, method)
-            if callback is not None and "callback" not in fit_kwargs:
-                fit_kwargs["callback"] = callback
-            _dbg_cb = _get_debug_curvefit_callback()
-            if _dbg_cb is not None and "callback" not in fit_kwargs:
-                fit_kwargs["callback"] = _dbg_cb
-            nlsq_result = fitter.curve_fit(  # type: ignore[attr-defined,union-attr]
+            nlsq_result = _run_curve_fit(
                 f=_wrapped,
                 xdata=xdata,
                 ydata=ydata,
                 p0=initial_params,
                 bounds=(lower_bounds, upper_bounds),
-                **fit_kwargs,
+                config=config,
+                callback=callback,
+                n_data=n_data,
+                n_params=n_params,
+                callable_scope=residual_fn,
+                log_prefix="NLSQAdapter.fit",
             )
 
             wall_time = time.perf_counter() - start_time
@@ -451,42 +494,18 @@ class NLSQAdapter(NLSQAdapterBase):
             xdata = np.arange(n_data, dtype=np.float64)
             ydata = np.zeros(n_data, dtype=np.float64)
 
-            fitter, cache_hit = get_or_create_fitter(
-                n_data=n_data,
-                n_params=n_params,
-                phi_angles=None,
-                scaling_mode="auto",
-                callable_scope=jax_residual_fn,
-            )
-            if cache_hit:
-                logger.debug("CurveFit cache hit for shape (%d, %d)", n_data, n_params)
-
-            method = config.method
-            if method == "dogbox":
-                logger.warning("Method 'dogbox' not supported by CurveFit; using 'trf'")
-                method = "trf"
-
-            logger.info(
-                "NLSQAdapter.fit_jax settings: method=%s loss=%s gtol=%.2e max_nfev=%s x_scale=%s",
-                method,
-                config.loss,
-                config.gtol,
-                config.max_nfev if config.max_nfev is not None else f"auto({100 * n_params})",
-                config.x_scale,
-            )
-            fit_kwargs = _optimizer_kwargs(config, method)
-            if callback is not None and "callback" not in fit_kwargs:
-                fit_kwargs["callback"] = callback
-            _dbg_cb = _get_debug_curvefit_callback()
-            if _dbg_cb is not None and "callback" not in fit_kwargs:
-                fit_kwargs["callback"] = _dbg_cb
-            nlsq_result = fitter.curve_fit(  # type: ignore[attr-defined,union-attr]
+            nlsq_result = _run_curve_fit(
                 f=jax_residual_fn,
                 xdata=xdata,
                 ydata=ydata,
                 p0=initial_params,
                 bounds=(lower_bounds, upper_bounds),
-                **fit_kwargs,
+                config=config,
+                callback=callback,
+                n_data=n_data,
+                n_params=n_params,
+                callable_scope=jax_residual_fn,
+                log_prefix="NLSQAdapter.fit_jax",
             )
 
             wall_time = time.perf_counter() - start_time
@@ -604,7 +623,6 @@ class NLSQWrapper(NLSQAdapterBase):
         initial_params: np.ndarray,
         bounds: tuple[np.ndarray, np.ndarray],
         config: NLSQConfig,
-        jacobian_fn: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> NLSQResult:
         """Run NLSQ optimisation with automatic memory-based strategy routing.
 
@@ -618,8 +636,6 @@ class NLSQWrapper(NLSQAdapterBase):
             ``(lower, upper)`` bound arrays.
         config : NLSQConfig
             Optimisation configuration.
-        jacobian_fn : callable, optional
-            Analytic Jacobian (for API compatibility).
 
         Returns
         -------
@@ -636,7 +652,7 @@ class NLSQWrapper(NLSQAdapterBase):
         try:
             probe = residual_fn(initial_params)
             n_data = len(np.asarray(probe))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error("NLSQWrapper: residual probe failed: %s", exc)
             wall_time = time.perf_counter() - start_time
             return build_failed_result(
@@ -857,7 +873,7 @@ class NLSQWrapper(NLSQAdapterBase):
                 )
                 return result
 
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning(
                     "NLSQWrapper: tier %s attempt %d/%d failed: %s",
                     tier.value,

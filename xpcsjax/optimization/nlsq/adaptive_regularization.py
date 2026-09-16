@@ -351,26 +351,34 @@ class AdaptiveRegularizer:
             if self.config.mode == "relative" or (self.config.mode == "auto" and self.n_phi > 5):
                 # CV-based regularization using JAX operations
                 mean_val = jnp.mean(group_params)
-                std_val = jnp.std(group_params)
+                # CV² is formed from the VARIANCE, never via jnp.std(): the
+                # penalty only ever uses cv**2 = var / mean**2, and routing it
+                # through sqrt makes d(std**2)/dx = 2*std * d(std)/dx =
+                # 2*0 * (x-mean)/(n*0) = NaN for a uniform group (std == 0).
+                # Every per-angle group IS uniform at the quantile-seeded x0,
+                # so the whole group's gradient block was NaN from the first
+                # L-BFGS step and those parameters never moved. var's gradient
+                # is smooth everywhere (2(x-mean)/n).
+                var_val = jnp.var(group_params)
 
                 # Safe division: sanitize only the denominator, not the numerator.
-                # jnp.where(cond, std/mean, std) evaluates BOTH branches under
+                # jnp.where(cond, var/mean**2, var) evaluates BOTH branches under
                 # JIT/grad, so mean=0 produces Inf in the untaken branch and
                 # contaminates the gradient (0*inf=nan) even though the forward
-                # value is masked out correctly. std_val itself is never unsafe
+                # value is masked out correctly. var_val itself is never unsafe
                 # (only the division is), so only the denominator needs a safe
-                # substitute -- the fallback value stays std_val, matching the
-                # NumPy sibling compute_regularization() above (line 276).
+                # substitute -- the fallback value stays var (== std**2),
+                # matching the NumPy sibling compute_regularization() above.
                 # Zeroing the numerator instead (an earlier version of this fix)
                 # silently collapsed the fallback to cv=0, killing the L3 penalty
                 # exactly at the near-zero-mean, high-relative-spread case it
                 # exists to catch.
                 mean_is_nonzero = jnp.abs(mean_val) > 1e-10
-                safe_denom = jnp.where(mean_is_nonzero, jnp.abs(mean_val), 1.0)
-                cv = jnp.where(mean_is_nonzero, std_val / safe_denom, std_val)
+                safe_denom_sq = jnp.where(mean_is_nonzero, mean_val**2, 1.0)
+                cv_sq = jnp.where(mean_is_nonzero, var_val / safe_denom_sq, var_val)
 
                 # L_reg = λ × CV² × MSE × n_points
-                group_reg = self.lambda_value * (cv**2) * mse * n_points
+                group_reg = self.lambda_value * cv_sq * mse * n_points
 
             else:
                 # Original absolute variance using JAX operations

@@ -46,7 +46,7 @@ def test_stratified_sigma_phi_index_matches_own_angle():
         t2=t2_unique,
     )
 
-    result = NLSQWrapper._prepare_sigma_data(None, data, n_data=3)  # noqa: SLF001
+    result = NLSQWrapper._prepare_sigma_data(None, data, n_data=3)
 
     assert result is not None
     np.testing.assert_array_equal(result, [1.0, 2.0, 3.0])

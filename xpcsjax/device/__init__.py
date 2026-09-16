@@ -34,7 +34,7 @@ logging.getLogger("jax._src.compiler").setLevel(logging.ERROR)
 # module (not an optional external package) and its own hard dependency,
 # psutil, is a required (non-extra) install — this import cannot fail in any
 # supported install, so no soft-fail guard is needed.
-from xpcsjax.device.cpu import configure_cpu_hpc, detect_cpu_info  # noqa: E402,F401
+from xpcsjax.device.cpu import configure_cpu_hpc, detect_cpu_info  # noqa: E402
 
 __all__ = [
     "configure_cpu_hpc",

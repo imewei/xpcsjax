@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import datetime
 import json
-import math
 import os
 import tempfile
 from pathlib import Path
@@ -15,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from xpcsjax.io.json_utils import json_safe as _json_safe
+from xpcsjax.io.json_utils import json_serializer
 from xpcsjax.utils.logging import get_logger
 from xpcsjax.utils.path_validation import get_safe_output_dir
 
@@ -34,53 +35,13 @@ logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# JSON-serialization helpers
-# ---------------------------------------------------------------------------
-
-
-def _json_safe(value: Any) -> Any:
-    """Recursively coerce a value into JSON-serializable primitives.
-
-    Handles numpy scalars / arrays, Paths, datetimes, and nested
-    dict/list/tuple structures. Anything else falls back to ``str(value)``.
-
-    Non-finite floats (NaN / +-inf), which arise from diverged fits, are
-    coerced to ``None`` — ``json.dumps`` would otherwise emit bare
-    ``NaN`` / ``Infinity`` tokens that are not valid JSON and break strict
-    downstream parsers.
-    """
-    if isinstance(value, bool) or value is None or isinstance(value, (int, str)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, np.bool_):
-        return bool(value)
-    if isinstance(value, np.integer):
-        return int(value)
-    if isinstance(value, np.floating):
-        fval = float(value)
-        return fval if math.isfinite(fval) else None
-    if isinstance(value, np.ndarray):
-        # A 0-D array (e.g. ``np.array(3.5)``) is a scalar: ``tolist()`` returns a
-        # bare Python scalar, not a list, so route it back through the scalar
-        # branches above (finite-float -> None coercion included) instead of
-        # iterating a non-iterable.
-        if value.ndim == 0:
-            return _json_safe(value.item())
-        # Replace non-finite entries with None to keep the JSON valid.
-        return [_json_safe(v) for v in value.tolist()]
-    if isinstance(value, (Path, datetime.datetime, datetime.date)):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(k): _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe(v) for v in value]
-    return str(value)
-
-
-# ---------------------------------------------------------------------------
 # Structured result extraction
 # ---------------------------------------------------------------------------
+#
+# JSON-safety for this module's payloads is delegated to
+# xpcsjax.io.json_utils.json_safe (imported above as ``_json_safe``) rather
+# than a local copy — see xpcsjax/io/CLAUDE.md and xpcsjax/service/CLAUDE.md
+# for the single-serializer contract (NaN and +-inf both coerce to ``None``).
 
 
 def _extract_parameters(
@@ -371,7 +332,9 @@ def save_results_json(
 
     path = output_dir / filename
     tmp_path = output_dir / (filename + ".tmp")
-    tmp_path.write_text(json.dumps(_json_safe(payload), indent=2), encoding="utf-8")
+    tmp_path.write_text(
+        json.dumps(_json_safe(payload), indent=2, default=json_serializer), encoding="utf-8"
+    )
     os.replace(tmp_path, path)
     logger.info("Saved NLSQ result JSON to %s", path)
     return path
@@ -430,16 +393,17 @@ def save_results_npz(
         # No dtype=object: a fixed-width unicode array (numpy infers '<U...')
         # holds the same strings without forcing readers to pass
         # allow_pickle=True, matching the SEC-1 no-pickle convention this
-        # project already enforces in data/xpcs_loader.py and
-        # data/performance_engine.py.
+        # project already enforces in data/xpcs_loader.py and data/npz_cache.py.
         arrays["parameter_names"] = np.array(parameter_names)
     if residuals is not None:
         arrays["residuals"] = np.asarray(residuals, dtype=np.float64)
 
-    metadata_blob = json.dumps(_json_safe(_extract_metadata(result)))
+    metadata_blob = json.dumps(_json_safe(_extract_metadata(result)), default=json_serializer)
     arrays["metadata_json"] = np.array(metadata_blob)
     arrays["config_json"] = np.array(
-        json.dumps(_json_safe(_config_summary(config_manager, parameter_names)))
+        json.dumps(
+            _json_safe(_config_summary(config_manager, parameter_names)), default=json_serializer
+        )
     )
 
     path = output_dir / filename

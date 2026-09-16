@@ -147,7 +147,7 @@ class DatashaderRenderer:
             span = (span[0], span[0] + 1e-10)
 
         img = tf.shade(agg, cmap=cmap_obj, how="linear", span=span)
-        pil_img = img.to_pil()
+        pil_img: Image.Image = img.to_pil()
 
         # Composite onto white background to drop the alpha channel; cuts
         # PNG size by ~25% without visible difference for opaque heatmaps.

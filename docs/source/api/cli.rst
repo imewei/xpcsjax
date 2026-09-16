@@ -86,7 +86,7 @@ one interactively (``--interactive``).
 
 .. autofunction:: xpcsjax.cli.config_generator.show_template
 
-.. autofunction:: xpcsjax.cli.config_generator.validate_config
+.. autofunction:: xpcsjax.cli.config_generator.validate_config_file
 
 .. autofunction:: xpcsjax.cli.config_generator.get_template_path
 

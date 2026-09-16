@@ -121,10 +121,9 @@ def angle_in_range(angle: float, min_angle: float, max_angle: float) -> bool:
     if min_angle <= max_angle:
         # Normal range (doesn't span ±180° boundary)
         return min_angle <= angle <= max_angle
-    else:
-        # Wrapped range (spans ±180° boundary)
-        # Angle matches if it's >= min_angle OR <= max_angle
-        return angle >= min_angle or angle <= max_angle
+    # Wrapped range (spans ±180° boundary)
+    # Angle matches if it's >= min_angle OR <= max_angle
+    return angle >= min_angle or angle <= max_angle
 
 
 def apply_angle_filtering(

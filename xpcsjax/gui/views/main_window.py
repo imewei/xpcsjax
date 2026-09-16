@@ -617,7 +617,7 @@ class MainWindow(QMainWindow):
                         continue
                     try:
                         run.summary = load_result_summary(str(_expand_path(run.result_dir)))
-                    except Exception:  # noqa: BLE001 — never raise on open
+                    except Exception:
                         run.summary = None
                         run.result_missing = True
         # Only now, with the new project fully loaded and resolved, tear down

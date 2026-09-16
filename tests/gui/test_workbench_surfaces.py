@@ -15,10 +15,10 @@ import pytest
 pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
-from PySide6.QtWidgets import QDockWidget, QStackedWidget, QTabWidget  # noqa: E402
+from PySide6.QtWidgets import QDockWidget, QStackedWidget, QTabWidget
 
-from xpcsjax.gui.app import build_workbench  # noqa: E402
-from xpcsjax.gui.result_loader import ResultSummary  # noqa: E402
+from xpcsjax.gui.app import build_workbench
+from xpcsjax.gui.result_loader import ResultSummary
 
 
 def _summary() -> ResultSummary:

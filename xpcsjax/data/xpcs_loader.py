@@ -41,20 +41,15 @@ xpcsjax.fit_nlsq : Fit the loaded correlation data.
 
 from __future__ import annotations
 
-import contextlib
-import hashlib
 import json
 import logging
 import os
-import re
 import string
 import time
-import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
-# Handle optional dependencies with graceful fallback
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
@@ -62,205 +57,57 @@ if TYPE_CHECKING:
 else:
     NDArray = Any
 
-try:
-    import numpy as np
+# numpy, h5py, jax, jaxlib, and pyyaml are all pyproject.toml hard dependencies
+# (pyproject.toml:1-13); xpcsjax.utils.logging and xpcsjax.core.* are in-tree
+# modules. None of these imports can fail in any supported install, so the
+# ``except ImportError`` fallbacks/HAS_* flags previously here were dead
+# branches (2026-09-15 review, finding B3) — same stance already documented
+# below for xpcsjax.data.memory_manager.
+import jax.numpy as jnp
+import numpy as np
+import yaml
 
-    HAS_NUMPY = True
-except ImportError:
-    HAS_NUMPY = False
-    np = None  # type: ignore[assignment]
-
-try:
-    import h5py
-
-    HAS_H5PY = True
-except ImportError:
-    HAS_H5PY = False
-    h5py = None
-
-try:
-    import yaml
-
-    HAS_YAML = True
-except ImportError:
-    HAS_YAML = False
-    yaml = None  # type: ignore[assignment]
-
-# A real exception class even when PyYAML is absent, so `except (_YAML_ERROR, ...)`
-# below never evaluates `yaml.YAMLError` on a None `yaml` module (which would raise
-# AttributeError and mask the intended XPCSDependencyError).
-_YAML_ERROR: type[Exception] = (
-    yaml.YAMLError if HAS_YAML else type("_NoYAMLError", (Exception,), {})
+from xpcsjax.core.diagonal_correction import (
+    _is_jax_array,
+    apply_diagonal_correction_batch,
+)
+from xpcsjax.core.jax_backend import jax_available
+from xpcsjax.core.physics import PhysicsConstants
+from xpcsjax.utils.logging import (
+    get_logger,
+    log_calls,
+    log_exception,
+    log_performance,
+    log_phase,
 )
 
-# JAX integration
-try:
-    import jax.numpy as jnp
-
-    from xpcsjax.core.jax_backend import jax_available
-
-    HAS_JAX = True
-except ImportError:
-    HAS_JAX = False
-    jax_available = False
-    jnp = np  # type: ignore[misc]
-
-# V2 system integration
-try:
-    from xpcsjax.utils.logging import (
-        get_logger as _get_logger,
-    )
-    from xpcsjax.utils.logging import (
-        log_calls as _log_calls,
-    )
-    from xpcsjax.utils.logging import (
-        log_exception as _log_exception,
-    )
-    from xpcsjax.utils.logging import (
-        log_performance as _log_performance,
-    )
-    from xpcsjax.utils.logging import (
-        log_phase as _log_phase,
-    )
-
-    HAS_V2_LOGGING = True
-    get_logger = _get_logger
-    log_performance = _log_performance
-    log_calls = _log_calls
-    log_phase = _log_phase
-    log_exception = _log_exception
-except ImportError:
-    # Fallback to standard logging if v2 logging not available
-    import logging
-    from collections.abc import Iterator
-    from contextlib import contextmanager
-
-    HAS_V2_LOGGING = False
-
-    F = TypeVar("F", bound=Callable[..., Any])
-
-    def get_logger(name: str | None = None, **kwargs: Any) -> logging.Logger:
-        return logging.getLogger(name)
-
-    def log_exception(  # type: ignore[misc]
-        logger: Any,
-        exc: BaseException,
-        context: dict[str, Any] | None = None,
-        level: int = logging.ERROR,
-        include_traceback: bool = True,
-    ) -> None:
-        """Fallback log_exception when v2 logging is unavailable."""
-        try:
-            logger.log(level, "Exception: %r (context=%r)", exc, context)
-        except Exception:
-            pass
-
-    def log_performance(*args: Any, **kwargs: Any) -> Callable[[F], F]:
-        def decorator(func: F) -> F:
-            return func
-
-        return decorator
-
-    def log_calls(*args: Any, **kwargs: Any) -> Callable[[F], F]:
-        def decorator(func: F) -> F:
-            return func
-
-        return decorator
-
-    @contextmanager
-    def log_phase(name: str, **kwargs: Any) -> Iterator[Any]:  # type: ignore[misc]
-        """Fallback log_phase for environments without v2 logging.
-
-        The real ``log_phase`` takes ``(name, logger, level, track_memory,
-        threshold)`` — this fallback only needs the name; ``**kwargs`` swallows
-        the rest. ``# type: ignore[misc]`` acknowledges the signature delta
-        with the try-branch import.
-        """
-        yield type("PhaseContext", (), {"duration": 0.0, "memory_peak_gb": None})()
-
-
-# Physics validation integration
-try:
-    from xpcsjax.core.physics import (
-        PhysicsConstants as _PhysicsConstants,
-    )
-
-    HAS_PHYSICS_VALIDATION = True
-    PhysicsConstants = _PhysicsConstants
-except ImportError:
-    HAS_PHYSICS_VALIDATION = False
-    PhysicsConstants = None  # type: ignore
-
-# Diagonal correction from unified module
-try:
-    from xpcsjax.core.diagonal_correction import (
-        apply_diagonal_correction_batch as _apply_diagonal_correction_batch,
-    )
-
-    HAS_DIAGONAL_CORRECTION = True
-    apply_diagonal_correction_batch = _apply_diagonal_correction_batch
-except ImportError:
-    HAS_DIAGONAL_CORRECTION = False
-    apply_diagonal_correction_batch = None  # type: ignore
+_YAML_ERROR: type[Exception] = yaml.YAMLError
 
 # xpcsjax.data.memory_manager is an internal sibling module (not an optional
 # external package) and its own hard dependency, psutil, is a required
 # (non-extra) install — this import cannot fail in any supported install, so
 # no soft-fail guard is needed.
+# D6 (2026-09-15 review): the NPZ cache load/save/validate block and the two
+# HDF5 format readers were extracted into their own modules as thin moves.
+# Names re-exported below for backward compatibility (existing tests import
+# several of them directly off this module).
+from xpcsjax.data import hdf5_readers as _hdf5_readers  # noqa: E402
+from xpcsjax.data import npz_cache as _npz_cache  # noqa: E402
+from xpcsjax.data.hdf5_readers import (  # noqa: E402, F401
+    guard_aps_u_intermediate_allocation as _guard_aps_u_intermediate_allocation,
+)
 from xpcsjax.data.memory_manager import AdvancedMemoryManager  # noqa: E402
+from xpcsjax.data.npz_cache import (  # noqa: E402, F401
+    hash_filter_config as _hash_filter_config,
+)
+from xpcsjax.data.npz_cache import (  # noqa: E402
+    migrate_cache_template as _migrate_cache_template,
+)
+from xpcsjax.data.npz_cache import (  # noqa: E402, F401
+    peek_npz_array_header as _peek_npz_array_header,
+)
 
 logger = get_logger(__name__)
-
-# HDF5 chunk-cache tuning for the two production format loaders.
-# APS correlation matrices are (n_t, n_t) float64.  At worst-case n_t=1000
-# each matrix is 8 MB; we size the cache to hold ~12 matrices comfortably.
-# rdcc_nslots must be a prime roughly 100× the number of cached chunks.
-_HDF5_RDCC_N_MATRICES: int = 12
-_HDF5_RDCC_MATRIX_BYTES: int = 1000 * 1000 * 8  # float64, n_t=1000 worst-case
-_HDF5_RDCC_NBYTES: int = _HDF5_RDCC_N_MATRICES * _HDF5_RDCC_MATRIX_BYTES  # 96 MB
-_HDF5_RDCC_NSLOTS: int = 6257  # prime; ≥ 100 × _HDF5_RDCC_N_MATRICES
-_HDF5_RDCC_W0: float = 0.75  # prefer evicting chunks not likely to be re-read
-
-# Regex to detect old str.format()-style placeholders: {var} or {var:.4f}.
-# Negative lookbehind excludes ${var}, which is already valid Template syntax.
-_OLD_FORMAT_RE = re.compile(r"(?<!\$)\{(\w+)(?::[^}]*)?\}")
-
-
-def _migrate_cache_template(template: str) -> str:
-    """Auto-convert old {var} format templates to ${var} syntax.
-
-    Returns the template unchanged if it has no bare {var} placeholders
-    (including templates that already use $ syntax throughout).
-    Logs a warning on first migration. Handles templates that mix ${var}
-    and {var} syntax by migrating only the bare {var} placeholders.
-    """
-    if _OLD_FORMAT_RE.search(template):
-        migrated = _OLD_FORMAT_RE.sub(r"${\1}", template)
-        logger.warning(
-            "Cache template uses deprecated {var} format; auto-migrated to ${var}. "
-            "Update your YAML config: %r -> %r",
-            template,
-            migrated,
-        )
-        return migrated
-    return template
-
-
-def _is_jax_array(arr: Any) -> bool:
-    """Return True only for actual JAX arrays.
-
-    NumPy >=2.0 ndarrays also expose a ``.device`` attribute, so a bare
-    ``hasattr(arr, "device")`` misidentifies a genuine NumPy array as JAX
-    whenever JAX is importable. Use ``isinstance`` against ``jnp.ndarray``
-    (an alias for ``jax.Array``) instead.
-    """
-    return HAS_JAX and isinstance(arr, jnp.ndarray)
-
-
-def _hash_filter_config(filter_config: dict[str, Any]) -> str:
-    """Stable short fingerprint of a filter-settings dict for cache validation."""
-    canonical = json.dumps(filter_config, sort_keys=True, default=str)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 def _maybe_apply_mandatory_diagonal_correction(
@@ -284,15 +131,25 @@ def _maybe_apply_mandatory_diagonal_correction(
         return data
 
     logger.debug("Applying mandatory diagonal correction to correlation matrices")
-    if HAS_DIAGONAL_CORRECTION:
-        data["c2_exp"] = apply_diagonal_correction_batch(data["c2_exp"])
-    elif fallback_correct_diagonal_batch is not None:
-        data["c2_exp"] = fallback_correct_diagonal_batch(data["c2_exp"])
+    data["c2_exp"] = apply_diagonal_correction_batch(data["c2_exp"])
     return data
 
 
 class XPCSDataFormatError(Exception):
     """Raised when XPCS data format is not recognized or invalid."""
+
+
+class CacheStaleError(XPCSDataFormatError):
+    """Raised when a cache's source-file identity (name/size) no longer matches.
+
+    Unlike other cache-validation failures (q-vector/filter/dt mismatches,
+    which are genuine format incompatibilities the caller must resolve by
+    hand), this is a cache MISS: the loader catches it, logs a warning, and
+    falls through to reloading from the HDF5 source and overwriting the
+    stale cache. A source-file mtime-only change (a content-preserving
+    touch -- ``cp`` without ``-p``, ``rsync``, a backup restore) does not
+    raise this; only a name or size change does.
+    """
 
 
 class XPCSDependencyError(Exception):
@@ -357,30 +214,6 @@ def _check_square_matrix(shape: tuple[int, ...], *, source: str) -> None:
             f"Correlation dataset from {source!r} has shape {shape}; expected a "
             "square 2-D half-matrix (n_t, n_t)."
         )
-
-
-def _peek_npz_array_header(npz: Any, key: str) -> tuple[tuple[int, ...], np.dtype]:
-    """Read an ``.npz`` member's shape/dtype from its ``.npy`` header.
-
-    Does not materialize the array.
-
-    ``np.load(..., mmap_mode="r")`` is silently a no-op for zip-backed ``.npz``
-    files: ``NpzFile.__getitem__`` always fully decompresses into RAM
-    regardless of ``mmap_mode`` (verified on numpy 2.4.6 — the returned object
-    is a plain ``ndarray``, never a ``memmap``). An allocation-budget guard
-    that reads ``npz[key]`` before checking its shape has therefore already
-    caused the OOM it exists to prevent. Reading only the member's header
-    bytes here lets the caller guard BEFORE any full-array read.
-    """
-    from numpy.lib import format as npy_format
-
-    with npz.zip.open(f"{key}.npy") as f:
-        version = npy_format.read_magic(f)
-        if version == (1, 0):
-            shape, _fortran_order, dtype = npy_format.read_array_header_1_0(f)
-        else:
-            shape, _fortran_order, dtype = npy_format.read_array_header_2_0(f)
-    return shape, dtype
 
 
 def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
@@ -473,37 +306,6 @@ def _check_frame_count(n_frames: int, *, source: str) -> None:
         )
 
 
-def _guard_aps_u_intermediate_allocation(
-    corr_group: Any, c2_keys: list[str], valid_bin_indices: Any, *, source: str
-) -> None:
-    """Bound an intermediate correlation-matrix list BEFORE it is accumulated.
-
-    Both the APS-U loader and the APS-old quality-filtering branch reconstruct
-    and append every candidate correlation matrix to a Python list
-    (``c2_matrices_for_filtering`` / ``candidate_matrices``) prior to the
-    post-selection allocation guard on the final stacked buffer. A crafted file
-    with many large bins could therefore exhaust RAM during that accumulation,
-    defeating :data:`MAX_CORRELATION_ALLOC_BYTES`. Probe the first valid
-    matrix's shape via h5py metadata (``.shape``/``.dtype`` only — no full
-    array read) and apply the same square/frame/budget guards used on the
-    final buffer, scaled by the number of matrices that will be loaded
-    (SEC-2 parity). A no-op when no valid bin index is in range. Despite the
-    name (kept for git-blame continuity), this helper is format-agnostic —
-    reused as-is for both loader paths rather than duplicated.
-    """
-    in_range = [bi for bi in valid_bin_indices if bi < len(c2_keys)]
-    if not in_range:
-        return
-    probe = corr_group[c2_keys[in_range[0]]]
-    probe_shape = tuple(int(d) for d in probe.shape)
-    itemsize = np.dtype(probe.dtype).itemsize
-    # Reconstructed matrix is square (c2_half + c2_half.T), so the half-matrix is
-    # square (n_t, n_t) and bounds the per-matrix reconstructed size.
-    _check_square_matrix(probe_shape, source=source)
-    _check_frame_count(probe_shape[-1], source=source)
-    _check_allocation_budget(len(in_range), probe_shape[-1], itemsize, source=source)
-
-
 # Directory/traversal/drive tokens that must never appear in a cache filename.
 # Checked explicitly (not via ``os.sep``) so the guard is identical on POSIX and
 # Windows: on Windows ``os.sep`` is ``\`` only, so ``/`` and ``C:`` drive/ADS
@@ -560,11 +362,6 @@ def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
 
     try:
         if config_path.suffix.lower() in [".yaml", ".yml"]:
-            if not HAS_YAML:
-                raise XPCSDependencyError(
-                    "PyYAML required for YAML configuration files",
-                )
-
             # Native YAML loading
             with open(config_path, encoding="utf-8") as f:
                 config: dict[str, Any] = yaml.safe_load(f)
@@ -573,7 +370,7 @@ def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
             logger.debug(f"Config full path: {config_path}")
             return config
 
-        elif config_path.suffix.lower() == ".json":
+        if config_path.suffix.lower() == ".json":
             # JSON loading with structure conversion
             with open(config_path, encoding="utf-8") as f:
                 json_config: dict[str, Any] = json.load(f)
@@ -586,11 +383,10 @@ def load_xpcs_config(config_path: str | Path) -> dict[str, Any]:
             # In future, can add more sophisticated conversion via existing converter
             return json_config
 
-        else:
-            raise XPCSConfigurationError(
-                f"Unsupported configuration format: {config_path.suffix}. "
-                f"Supported formats: .yaml, .yml, .json",
-            )
+        raise XPCSConfigurationError(
+            f"Unsupported configuration format: {config_path.suffix}. "
+            f"Supported formats: .yaml, .yml, .json",
+        )
 
     except (_YAML_ERROR, json.JSONDecodeError) as e:
         raise XPCSConfigurationError(
@@ -701,21 +497,13 @@ class XPCSDataLoader:
         )
 
     def _check_dependencies(self) -> None:
-        """Check for required dependencies and raise error if missing."""
-        missing_deps = []
+        """Check for required dependencies.
 
-        if not HAS_NUMPY:
-            missing_deps.append("numpy")
-        if not HAS_H5PY:
-            missing_deps.append("h5py")
-
-        if missing_deps:
-            error_msg = f"Missing required dependencies: {', '.join(missing_deps)}. "
-            error_msg += "Please install them with: pip install " + " ".join(
-                missing_deps,
-            )
-            logger.error(error_msg)
-            raise XPCSDependencyError(error_msg)
+        numpy and h5py are pyproject.toml hard dependencies, so a missing
+        install fails at the top-of-module ``import numpy``/``import h5py``
+        (well before this constructor runs), not here. Kept as a no-op call
+        site for API stability; :class:`XPCSDependencyError` stays public.
+        """
 
     def _normalize_config_structure(self) -> None:
         """Transform flat config structure to nested structure for backward compatibility.
@@ -810,7 +598,6 @@ class XPCSDataLoader:
 
         # Add performance optimization defaults
         performance_defaults = {
-            "performance_engine_enabled": True,
             "memory_pressure_monitoring": True,
         }
 
@@ -824,31 +611,27 @@ class XPCSDataLoader:
     def _init_performance_components(self) -> None:
         """Initialize performance optimization components.
 
-        ``performance_engine`` is intentionally never constructed here: an
-        audit found XPCSDataLoader never called anything on it besides
-        ``shutdown()`` in :meth:`close` (every actual data-loading feature it
-        offers — the multi-level cache, memory-mapped chunked loading,
-        prefetching — was reachable only through the also-dead
-        ``AdvancedDatasetOptimizer``, never invoked in production). The
-        attribute is kept (always ``None``) so :meth:`close` stays a
-        harmless no-op and external code that only checks
-        ``loader.performance_engine is not None`` keeps working.
-
-        ``memory_manager`` IS constructed: its background pressure-monitor
+        ``memory_manager`` is constructed: its background pressure-monitor
         thread has a real, documented side effect (WARNING logs when memory
         pressure crosses the 75%/90% thresholds — see
         ``docs/source/theory/heterodyne_memory_strategy.rst``), regardless of
         whether anyone calls a method on the returned object.
+
+        A ``performance_engine`` attribute (the multi-level cache,
+        memory-mapped chunked loading, and prefetching engine formerly in
+        ``xpcsjax.data.performance_engine``) used to also live here, always
+        ``None`` — an audit found XPCSDataLoader never called anything on it
+        besides ``shutdown()`` in :meth:`close`, and every actual feature it
+        offered was reachable only through the also-dead
+        ``AdvancedDatasetOptimizer``, never invoked in production. Both the
+        module and the attribute were removed in the 2026-09-15 review
+        (finding B1).
         """
-        self.performance_engine = None
         self.memory_manager = None
 
-        # Check if performance optimization is enabled
+        # ``performance.performance_engine_enabled`` used to gate the (deleted)
+        # PerformanceEngine; the only knob left here is memory-pressure monitoring.
         performance_config = self.config.get("performance", {})
-        if not performance_config.get("performance_engine_enabled", True):
-            logger.info("Performance engine disabled in configuration")
-            return
-
         try:
             # Initialize memory manager
             if performance_config.get("memory_pressure_monitoring", True):
@@ -866,27 +649,10 @@ class XPCSDataLoader:
             self.memory_manager = None
 
     def close(self) -> None:
-        """Shut down the performance engine and memory manager, if constructed.
+        """Shut down the memory manager, if constructed.
 
-        ``performance_engine`` is never constructed by
-        :meth:`_init_performance_components` in production (see its
-        docstring), but the attribute stays writable and is documented as
-        such — this branch stays so any external/future code that DOES
-        assign a real :class:`PerformanceEngine` to it still gets its
-        monitoring thread joined on close, instead of silently leaking it.
-        Both components already implement a full ``shutdown()`` (monitoring
-        thread join, executor shutdown, cache/mmap cleanup); safe to call
-        multiple times; best-effort per component so one failure doesn't
-        block the other's cleanup.
+        Safe to call multiple times.
         """
-        if self.performance_engine is not None:
-            try:
-                self.performance_engine.shutdown()
-            except Exception as e:  # pragma: no cover - defensive only
-                logger.warning(f"Error shutting down performance engine: {e}")
-            finally:
-                self.performance_engine = None
-
         if self.memory_manager is not None:
             try:
                 self.memory_manager.shutdown()
@@ -942,8 +708,7 @@ class XPCSDataLoader:
         """Get validation settings from configuration."""
         validation_level = self.v2_config.get("validation_level", "basic")
         return {
-            "physics_checks": self.v2_config.get("physics_validation", False)
-            and HAS_PHYSICS_VALIDATION,
+            "physics_checks": self.v2_config.get("physics_validation", False),
             "data_quality": validation_level != "none",
             "comprehensive": validation_level == "full",
         }
@@ -966,7 +731,7 @@ class XPCSDataLoader:
         """
         output_format = self._get_output_format()
 
-        if output_format == "jax" and HAS_JAX and jax_available:
+        if output_format == "jax" and jax_available:
             logger.debug("Converting arrays to JAX format")
             return {
                 k: jnp.asarray(np.ascontiguousarray(v), dtype=jnp.float64)
@@ -975,7 +740,7 @@ class XPCSDataLoader:
                 for k, v in data.items()
             }
 
-        elif output_format == "auto" and HAS_JAX and jax_available:
+        if output_format == "auto" and jax_available:
             logger.debug("Auto-selecting JAX format (available)")
             return {
                 k: jnp.asarray(np.ascontiguousarray(v), dtype=jnp.float64)
@@ -984,7 +749,7 @@ class XPCSDataLoader:
                 for k, v in data.items()
             }
 
-        elif output_format == "auto":
+        if output_format == "auto":
             logger.debug("Auto-selecting numpy format (JAX not available)")
 
         return data  # Keep numpy format
@@ -1071,6 +836,7 @@ class XPCSDataLoader:
 
         # If user provided a direct NPZ path, prefer it
         direct_path = os.path.join(data_folder, data_file) if data_file else ""
+        data: dict[str, Any] | None = None
         if direct_path.endswith(".npz") and os.path.exists(direct_path):
             logger.info(f"Loading data from NPZ override: {Path(direct_path).name}")
             logger.debug(f"NPZ full path: {direct_path}")
@@ -1085,9 +851,17 @@ class XPCSDataLoader:
             # artifacts don't disclose the user's home/dataset directory layout.
             logger.info(f"Loading cached data from: {Path(cache_path).name}")
             logger.debug(f"Cache full path: {cache_path}")
-            data = self._load_from_cache(cache_path)
-        else:
-            # Load from raw HDF file
+            try:
+                data = self._load_from_cache(cache_path)
+            except CacheStaleError as exc:
+                # Stale cache (source name/size changed) is a MISS: fall
+                # through and reload from the HDF5, overwriting the cache.
+                logger.warning(
+                    f"{exc} Cache source changed; reloading from HDF5 and overwriting the cache."
+                )
+
+        if data is None:
+            # Load from raw HDF file (fresh load, or stale-cache fallback).
             hdf_path = os.path.join(data_folder, data_file)
             if not os.path.exists(hdf_path):
                 raise FileNotFoundError(
@@ -1227,131 +1001,9 @@ class XPCSDataLoader:
     def _load_from_cache(self, cache_path: str) -> dict[str, Any]:
         """Load data from NPZ cache file with q-vector validation.
 
-        Returns 1D time arrays for NLSQ (meshgrids generated on demand).
-        Only supports new 1D array cache format. Old 2D caches must be regenerated.
-
-        Cache files live in config-controlled paths, so this loader treats them
-        as untrusted input: ``allow_pickle=False`` blocks object deserialization,
-        metadata is read from a JSON-encoded scalar (``cache_metadata_json``),
-        and legacy object-array ``cache_metadata`` is refused.
+        See :func:`xpcsjax.data.npz_cache.load_from_cache` (D6 extraction).
         """
-        with np.load(cache_path, allow_pickle=False, mmap_mode="r") as data:
-            if "cache_metadata_json" in data:
-                metadata_text = str(np.asarray(data["cache_metadata_json"]).item())
-                try:
-                    metadata = json.loads(metadata_text)
-                except json.JSONDecodeError as exc:
-                    raise ValueError(
-                        f"Cache {cache_path} has malformed cache_metadata_json "
-                        f"(not valid JSON): {exc}"
-                    ) from exc
-                if not isinstance(metadata, dict):
-                    raise ValueError(
-                        f"Cache {cache_path}: cache_metadata_json must encode a "
-                        f"JSON object, got {type(metadata).__name__}"
-                    )
-                self._validate_cache_q_vector(metadata)
-                logger.debug(f"Cache metadata validation passed: {metadata}")
-            elif "cache_metadata" in data.files:
-                # Legacy object-serialized metadata is a trust-boundary problem
-                # (arbitrary code via deserialization from a config-controlled
-                # path). Refuse it; the user must regenerate the cache.
-                raise ValueError(
-                    f"Cache {cache_path} uses the legacy 'cache_metadata' "
-                    "object-array format, which xpcsjax refuses to deserialize "
-                    "for safety. Delete the cache file and regenerate; the new "
-                    "format stores metadata as JSON under "
-                    "'cache_metadata_json'."
-                )
-            # No metadata key at all: this is a plain source NPZ (e.g. a
-            # user-provided data file via ``data_file_name``), NOT a q-selective
-            # cache. Its q lives in ``wavevector_q_list`` inside the file, so there
-            # is no cross-q reuse to guard against — load it directly. Only
-            # SELECTIVE caches (always carrying ``cache_metadata_json``) need the
-            # q-vector validation above.
-
-            # Extract correlation data — np.array() copies from mmap before
-            # the context manager closes the file (prevents dangling mmap views).
-            # allow_pickle=False causes object-dtype arrays to raise here; we
-            # surface that as a clearer error rather than letting numpy's
-            # internal message leak.
-            try:
-                # threat-03: validate the cached correlation shape BEFORE copying
-                # it into RAM. mmap_mode="r" is a no-op for zip-backed .npz
-                # (see _peek_npz_array_header) — reading data["c2_exp"] first to
-                # inspect its shape would materialize the full array before the
-                # guard runs, which is exactly the OOM this exists to prevent.
-                # Peek the .npy header instead (no allocation), and read the
-                # array itself exactly once below. (Inside the try so an
-                # object-dtype member still surfaces the friendly allow_pickle
-                # message below.)
-                c2_shape, c2_dtype = _peek_npz_array_header(data, "c2_exp")
-                if len(c2_shape) == 3:
-                    _check_square_matrix(
-                        (int(c2_shape[-2]), int(c2_shape[-1])),
-                        source=cache_path,
-                    )
-                    _check_frame_count(int(c2_shape[-1]), source=cache_path)
-                    _check_allocation_budget(
-                        int(c2_shape[0]),
-                        int(c2_shape[-1]),
-                        c2_dtype.itemsize,
-                        source=cache_path,
-                    )
-
-                c2_exp = np.array(data["c2_exp"])
-                cached_t1 = np.array(data["t1"])
-                cached_t2 = np.array(data["t2"])
-                wavevector_q_list = np.array(data["wavevector_q_list"])
-                phi_angles_list = np.array(data["phi_angles_list"])
-            except ValueError as exc:
-                raise ValueError(
-                    f"Cache {cache_path} contains an object-dtype array under "
-                    "a data key, which is not allowed (allow_pickle=False). "
-                    "Delete the cache file and regenerate."
-                ) from exc
-
-            # Reject old 2D meshgrid cache format
-            if cached_t1.ndim == 2 or cached_t2.ndim == 2:
-                raise ValueError(
-                    f"Old 2D meshgrid cache format detected in {cache_path}. "
-                    "Please delete the cache file and regenerate with current code. "
-                    "New cache format uses 1D time arrays."
-                )
-
-            # t1/t2 are fully derived from dt + frame count ([0, dt, 2*dt, ...],
-            # see _calculate_time_arrays) — never independently meaningful data.
-            # Recompute from the CURRENT config's dt instead of trusting whatever
-            # is stored in the cache: a cache built by an older xpcsjax version,
-            # or by an external conversion script (e.g. a one-off HDF5->NPZ
-            # converter), can encode a different time-origin convention (e.g.
-            # 1-indexed frames, t[0] = dt instead of 0). ``_validate_cache_q_vector``'s
-            # dt fingerprint only fires when the cache carries a ``dt`` metadata
-            # key, so a foreign/legacy cache without one would otherwise pass
-            # silently and desync frame-0 alignment (t1==0/t2==0 boundary) between
-            # this run's plots/fit and every other cache-free or in-repo run. This
-            # guarantees ALL analysis modes and both cached and freshly-loaded data
-            # share one time-axis convention.
-            t1 = self._calculate_time_arrays(c2_exp.shape[-1])
-            t2 = t1
-            if cached_t1.shape == t1.shape and not np.allclose(cached_t1, t1, atol=1e-9):
-                logger.warning(
-                    f"Cache {cache_path}: stored t1/t2 time axis does not match "
-                    f"the current dt={self.analyzer_config.get('dt')}s convention "
-                    "(expected [0, dt, 2*dt, ...]). Ignoring the cached axis and "
-                    "recomputing it — delete and regenerate this cache to silence "
-                    "this warning.",
-                )
-
-            result = {
-                "wavevector_q_list": wavevector_q_list,
-                "phi_angles_list": phi_angles_list,
-                "t1": t1,  # 1D array: [0, dt, 2*dt, ...] — always recomputed, never cached
-                "t2": t2,  # 1D array: [0, dt, 2*dt, ...] — always recomputed, never cached
-                "c2_exp": c2_exp,
-            }
-            _validate_loaded_arrays(result, source=cache_path)
-            return result
+        return _npz_cache.load_from_cache(self, cache_path)
 
     @log_performance(threshold=1.0)
     def _load_from_hdf(self, hdf_path: str) -> dict[str, Any]:
@@ -1387,485 +1039,25 @@ class XPCSDataLoader:
     def _detect_format(self, hdf_path: str) -> str:
         """Detect whether an HDF5 file is APS old or APS-U new format.
 
-        Returns
-        -------
-        str
-            ``"aps_u"`` for APS-U format, ``"aps_old"`` for APS old format, or
-            ``"unknown"`` for unrecognized or empty files.
+        See :func:`xpcsjax.data.hdf5_readers.detect_format` (D6 extraction).
         """
-        with h5py.File(hdf_path, "r") as f:
-            # Check for APS-U format keys
-            if (
-                "xpcs" in f
-                and "qmap" in f["xpcs"]
-                and "dynamic_v_list_dim0" in f["xpcs/qmap"]
-                and "twotime" in f["xpcs"]
-                and "correlation_map" in f["xpcs/twotime"]
-            ):
-                return "aps_u"
-
-            # Check for APS old format keys
-            elif (
-                "xpcs" in f
-                and "dqlist" in f["xpcs"]
-                and "dphilist" in f["xpcs"]
-                and "exchange" in f
-                and "C2T_all" in f["exchange"]
-            ):
-                return "aps_old"
-
-            else:
-                # Log the top-level keys for debugging unrecognized formats
-                top_keys = list(f.keys())
-                logger.warning(
-                    f"Unrecognized HDF5 format: top-level keys={top_keys}. "
-                    "Expected APS-U (xpcs/twotime/correlation_map) or "
-                    "APS old (xpcs/dqlist + exchange/C2T_all)."
-                )
-                return "unknown"
+        return _hdf5_readers.detect_format(hdf_path)
 
     @log_performance(threshold=0.8)
     def _load_aps_old_format(self, hdf_path: str) -> dict[str, Any]:
         """Load data from APS old format HDF5 file.
 
-        Optimization: Uses selective HDF5 reads when quality filtering
-        is disabled. Instead of loading all matrices upfront, we:
-        1. First determine which indices are needed based on q-selection
-        2. Only load those specific matrices from HDF5
-
-        This reduces I/O by up to 98% for typical datasets where only ~23 of
-        ~1150 matrices are actually used.
+        See :func:`xpcsjax.data.hdf5_readers.load_aps_old_format` (D6 extraction).
         """
-        with h5py.File(
-            hdf_path,
-            "r",
-            rdcc_nbytes=_HDF5_RDCC_NBYTES,
-            rdcc_nslots=_HDF5_RDCC_NSLOTS,
-            rdcc_w0=_HDF5_RDCC_W0,
-        ) as f:
-            # Load q and phi lists (small metadata - always needed)
-            dqlist = f["xpcs/dqlist"][0, :]  # Shape (1, N) -> (N,)
-            dphilist = f["xpcs/dphilist"][0, :]  # Shape (1, N) -> (N,)
-
-            # Load correlation data from exchange/C2T_all
-            c2t_group = f["exchange/C2T_all"]
-            # APS old format: keys are in HDF5 creation order, which IS the correct
-            # positional order matching dqlist/dphilist indices. Do NOT sort — integer
-            # keys like "1","2","10" sort lexicographically wrong. The APS-U path uses
-            # sorted() because it has zero-padded keys (c2_00001, c2_00002, …).
-            c2_keys = list(c2t_group.keys())
-            if not c2_keys:
-                raise ValueError(
-                    f"APS old-format HDF5 file contains no correlation matrices "
-                    f"in 'exchange/C2T_all': {hdf_path}"
-                )
-            # Pre-filter baseline: all candidate matrices before (q,phi) selection.
-            self._n_prefilter_matrices = len(c2_keys)
-
-            # Check if quality-based filtering is enabled (requires loading all matrices)
-            filtering_config = self.config.get("data_filtering", {})
-            quality_filtering_enabled = filtering_config.get(
-                "enabled", False
-            ) and filtering_config.get("quality_filtering", {}).get("enabled", False)
-
-            # Select optimal q-vector first (doesn't require matrices)
-            logger.debug("Selecting optimal q-vector for caching")
-            selected_q_idx = self._select_optimal_wavevector(dqlist)
-            selected_q = dqlist[selected_q_idx]
-
-            # Calculate q-vector tolerance as fraction of selected q-vector
-            q_tolerance_fraction = self.config.get("q_tolerance_fraction", 0.1)
-            q_tolerance = selected_q * q_tolerance_fraction
-            q_matching_indices = np.where(np.abs(dqlist - selected_q) <= q_tolerance)[0]
-
-            # If we still get too few phi angles, expand the search
-            if len(q_matching_indices) < 5:
-                # Sort by distance from selected q and take closest N entries
-                q_distances = np.abs(dqlist - selected_q)
-                closest_indices = np.argsort(q_distances)
-                # Take up to 10 closest q-vectors to ensure good phi angle coverage
-                n_desired = min(10, len(closest_indices))
-                q_matching_indices_list = [int(i) for i in closest_indices[:n_desired]]
-                q_matching_indices = np.array(q_matching_indices_list, dtype=int)
-                logger.debug(
-                    f"Expanded selection to {len(q_matching_indices)} closest q-vectors for better phi coverage",
-                )
-
-            logger.debug(
-                f"Selected {len(q_matching_indices)} (q,phi) pairs with q-range: "
-                f"{dqlist[q_matching_indices].min():.6f} - {dqlist[q_matching_indices].max():.6f} AA^-1",
-            )
-
-            if quality_filtering_enabled:
-                # Two-pass optimization: metadata filter first, then load + quality filter
-                # Pass 1: phi/q filtering without loading matrices (metadata only)
-                logger.debug("Quality filtering enabled - running metadata-only pre-filter")
-                metadata_indices = self._get_selected_indices(
-                    dqlist,
-                    dphilist,
-                    None,  # No matrices needed for phi-only filtering
-                )
-
-                # Narrow to candidates via q + phi intersection
-                if metadata_indices is not None:
-                    candidate_indices = np.intersect1d(q_matching_indices, metadata_indices)
-                else:
-                    candidate_indices = q_matching_indices
-
-                logger.debug(
-                    f"Pre-filter: {len(c2_keys)} total -> {len(candidate_indices)} candidates "
-                    f"({len(candidate_indices) / len(c2_keys) * 100:.1f}% I/O reduction)"
-                )
-
-                # Pass 2: load only candidate matrices from HDF5
-                # SEC-2 (parity with APS-U): bound the intermediate accumulation
-                # up front so a crafted file with many large candidate bins cannot
-                # exhaust RAM before the post-selection guard on the final buffer.
-                _guard_aps_u_intermediate_allocation(
-                    c2t_group,
-                    c2_keys,
-                    candidate_indices,
-                    source="HDF5 correlation dataset (APS-old quality-filter intermediate)",
-                )
-                candidate_matrices = []
-                for idx in candidate_indices:
-                    key = c2_keys[int(idx)]
-                    c2_half = c2t_group[key][()]
-                    c2_full = self._reconstruct_full_matrix(c2_half)
-                    candidate_matrices.append(c2_full)
-
-                # Apply quality filtering on the loaded subset
-                quality_indices = self._get_selected_indices(
-                    dqlist[candidate_indices],
-                    dphilist[candidate_indices],
-                    candidate_matrices,
-                )
-
-                # Map quality filter results back to original indices
-                if quality_indices is not None:
-                    final_indices = candidate_indices[quality_indices]
-                    selected_c2_matrices = [candidate_matrices[i] for i in quality_indices]
-                    logger.debug(
-                        f"After quality filtering: {len(candidate_indices)} -> {len(final_indices)} matrices",
-                    )
-                else:
-                    final_indices = candidate_indices
-                    selected_c2_matrices = candidate_matrices
-            else:
-                # OPTIMIZATION: No quality filtering - selective HDF5 reads
-                # Only load the matrices we actually need (up to 98% I/O reduction)
-                logger.debug("Applying phi-only filtering (no quality filtering)")
-                selected_indices = self._get_selected_indices(
-                    dqlist,
-                    dphilist,
-                    None,  # Don't pass matrices - not needed for phi-only filtering
-                )
-
-                # Apply additional phi filtering if enabled
-                if selected_indices is not None:
-                    final_indices = np.intersect1d(q_matching_indices, selected_indices)
-                    logger.debug(
-                        f"After phi filtering: {len(q_matching_indices)} -> {len(final_indices)} matrices",
-                    )
-                else:
-                    final_indices = q_matching_indices
-                    logger.debug(
-                        f"No phi filtering - using all {len(final_indices)} (q,phi) pairs",
-                    )
-
-                # Selective load: only read the matrices we need.
-                # C1 perf: pre-allocate a single C-order output buffer and write
-                # each reconstructed matrix directly, eliminating the Python-list
-                # accumulation + np.array() re-stack copy (~30-50% peak-RSS saving).
-                logger.info(
-                    f"Selective HDF5 read: loading {len(final_indices)} of {len(c2_keys)} matrices "
-                    f"({len(final_indices) / len(c2_keys) * 100:.1f}% I/O)"
-                )
-                n_sel = len(final_indices)
-                if n_sel == 0:
-                    raise ValueError(
-                        "Phi/q filtering selected zero (q,phi) pairs to load; check "
-                        "the angle/q-range filters in the config against the dataset "
-                        "(no matrices match the requested ranges)."
-                    )
-                # Read first matrix to get the time-axis dimension without storing it.
-                # Preserve the source dtype (do NOT force float64): _reconstruct_full_matrix
-                # did the c2_half + c2_half.T arithmetic in the stored dtype, and parity is
-                # bit-exact — upcasting here would change the reconstructed bits.
-                _probe_half = c2t_group[c2_keys[int(final_indices[0])]][()]
-                _check_square_matrix(_probe_half.shape, source="HDF5 correlation dataset")
-                _n_t = _probe_half.shape[0]
-                _check_frame_count(int(_n_t), source="HDF5 correlation dataset")
-                _check_allocation_budget(
-                    int(n_sel),
-                    int(_n_t),
-                    _probe_half.dtype.itemsize,
-                    source="HDF5 correlation dataset",
-                )
-                c2_matrices_array = np.empty(
-                    (n_sel, _n_t, _n_t), dtype=_probe_half.dtype, order="C"
-                )
-                # Write the already-read probe matrix into slot 0 (exact same arithmetic
-                # as _reconstruct_full_matrix: c2_half + c2_half.T, diagonal /= 2).
-                c2_matrices_array[0] = _probe_half + _probe_half.T
-                _diag_idx = np.diag_indices(_n_t)
-                c2_matrices_array[0][_diag_idx] /= 2
-                del _probe_half
-                # Load remaining matrices directly into pre-allocated slots.
-                for _out_i, idx in enumerate(final_indices[1:], start=1):
-                    key = c2_keys[int(idx)]
-                    _c2_half = c2t_group[key][()]
-                    c2_matrices_array[_out_i] = _c2_half + _c2_half.T
-                    c2_matrices_array[_out_i][_diag_idx] /= 2
-
-            # Shared zero-selection guard. BOTH the quality-filtering and the
-            # phi-only branches resolve ``final_indices`` above. The phi-only
-            # branch additionally fast-fails earlier (before its pre-allocated
-            # probe read of ``final_indices[0]``), but the quality-filtering
-            # branch has no such early guard: an empty candidate set or a quality
-            # pass that rejects every row leaves ``final_indices`` empty and
-            # ``selected_c2_matrices`` empty, which would otherwise become an
-            # ``np.array([])`` and flow downstream as a malformed empty c2 stack.
-            # Fail loudly here for every APS-old selection path instead.
-            if len(final_indices) == 0:
-                raise ValueError(
-                    "Phi/q/quality filtering selected zero (q,phi) pairs to load; "
-                    "check the angle/q-range/quality filters in the config against "
-                    "the dataset (no matrices match the requested ranges)."
-                )
-
-            # Extract metadata for final indices
-            filtered_dqlist = dqlist[final_indices]
-            filtered_dphilist = dphilist[final_indices]
-            # c2_matrices_array already built (pre-allocated in no-quality-filter path;
-            # stacked from candidate_matrices list in the quality-filter path below)
-            if quality_filtering_enabled:
-                c2_matrices_array = np.array(selected_c2_matrices)
-
-            # Apply frame slicing to selected q-vector data
-            logger.debug(
-                f"Applying frame slicing to selected q-vector data: shape {c2_matrices_array.shape}",
-            )
-            c2_exp = self._apply_frame_slicing_to_selected_q(c2_matrices_array)
-
-            # Calculate 1D time array (meshgrids generated by NLSQ as needed)
-            time_1d = self._calculate_time_arrays(c2_exp.shape[-1])
-
-            return {
-                "wavevector_q_list": filtered_dqlist,  # Selected q-vectors (may be multiple for APS old)
-                "phi_angles_list": filtered_dphilist,  # Corresponding phi angles
-                "t1": time_1d,  # 1D time array starting from 0: [0, dt, 2*dt, ...]
-                "t2": time_1d.copy(),  # Independent copy (prevent aliasing mutation)
-                "c2_exp": c2_exp,  # Shape: (n_selected_pairs, sliced_frames, sliced_frames)
-            }
+        return _hdf5_readers.load_aps_old_format(self, hdf_path)
 
     @log_performance(threshold=0.8)
     def _load_aps_u_format(self, hdf_path: str) -> dict[str, Any]:
-        """Load data from APS-U new format HDF5 file using processed_bins mapping."""
-        with h5py.File(
-            hdf_path,
-            "r",
-            rdcc_nbytes=_HDF5_RDCC_NBYTES,
-            rdcc_nslots=_HDF5_RDCC_NSLOTS,
-            rdcc_w0=_HDF5_RDCC_W0,
-        ) as f:
-            # Load the processed_bins mapping - this tells us which (q,phi) pairs have correlation data
-            processed_bins = f["xpcs/twotime/processed_bins"][()]
+        """Load data from APS-U new format HDF5 file using processed_bins mapping.
 
-            # Load the q and phi lists
-            q_values = f["xpcs/qmap/dynamic_v_list_dim0"][()]  # All q values
-            phi_values = f["xpcs/qmap/dynamic_v_list_dim1"][()]  # All phi values available
-
-            n_q = len(q_values)
-            n_phi = len(phi_values)
-
-            logger.debug(f"APS-U format: {n_q} q-values, {n_phi} phi-values")
-            logger.debug(f"Q range: {q_values.min():.6f} to {q_values.max():.6f} A^-1")
-            logger.debug(f"Phi values: {phi_values}")
-            logger.debug(
-                f"Processed bins: {len(processed_bins)} correlation matrices available",
-            )
-            # Pre-filter baseline: all available bins before (q,phi) validity selection.
-            self._n_prefilter_matrices = len(processed_bins)
-
-            # The processed_bins represent which (q,phi) combinations have correlation data
-            # We need to map these to actual (q,phi) pairs using the grid structure
-            # For APS-U format: bin_idx = processed_bin - 1; q_idx = bin_idx // n_phi; phi_idx = bin_idx % n_phi
-            qphi_pairs = []
-            valid_bin_indices = []
-
-            for i, processed_bin in enumerate(processed_bins):
-                bin_idx = processed_bin - 1  # Convert to 0-based
-                q_idx = bin_idx // n_phi
-                phi_idx = bin_idx % n_phi
-
-                # Check if indices are valid
-                if 0 <= q_idx < n_q and 0 <= phi_idx < n_phi:
-                    q_val = q_values[q_idx]
-                    phi_val = phi_values[phi_idx]
-                    qphi_pairs.append((q_val, phi_val))
-                    valid_bin_indices.append(
-                        i,
-                    )  # Track which correlation matrix this corresponds to
-                else:
-                    logger.warning(
-                        f"Invalid bin mapping: processed_bin={processed_bin}, q_idx={q_idx}, phi_idx={phi_idx}",
-                    )
-
-            if len(qphi_pairs) == 0:
-                raise XPCSDataFormatError(
-                    "No valid (q,phi) pairs found from processed_bins mapping",
-                )
-
-            # Convert to arrays for processing
-            qphi_array = np.array(qphi_pairs)
-            filtered_dqlist = qphi_array[:, 0]  # q values for valid pairs
-            filtered_dphilist = qphi_array[:, 1]  # phi values for valid pairs
-
-            logger.debug(
-                f"Extracted {len(valid_bin_indices)} valid (q,phi) pairs from processed_bins",
-            )
-
-            # Load correlation matrices - only for the valid bins
-            corr_group = f["xpcs/twotime/correlation_map"]
-            c2_keys = sorted(
-                corr_group.keys(),
-            )  # Sort alphabetically (which works for c2_00001 format)
-
-            logger.debug(
-                f"Loading {len(valid_bin_indices)} correlation matrices corresponding to valid (q,phi) pairs",
-            )
-            c2_matrices_for_filtering = []
-
-            # SEC-2 (parity with APS-old): bound the intermediate accumulation up
-            # front. Probe the first valid matrix and reject an oversized/over-budget
-            # file BEFORE the list is built, so a crafted APS-U file cannot exhaust
-            # RAM ahead of the post-selection guard on the final buffer.
-            _guard_aps_u_intermediate_allocation(
-                corr_group,
-                c2_keys,
-                valid_bin_indices,
-                source="HDF5 correlation dataset (APS-U intermediate)",
-            )
-
-            # Load only the correlation matrices that correspond to valid (q,phi) pairs
-            for bin_idx in valid_bin_indices:
-                if bin_idx < len(c2_keys):
-                    key = c2_keys[bin_idx]
-                    c2_half = corr_group[key][()]  # Key is already a string
-                    # Reconstruct full matrix from half matrix
-                    c2_full = self._reconstruct_full_matrix(c2_half)
-                    c2_matrices_for_filtering.append(c2_full)
-                else:
-                    logger.warning(
-                        f"Matrix index {bin_idx} exceeds available matrices ({len(c2_keys)})",
-                    )
-
-            # Ensure we have consistent array sizes
-            min_count = min(len(c2_matrices_for_filtering), len(filtered_dqlist))
-            if len(c2_matrices_for_filtering) != len(filtered_dqlist):
-                n_matrices = len(c2_matrices_for_filtering)
-                n_pairs = len(filtered_dqlist)
-                n_discarded = abs(n_matrices - n_pairs)
-                logger.warning(
-                    f"APS-U matrix/pair count mismatch: {n_matrices} matrices vs "
-                    f"{n_pairs} (q,phi) pairs - truncating to {min_count} entries, "
-                    f"discarding {n_discarded} unmatched {'matrices' if n_matrices > n_pairs else '(q,phi) pairs'}. "
-                    "Check HDF5 file integrity."
-                )
-                c2_matrices_for_filtering = c2_matrices_for_filtering[:min_count]
-                filtered_dqlist = filtered_dqlist[:min_count]
-                filtered_dphilist = filtered_dphilist[:min_count]
-
-            # Apply comprehensive data filtering
-            logger.debug("Applying comprehensive data filtering")
-            selected_indices = self._get_selected_indices(
-                filtered_dqlist,
-                filtered_dphilist,
-                c2_matrices_for_filtering,
-            )
-
-            # Select optimal q-vector (closest match) from the filtered data
-            selected_q_idx = self._select_optimal_wavevector(filtered_dqlist)
-            selected_q = filtered_dqlist[selected_q_idx]
-
-            logger.debug(
-                f"Selected optimal q-vector: {selected_q:.6f} AA^-1 (index {selected_q_idx})",
-            )
-
-            # Find all (q,phi) pairs matching the selected q-vector
-            q_matching_indices = np.where(np.abs(filtered_dqlist - selected_q) < 1e-10)[0]
-            logger.debug(
-                f"Found {len(q_matching_indices)} (q,phi) pairs matching selected q-vector",
-            )
-
-            # If phi filtering was applied, intersect with q-vector selection
-            if selected_indices is not None:
-                # Keep only indices that match both q-vector selection AND phi filtering
-                final_indices = np.intersect1d(q_matching_indices, selected_indices)
-                logger.debug(
-                    f"After intersecting with phi filtering: {len(final_indices)} pairs remain",
-                )
-            else:
-                # No phi filtering, use all pairs for selected q-vector
-                final_indices = q_matching_indices
-                logger.debug(
-                    f"No phi filtering applied - using all {len(final_indices)} pairs for selected q-vector",
-                )
-
-            # Extract data for selected indices. An empty selection must abort,
-            # not silently fall back to (q,phi) index 0 (which would fit an
-            # unrelated q-vector) — audit C9.
-            final_indices = self._require_nonempty_selection(final_indices, selected_q=selected_q)
-
-            # Use final indices for both (q,phi) pairs and correlation matrices
-            final_dqlist = filtered_dqlist[final_indices]
-            final_dphilist = filtered_dphilist[final_indices]
-
-            logger.debug(f"Final selection: {len(final_indices)} correlation matrices")
-
-            # C1 perf: pre-allocate a single C-order output buffer and write each
-            # selected matrix directly, eliminating the Python-list + np.array() re-stack
-            # copy (~30-50% peak-RSS saving at 23M-point scale).
-            _n_sel_u = len(final_indices)
-            if _n_sel_u == 0:
-                # Unreachable: _require_nonempty_selection above raises on an
-                # empty selection. Kept as a defensive guard.
-                c2_matrices_array = np.empty((0,), dtype=np.float64)
-            else:
-                # Preserve source dtype (original was np.array(c2_matrices)); forcing
-                # float64 here would change reconstructed bits vs the parity baseline.
-                _first_mat = np.asarray(c2_matrices_for_filtering[int(final_indices[0])])
-                _check_square_matrix(_first_mat.shape, source="HDF5 correlation dataset")
-                _n_t_u = _first_mat.shape[0]
-                _check_frame_count(int(_n_t_u), source="HDF5 correlation dataset")
-                _check_allocation_budget(
-                    int(_n_sel_u),
-                    int(_n_t_u),
-                    _first_mat.dtype.itemsize,
-                    source="HDF5 correlation dataset",
-                )
-                c2_matrices_array = np.empty(
-                    (_n_sel_u, _n_t_u, _n_t_u), dtype=_first_mat.dtype, order="C"
-                )
-                c2_matrices_array[0] = _first_mat
-                del _first_mat
-                for _out_j, _sel_i in enumerate(final_indices[1:], start=1):
-                    c2_matrices_array[_out_j] = np.asarray(c2_matrices_for_filtering[int(_sel_i)])
-
-            # Apply frame slicing to the selected q-vector data
-            c2_exp = self._apply_frame_slicing_to_selected_q(c2_matrices_array)
-
-            # Calculate 1D time array (meshgrids generated by NLSQ as needed)
-            time_1d = self._calculate_time_arrays(c2_exp.shape[-1])
-
-            return {
-                "wavevector_q_list": final_dqlist,
-                "phi_angles_list": final_dphilist,
-                "t1": time_1d,  # 1D time array starting from 0: [0, dt, 2*dt, ...]
-                "t2": time_1d.copy(),  # Independent copy (prevent aliasing mutation)
-                "c2_exp": c2_exp,
-            }
+        See :func:`xpcsjax.data.hdf5_readers.load_aps_u_format` (D6 extraction).
+        """
+        return _hdf5_readers.load_aps_u_format(self, hdf_path)
 
     def _reconstruct_full_matrix(self, c2_half: NDArray) -> NDArray:
         """Reconstruct full correlation matrix from half matrix (APS storage format).
@@ -1876,8 +1068,6 @@ class XPCSDataLoader:
 
         Note: Diagonal correction is now applied post-load for consistent behavior.
         """
-        if not HAS_NUMPY:
-            raise RuntimeError("NumPy is required for matrix reconstruction")
         c2_full = c2_half + c2_half.T
         # Correct diagonal (was doubled in addition)
         diag_indices = np.diag_indices(c2_half.shape[0])
@@ -1906,8 +1096,6 @@ class XPCSDataLoader:
         numpy.ndarray
             Corrected matrices with the same shape as the input.
         """
-        if not HAS_NUMPY:
-            raise RuntimeError("NumPy is required for diagonal correction")
         n_phi = c2_matrices.shape[0]
         size = c2_matrices.shape[1]
 
@@ -1915,34 +1103,33 @@ class XPCSDataLoader:
         if _is_jax_array(c2_matrices):
             # JAX path: use vmap for vectorized correction (FR-006a)
             return self._correct_diagonal_batch_jax(c2_matrices)  # type: ignore
-        else:
-            # NumPy path: pre-allocate and direct assignment
-            c2_corrected = np.empty_like(c2_matrices)
+        # NumPy path: pre-allocate and direct assignment
+        c2_corrected = np.empty_like(c2_matrices)
 
-            # Pre-compute normalization array (reused for all matrices)
-            norm = np.ones(size)
-            norm[1:-1] = 2
+        # Pre-compute normalization array (reused for all matrices)
+        norm = np.ones(size)
+        norm[1:-1] = 2
 
-            # Pre-compute index arrays
-            idx_upper = np.arange(size - 1)
-            idx_lower = np.arange(1, size)
-            diag_indices = np.diag_indices(size)
+        # Pre-compute index arrays
+        idx_upper = np.arange(size - 1)
+        idx_lower = np.arange(1, size)
+        diag_indices = np.diag_indices(size)
 
-            for i in range(n_phi):
-                c2_mat = c2_matrices[i]
-                # Extract side band values
-                side_band = c2_mat[(idx_upper, idx_lower)]
+        for i in range(n_phi):
+            c2_mat = c2_matrices[i]
+            # Extract side band values
+            side_band = c2_mat[(idx_upper, idx_lower)]
 
-                # Compute diagonal values
-                diag_val = np.zeros(size)
-                diag_val[:-1] += side_band
-                diag_val[1:] += side_band
+            # Compute diagonal values
+            diag_val = np.zeros(size)
+            diag_val[:-1] += side_band
+            diag_val[1:] += side_band
 
-                # Copy and apply correction (direct assignment)
-                c2_corrected[i] = c2_mat.copy()
-                c2_corrected[i][diag_indices] = diag_val / norm
+            # Copy and apply correction (direct assignment)
+            c2_corrected[i] = c2_mat.copy()
+            c2_corrected[i][diag_indices] = diag_val / norm
 
-            return c2_corrected
+        return c2_corrected
 
     def _correct_diagonal_batch_jax(self, c2_matrices: Any) -> Any:
         """Apply vectorized diagonal correction using JAX ``vmap``.
@@ -1960,8 +1147,6 @@ class XPCSDataLoader:
         Any
             Corrected matrices with the same shape as the input.
         """
-        if not HAS_JAX:
-            raise RuntimeError("JAX is required for JAX diagonal correction")
         import jax
 
         size = c2_matrices.shape[1]
@@ -1995,6 +1180,8 @@ class XPCSDataLoader:
         dqlist: NDArray,
         dphilist: NDArray,
         correlation_matrices: list[NDArray] | None = None,
+        *,
+        record_degradation: bool = True,
     ) -> NDArray | None:
         """Get indices for comprehensive data filtering based on configuration.
 
@@ -2014,6 +1201,12 @@ class XPCSDataLoader:
             Array of phi angles in degrees.
         correlation_matrices
             Optional list of correlation matrices used for quality filtering.
+        record_degradation
+            Append a fallback-to-all-points outcome to
+            ``self.load_degradations``. Callers that run this twice per load
+            against the same ``data_filtering`` config (the two-pass APS
+            readers) pass ``False`` on the pre-filter pass so one fallback
+            is recorded once.
 
         Returns
         -------
@@ -2078,7 +1271,7 @@ class XPCSDataLoader:
                     f"data points selected ({selection_fraction:.2%})",
                 )
 
-                if filtering_result.fallback_used:
+                if filtering_result.fallback_used and record_degradation:
                     # DATA-1 parity with the `except` branch below: a fallback
                     # substitutes ALL data points for the subset the config asked
                     # for (empty filter result, or a caught filtering error inside
@@ -2092,19 +1285,17 @@ class XPCSDataLoader:
                     )
 
                 # Additional integration with phi filtering for compatibility
-                selected_indices = self._integrate_with_phi_filtering(
+                return self._integrate_with_phi_filtering(
                     filtering_result.selected_indices,
                     dphilist,
                     filtering_result,
                 )
 
-                return selected_indices
-            else:
-                logger.warning(
-                    "No data filtering criteria matched - returning all angles. "
-                    "Check filter configuration if this is unexpected."
-                )
-                return None
+            logger.warning(
+                "No data filtering criteria matched - returning all angles. "
+                "Check filter configuration if this is unexpected."
+            )
+            return None
 
         except ImportError as e:
             logger.warning(
@@ -2117,12 +1308,14 @@ class XPCSDataLoader:
             # Check if we should fallback or raise
             fallback_on_empty = filtering_config.get("fallback_on_empty", True)
             if fallback_on_empty:
-                # DATA-1: record the degraded substitution (all angles used)
-                # instead of a bare WARNING the caller cannot distinguish.
-                self._record_degradation(f"angle filtering crashed ({e}); fell back to all angles")
+                if record_degradation:
+                    # DATA-1: record the degraded substitution (all angles used)
+                    # instead of a bare WARNING the caller cannot distinguish.
+                    self._record_degradation(
+                        f"angle filtering crashed ({e}); fell back to all angles"
+                    )
                 return None
-            else:
-                raise XPCSDataFormatError(f"Data filtering failed: {e}") from e
+            raise XPCSDataFormatError(f"Data filtering failed: {e}") from e
 
     def _record_degradation(self, reason: str) -> None:
         """Record a degraded-fallback event so it is detectable downstream (DATA-1).
@@ -2206,8 +1399,6 @@ class XPCSDataLoader:
         int
             Index of the selected q-vector within ``dqlist``.
         """
-        if not HAS_NUMPY:
-            raise RuntimeError("NumPy is required for wavevector selection")
         # Get target q-vector from configuration
         scattering_config = self.analyzer_config.get("scattering", {})
         config_q = scattering_config.get("wavevector_q", 0.0054)
@@ -2321,115 +1512,22 @@ class XPCSDataLoader:
         # Create 1D time array starting from 0
         # Last point at index (N-1), not N
         time_max = dt * (matrix_size - 1)
-        time_1d = np.linspace(0, time_max, matrix_size)
+        return np.linspace(0, time_max, matrix_size)
 
-        return time_1d
+    def _source_hdf_stat(self) -> tuple[str, int, int] | None:
+        """Return the configured source HDF5 file's identity for cache keying.
+
+        See :func:`xpcsjax.data.npz_cache.source_hdf_stat` (D6 extraction).
+        """
+        return _npz_cache.source_hdf_stat(self)
 
     @log_performance(threshold=0.3)
     def _save_to_cache(self, data: dict[str, Any], cache_path: str) -> None:
-        """Save processed data to NPZ cache file with q-vector metadata."""
-        if not HAS_NUMPY:
-            raise RuntimeError("NumPy is required for cache saving")
-        # Ensure cache directory exists
-        cache_dir = os.path.dirname(cache_path)
-        if cache_dir:
-            os.makedirs(cache_dir, exist_ok=True)
+        """Save processed data to NPZ cache file with q-vector metadata.
 
-        # Convert JAX arrays back to numpy for caching
-        cache_data: dict[str, Any] = {}
-        for key, value in data.items():
-            if HAS_JAX and hasattr(value, "device"):  # JAX array
-                cache_data[key] = np.array(value)
-            else:
-                cache_data[key] = value
-
-        # Add cache metadata for q-vector validation
-        scattering_config = self.analyzer_config.get("scattering", {})
-        config_q = scattering_config.get("wavevector_q", 0.0054)
-
-        # Calculate actual q-vector stats from cached data
-        q_values = cache_data["wavevector_q_list"]
-        # Use nan-safe variants: q_values from HDF5 may contain NaN for bad pixels.
-        actual_q = float(np.nanmean(q_values)) if len(q_values) > 0 else config_q
-        q_variance = float(np.nanstd(q_values)) if len(q_values) > 1 else 0.0
-
-        cache_metadata = {
-            "config_wavevector_q": float(config_q),
-            "actual_wavevector_q": actual_q,
-            "q_variance": q_variance,
-            "q_count": len(q_values),
-            # dt drives the cached t1/t2 time axes (_calculate_time_arrays); a
-            # config edit to dt with an otherwise-matching q/frame window must
-            # not silently reuse a cache built for the old time axis.
-            "dt": float(self.analyzer_config.get("dt", 1.0)),
-            # Report the actually-applied (clamped) frame window recorded by
-            # _apply_frame_slicing_to_selected_q. Fall back to the raw config /
-            # sliced width only if slicing was never run on this instance.
-            "start_frame": getattr(
-                self, "_applied_start_frame", self.analyzer_config.get("start_frame", 1)
-            ),
-            "end_frame": getattr(
-                self,
-                "_applied_end_frame",
-                cache_data["c2_exp"].shape[-1] + self.analyzer_config.get("start_frame", 1) - 1,
-            ),
-            "phi_count": len(cache_data["phi_angles_list"]),
-            "cache_version": "2.0",
-            "selective_q_caching": True,
-            # q_tolerance_fraction drives the q-band width used to select which
-            # (q, phi) rows get cached (_load_aps_old_format); like dt, it isn't
-            # covered by filter_config_hash, so a tolerance-only config edit with
-            # an otherwise-matching q/frame window must not silently reuse a
-            # cache built under the old (wider/narrower) band.
-            "q_tolerance_fraction": float(self.config.get("q_tolerance_fraction", 0.1)),
-            # Fingerprint of the filter settings (phi range, quality/data
-            # filtering) that shaped the cached (q, phi) selection, so a config
-            # change with the same start/end frame + q is detected instead of
-            # silently reusing a stale cache.
-            "filter_config_hash": _hash_filter_config(self.config.get("data_filtering", {})),
-            # The LEGACY phi filter (_integrate_with_phi_filtering -> PhiAngleFilter)
-            # narrows the cached (q, phi) selection further, but reads a DIFFERENT
-            # config subtree than XPCSDataFilter, so filter_config_hash above does
-            # not cover it. It runs whenever data_filtering is enabled without a
-            # `phi_range` block (that key is what short-circuits the legacy branch),
-            # so a target_ranges edit with an otherwise-matching q/frame window must
-            # not silently reuse a cache built for the old angle set.
-            "angle_filtering_hash": _hash_filter_config(
-                self.config.get("optimization_config", {}).get("angle_filtering", {})
-            ),
-        }
-
-        # Metadata is stored as a JSON-encoded scalar (not a Python dict via
-        # object pickling) so the loader can read it with allow_pickle=False.
-        cache_data["cache_metadata_json"] = np.asarray(json.dumps(cache_metadata))
-
-        # Save with compression if specified. Write to a uniquely-named temp
-        # file in the same directory, then atomically rename into place, so
-        # concurrent loaders (e.g. parallel pytest-xdist workers, concurrent
-        # fit processes sharing a cache dir) never observe a partially-written
-        # NPZ at cache_path.
-        # Suffix must stay ".npz" — np.savez appends it to any filename that
-        # doesn't already end in ".npz", which would break the later rename.
-        tmp_path = f"{cache_path}.tmp{os.getpid()}_{uuid.uuid4().hex[:8]}.npz"
-        try:
-            if self.exp_config.get("cache_compression", True):
-                np.savez_compressed(tmp_path, **cache_data)
-            else:
-                np.savez(tmp_path, **cache_data)
-            os.replace(tmp_path, cache_path)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.remove(tmp_path)
-            raise
-
-        # Log cache statistics
-        file_size_mb = os.path.getsize(cache_path) / (1024 * 1024)
-        logger.info(f"Cache saved: {Path(cache_path).name}")
-        logger.debug(f"Cache full path: {cache_path}")
-        logger.info(
-            f"Cache size: {file_size_mb:.2f} MB, Q-vectors: {cache_metadata['q_count']}, Phi angles: {cache_metadata['phi_count']}",
-        )
-        logger.debug(f"Q-vector: {actual_q:.6f} +/- {q_variance:.6f} A^-1")
+        See :func:`xpcsjax.data.npz_cache.save_to_cache` (D6 extraction).
+        """
+        _npz_cache.save_to_cache(self, data, cache_path)
 
     @staticmethod
     def _require_nonempty_selection(final_indices: np.ndarray, *, selected_q: float) -> np.ndarray:
@@ -2450,117 +1548,7 @@ class XPCSDataLoader:
 
     def _validate_cache_q_vector(self, cache_metadata: dict[str, Any]) -> None:
         """Validate that cached q-vector is compatible with current configuration."""
-        scattering_config = self.analyzer_config.get("scattering", {})
-        current_config_q = scattering_config.get("wavevector_q", 0.0054)
-        cached_config_q = cache_metadata.get("config_wavevector_q", current_config_q)
-
-        # Check if configuration q-vectors match (within floating point precision).
-        # The cache is q-keyed (selective_q_caching stores q-selected c2_exp /
-        # wavevector_q_list), so reusing it for a different configured q would
-        # return another q's correlation data. Refuse it — mirrors the existing
-        # legacy-cache refusal; the user must regenerate or point at a q-specific
-        # cache (audit C1).
-        if abs(current_config_q - cached_config_q) > 1e-8:
-            raise XPCSDataFormatError(
-                f"Cache q-vector mismatch: configured wavevector_q="
-                f"{current_config_q:.6f} AA^-1 but cache was built for "
-                f"{cached_config_q:.6f} AA^-1. The cache is q-specific; delete it "
-                f"and regenerate, or use a q-keyed cache_filename_template "
-                f"(e.g. include ${{wavevector_q}}).",
-            )
-
-        # Check if the phi/quality/data-filtering settings that shaped the
-        # cached (q, phi) selection still match. start/end frame + q alone
-        # aren't enough to key the cache: a phi_range or quality_filtering
-        # change with the same frames/q would otherwise silently reuse a
-        # cache built under the old filter settings.
-        current_filter_hash = _hash_filter_config(self.config.get("data_filtering", {}))
-        cached_filter_hash = cache_metadata.get("filter_config_hash")
-        if cached_filter_hash is not None and cached_filter_hash != current_filter_hash:
-            raise XPCSDataFormatError(
-                "Cache filter-config mismatch: the phi_range/data_filtering/"
-                "quality_filtering settings have changed since this cache was "
-                "built. The cache is filter-specific; delete it and regenerate."
-            )
-        if cached_filter_hash is None:
-            logger.warning(
-                "Cache metadata predates filter-config fingerprinting; cannot "
-                "verify phi/quality-filtering settings match the current config.",
-            )
-
-        # Check the LEGACY phi-filter settings (optimization_config.angle_filtering).
-        # These live outside the data_filtering subtree fingerprinted above but
-        # still shape the cached (q, phi) selection via _integrate_with_phi_filtering,
-        # so they need their own key -- same shape as the dt / q_tolerance_fraction
-        # checks below.
-        current_angle_hash = _hash_filter_config(
-            self.config.get("optimization_config", {}).get("angle_filtering", {})
-        )
-        cached_angle_hash = cache_metadata.get("angle_filtering_hash")
-        if cached_angle_hash is None:
-            logger.warning(
-                "Cache metadata predates angle-filtering fingerprinting; cannot "
-                "verify the legacy optimization_config.angle_filtering settings "
-                "match the current config.",
-            )
-        elif cached_angle_hash != current_angle_hash:
-            raise XPCSDataFormatError(
-                "Cache angle-filtering mismatch: the "
-                "optimization_config.angle_filtering settings (enabled / "
-                "target_ranges / fallback_to_all_angles) have changed since this "
-                "cache was built. The cache's (q, phi) selection is "
-                "angle-filter-specific; delete it and regenerate."
-            )
-
-        # Check if the time step (t1/t2 axis generator) matches. dt is not
-        # folded into filter_config_hash, so a dt-only edit with an otherwise
-        # matching q/frame window would silently reuse the old time axis.
-        current_dt = float(self.analyzer_config.get("dt", 1.0))
-        cached_dt = cache_metadata.get("dt")
-        if cached_dt is None:
-            logger.warning(
-                "Cache metadata predates dt fingerprinting; cannot verify the "
-                "cached time axis matches the current dt.",
-            )
-        elif abs(current_dt - float(cached_dt)) > 1e-12:
-            raise XPCSDataFormatError(
-                f"Cache dt mismatch: configured dt={current_dt:.6g}s but cache "
-                f"was built for dt={float(cached_dt):.6g}s. The cache's t1/t2 "
-                f"time axes are dt-specific; delete it and regenerate.",
-            )
-
-        # Check if the q-band tolerance used to select cached (q, phi) rows
-        # matches. Like dt, this is not folded into filter_config_hash, so a
-        # tolerance-only edit with an otherwise matching q/frame window would
-        # otherwise silently reuse a cache built for a different (q, phi) band.
-        current_q_tolerance = float(self.config.get("q_tolerance_fraction", 0.1))
-        cached_q_tolerance = cache_metadata.get("q_tolerance_fraction")
-        if cached_q_tolerance is None:
-            logger.warning(
-                "Cache metadata predates q_tolerance_fraction fingerprinting; "
-                "cannot verify the cached (q, phi) selection matches the "
-                "current tolerance.",
-            )
-        elif abs(current_q_tolerance - float(cached_q_tolerance)) > 1e-12:
-            raise XPCSDataFormatError(
-                f"Cache q_tolerance_fraction mismatch: configured "
-                f"q_tolerance_fraction={current_q_tolerance:.6g} but cache was "
-                f"built for {float(cached_q_tolerance):.6g}. The cache's (q, phi) "
-                f"selection is tolerance-specific; delete it and regenerate.",
-            )
-
-        # Check if cache uses selective q-caching
-        is_selective = cache_metadata.get("selective_q_caching", False)
-        if not is_selective:
-            logger.warning(
-                "Loading legacy cache without selective q-vector optimization",
-            )
-        else:
-            actual_q = cache_metadata.get("actual_wavevector_q", cached_config_q)
-            q_variance = cache_metadata.get("q_variance", 0.0)
-            logger.debug(
-                f"Validated selective cache: q={actual_q:.6f} +/- {q_variance:.6f} AA^-1",
-            )
+        _npz_cache.validate_cache_q_vector(self, cache_metadata)
 
     @log_performance(threshold=0.1)
     def _save_text_files(self, data: dict[str, Any]) -> None:
@@ -2570,8 +1558,8 @@ class XPCSDataLoader:
         data_folder = self.exp_config.get("data_folder_path", "./")
 
         # Convert JAX arrays to numpy for text file saving
-        phi_angles = np.array(data["phi_angles_list"]) if HAS_JAX else data["phi_angles_list"]
-        q_values = np.array(data["wavevector_q_list"]) if HAS_JAX else data["wavevector_q_list"]
+        phi_angles = np.array(data["phi_angles_list"])
+        q_values = np.array(data["wavevector_q_list"])
 
         # Route the config-controlled output directories through get_safe_output_dir
         # so a phi_angles_path / data_folder_path containing '..' cannot write these
@@ -2626,14 +1614,8 @@ class XPCSDataLoader:
 
     def _perform_physics_validation(self, data: dict[str, Any]) -> None:
         """Perform physics-based validation using v2 PhysicsConstants."""
-        if not HAS_PHYSICS_VALIDATION:
-            logger.warning(
-                "Physics validation requested but v2 physics module not available",
-            )
-            return
-
         # Validate q-range
-        q_values = np.array(data["wavevector_q_list"]) if HAS_JAX else data["wavevector_q_list"]
+        q_values = np.array(data["wavevector_q_list"])
         if np.any(q_values < PhysicsConstants.Q_MIN_TYPICAL):
             logger.warning(
                 f"Some q-values below typical range: {PhysicsConstants.Q_MIN_TYPICAL}",
@@ -2658,7 +1640,7 @@ class XPCSDataLoader:
         comprehensive: bool = False,
     ) -> None:
         """Perform data quality validation."""
-        c2_exp = np.array(data["c2_exp"]) if HAS_JAX else data["c2_exp"]
+        c2_exp = np.array(data["c2_exp"])
 
         # Basic checks
         if np.any(~np.isfinite(c2_exp)):
@@ -2818,27 +1800,25 @@ class XPCSDataLoader:
                         logger.warning(f"Preprocessing warning: {warning}")
 
                 return result.data
-            else:
-                logger.error("Preprocessing pipeline failed")
+            logger.error("Preprocessing pipeline failed")
 
-                # Log errors
-                for error in result.provenance.errors:
-                    logger.error(f"Preprocessing error: {error}")
+            # Log errors
+            for error in result.provenance.errors:
+                logger.error(f"Preprocessing error: {error}")
 
-                # Return original data if fallback is enabled
-                if preprocessing_config.get("fallback_on_failure", True):
-                    # DATA-1: degraded path — the fit runs on un-preprocessed
-                    # data. Record it and tag the result so it is detectable.
-                    self._record_degradation(
-                        "preprocessing pipeline failed; fell back to original data"
-                    )
-                    if isinstance(data, dict):
-                        data["_preprocessing_degraded"] = True
-                    return data
-                else:
-                    raise XPCSDataFormatError(
-                        "Preprocessing pipeline failed and fallback disabled",
-                    )
+            # Return original data if fallback is enabled
+            if preprocessing_config.get("fallback_on_failure", True):
+                # DATA-1: degraded path — the fit runs on un-preprocessed
+                # data. Record it and tag the result so it is detectable.
+                self._record_degradation(
+                    "preprocessing pipeline failed; fell back to original data"
+                )
+                if isinstance(data, dict):
+                    data["_preprocessing_degraded"] = True
+                return data
+            raise XPCSDataFormatError(
+                "Preprocessing pipeline failed and fallback disabled",
+            )
 
         except ImportError as e:
             logger.warning(f"Preprocessing pipeline not available: {e}.")
@@ -2851,10 +1831,9 @@ class XPCSDataLoader:
                 if isinstance(data, dict):
                     data["_preprocessing_degraded"] = True
                 return data
-            else:
-                raise XPCSDataFormatError(
-                    f"Preprocessing pipeline unavailable and fallback disabled: {e}"
-                ) from e
+            raise XPCSDataFormatError(
+                f"Preprocessing pipeline unavailable and fallback disabled: {e}"
+            ) from e
         except (ValueError, KeyError, IndexError, RuntimeError) as e:
             # Narrowed from broad Exception: only catch expected processing errors.
             # Programming bugs (AttributeError, TypeError) and system errors
@@ -2871,8 +1850,7 @@ class XPCSDataLoader:
                 if isinstance(data, dict):
                     data["_preprocessing_degraded"] = True
                 return data
-            else:
-                raise XPCSDataFormatError(f"Preprocessing pipeline failed: {e}") from e
+            raise XPCSDataFormatError(f"Preprocessing pipeline failed: {e}") from e
 
     def _get_provenance_path(self) -> str:
         """Generate path for saving preprocessing provenance."""

@@ -24,7 +24,7 @@ def test_resolve_phi_angles_forwards_cli_phi_and_phi_angles_str(monkeypatch):
 
     def _fake_resolve(cm, *, cli_phi=None, phi_angles_str=None):
         captured.update(cli_phi=cli_phi, phi_angles_str=phi_angles_str)
-        return None
+        return
 
     monkeypatch.setattr(dp, "_service_resolve_phi_angles", _fake_resolve)
     dp.resolve_phi_angles(SimpleNamespace(phi=[1.0], phi_angles="2,3"), object())

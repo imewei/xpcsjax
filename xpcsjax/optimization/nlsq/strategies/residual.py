@@ -647,9 +647,7 @@ class StratifiedResidualFunction:
         # actual t1/t2 VALUES (not grid indices -- see the correctness note
         # there), computed transiently at setup time so no float t1/t2 value
         # arrays are retained here in the jacfwd-traced residual path.
-        residuals = jnp.where(self._diag_mask, residuals, 0.0)
-
-        return residuals
+        return jnp.where(self._diag_mask, residuals, 0.0)
 
     def _call_jax_chunked(self, params: jnp.ndarray) -> jnp.ndarray:
         """Original chunk-based residual computation — REMOVED.
@@ -787,7 +785,7 @@ class StratifiedResidualFunction:
             chunk_angle_counts = [len(np.unique(chunk.phi)) for chunk in self.chunks]
             n_angles = len(np.unique(self.chunks[0].phi))
 
-        diagnostics = {
+        return {
             "n_chunks": self.n_chunks,
             "n_total_points": self.n_total_points,
             "n_angles": n_angles,
@@ -798,8 +796,6 @@ class StratifiedResidualFunction:
             "max_chunk_size": max(chunk_sizes),
             "mean_chunk_size": np.mean(chunk_sizes),
         }
-
-        return diagnostics
 
     def log_diagnostics(self) -> None:
         """Log diagnostic information for monitoring."""

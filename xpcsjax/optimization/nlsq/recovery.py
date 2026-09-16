@@ -302,16 +302,15 @@ def execute_with_recovery(
                     if bounds is not None:
                         current_params = np.clip(current_params, bounds[0], bounds[1])
                     continue
-                else:
-                    log.error(
-                        "Optimization returned unchanged parameters after all retries. "
-                        "This may indicate a bug in NLSQ or an intractable problem."
-                    )
-                    # Honest status: a detected stagnation on the final attempt is
-                    # a failure, not a convergence. Returning "converged" here would
-                    # silently mislabel an unoptimized fit as successful.
-                    recovery_actions.append("stagnation_after_all_retries")
-                    return popt, pcov, info, recovery_actions, "failed"
+                log.error(
+                    "Optimization returned unchanged parameters after all retries. "
+                    "This may indicate a bug in NLSQ or an intractable problem."
+                )
+                # Honest status: a detected stagnation on the final attempt is
+                # a failure, not a convergence. Returning "converged" here would
+                # silently mislabel an unoptimized fit as successful.
+                recovery_actions.append("stagnation_after_all_retries")
+                return popt, pcov, info, recovery_actions, "failed"
 
             # Success!
             convergence_status = "converged" if attempt == 0 else "converged_with_recovery"
@@ -380,18 +379,17 @@ def execute_with_recovery(
                 )
 
                 continue
-            else:
-                error_msg = (
-                    f"Optimization failed after {max_retries} attempts.\n"
-                    f"Recovery actions attempted: {recovery_actions}\n"
-                    f"Final diagnostic: {diagnostic['message']}\n"
-                    f"Suggestions:\n"
-                )
-                for suggestion in diagnostic["suggestions"]:
-                    error_msg += f"  - {suggestion}\n"
+            error_msg = (
+                f"Optimization failed after {max_retries} attempts.\n"
+                f"Recovery actions attempted: {recovery_actions}\n"
+                f"Final diagnostic: {diagnostic['message']}\n"
+                f"Suggestions:\n"
+            )
+            for suggestion in diagnostic["suggestions"]:
+                error_msg += f"  - {suggestion}\n"
 
-                log.error(error_msg)
-                raise RuntimeError(error_msg) from e
+            log.error(error_msg)
+            raise RuntimeError(error_msg) from e
 
     # Unreachable: loop always returns or raises, but mypy needs this
     raise RuntimeError("Optimization failed: exhausted all retry attempts")

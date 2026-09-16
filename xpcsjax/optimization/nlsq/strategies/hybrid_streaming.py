@@ -9,6 +9,7 @@ This module provides:
 
 from __future__ import annotations
 
+import functools
 import time
 from collections.abc import Callable
 from typing import Any, cast
@@ -20,16 +21,10 @@ import numpy as np
 from xpcsjax.optimization.exceptions import NLSQOptimizationError
 from xpcsjax.optimization.nlsq.adaptive_regularization import (
     AdaptiveRegularizationConfig,
-    AdaptiveRegularizer,
 )
 from xpcsjax.optimization.nlsq.config import HybridRecoveryConfig
 from xpcsjax.optimization.nlsq.covariance import finalize_covariance
-from xpcsjax.optimization.nlsq.gradient_monitor import (
-    GradientCollapseMonitor,
-    GradientMonitorConfig,
-)
 from xpcsjax.optimization.nlsq.hierarchical import (
-    HierarchicalConfig,
     HierarchicalOptimizer,
 )
 from xpcsjax.optimization.nlsq.parameter_utils import (
@@ -46,7 +41,13 @@ from xpcsjax.optimization.nlsq.parameter_utils import (
 )
 from xpcsjax.optimization.nlsq.shear_weighting import (
     ShearSensitivityWeighting,
-    ShearWeightingConfig,
+)
+from xpcsjax.optimization.nlsq.strategies.hybrid_streaming_layers import (
+    configure_streaming_layers,
+)
+from xpcsjax.optimization.nlsq.strategies.hybrid_streaming_transforms import (
+    forward_transform_per_angle_params,
+    inverse_transform_per_angle_params,
 )
 from xpcsjax.utils.logging import get_logger
 
@@ -306,14 +307,13 @@ def fit_with_hybrid_streaming_optimizer(
             )
             if isinstance(e, NLSQOptimizationError):
                 raise
-            else:
-                raise NLSQOptimizationError(
-                    f"AdaptiveHybridStreamingOptimizer failed: {str(e)}",
-                    error_context={
-                        "original_error": type(e).__name__,
-                        "attempt_errors": attempt_errors,
-                    },
-                ) from e
+            raise NLSQOptimizationError(
+                f"AdaptiveHybridStreamingOptimizer failed: {str(e)}",
+                error_context={
+                    "original_error": type(e).__name__,
+                    "attempt_errors": attempt_errors,
+                },
+            ) from e
 
         # Extract results
         popt = np.asarray(result["x"])
@@ -394,16 +394,35 @@ def _resolve_streaming_per_angle_mode(
     )
 
 
-def _resolve_scaling_mode_for_indexing(mode: str, use_fixed_scaling: bool) -> str:
-    """Resolve the canonical per-angle mode used for L3/L4 index construction.
+def _bin_to_grid(
+    values: np.ndarray, grid: np.ndarray, axis_name: str, *, logger: Any = logger
+) -> np.ndarray:
+    """Bin values onto a grid via searchsorted, warning on out-of-grid points.
 
-    "constant" configured but quantile-based fixed-scaling estimation failed
-    (use_fixed_scaling stayed False) builds the real 2-param
-    [contrast_mean, offset_mean, *physical] vector -- the "averaged" layout,
-    not the frozen 0-param "constant" layout. Every other combination maps
-    to itself unchanged.
+    An unguarded clip silently routes data lying outside the fitted grid to
+    the boundary bin, mis-associating it with the wrong (phi, t1, t2) cell --
+    a data-integrity violation. We clip (to stay in-bounds) but surface how
+    many points were affected so misaligned data/config is not silent.
+
+    Callers pass their injected ``logger`` so out-of-grid warnings carry the
+    caller's logger name; mirrors the heterodyne twin in
+    ``heterodyne_hybrid_streaming.py``.
     """
-    return "averaged" if (mode == "constant" and not use_fixed_scaling) else mode
+    raw = np.searchsorted(grid, values)
+    n_oob = int(np.sum(raw >= len(grid)))
+    # Below-grid points snap to bin 0 just like a legitimate grid[0] value,
+    # so raw alone cannot surface them -- count them explicitly (mirrors
+    # the heterodyne twin in heterodyne_hybrid_streaming.py).
+    n_low = int(np.sum(np.asarray(values) < grid[0]))
+    if n_oob > 0 or n_low > 0:
+        logger.warning(
+            "%d data point(s) lie above and %d below the %s grid; clipped to "
+            "the boundary bin. Check data/config grid alignment.",
+            n_oob,
+            n_low,
+            axis_name,
+        )
+    return np.clip(raw, 0, len(grid) - 1)
 
 
 def fit_with_stratified_hybrid_streaming(
@@ -643,428 +662,50 @@ def fit_with_stratified_hybrid_streaming(
         else "",
     )
 
-    # T031: Determine mode flags
-    # use_constant: True for both averaged and constant (constant-style mapping)
-    # use_fixed_scaling: True only for constant (scaling NOT optimized)
-    # use_averaged_scaling: True only for averaged (scaling optimized)
-    use_constant = per_angle_mode_actual in ("averaged", "constant")
-    use_averaged_scaling = per_angle_mode_actual == "averaged"
-    # use_fixed_scaling will be set True after quantile estimation for constant mode
-
-    # Per-angle reparameterization: averaged/constant/individual scaling layout.
-    if per_angle_mode_actual == "constant" and per_angle_scaling:
-        # constant mode: per-angle scaling is FIXED, not optimized
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Constant Scaling")
-        logger.info(f"  Mode: {per_angle_mode_actual}")
-        logger.info(f"  n_phi: {n_phi}")
-        logger.info("  Method: Quantile-based per-angle scaling (FIXED, not optimized)")
-        logger.info("  Per-angle contrast/offset will be estimated from c2 data quantiles")
-        logger.info("  These values are FIXED (not optimized) during fitting")
-        logger.info(f"  Parameter reduction: {2 * n_phi} -> 0 (physical only)")
-        logger.info("=" * 60)
-    elif per_angle_mode_actual == "averaged" and per_angle_scaling:
-        # averaged mode: averaged scaling is OPTIMIZED (9 params)
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 1 - Averaged Scaling")
-        logger.info(f"  Mode: {per_angle_mode_actual}")
-        logger.info(f"  n_phi: {n_phi}")
-        logger.info("  Method: Quantile estimates -> averaged -> OPTIMIZED")
-        logger.info("  Initial values: averaged from per-angle quantile estimates")
-        logger.info(f"  Parameter reduction: {2 * n_phi} -> 2 (averaged contrast + offset)")
-        logger.info("=" * 60)
-
-    # Unified resolved-mode banner (laminar ↔ heterodyne parity). No controller
-    # on this path, so values are computed inline; n_scaling is the OPTIMIZED
-    # scaling count (constant -> 0).
-    if per_angle_scaling:
-        from xpcsjax.optimization.nlsq.anti_degeneracy_logging import (
-            MODE_SHORT,
-            log_effective_per_angle_mode,
-        )
-
-        if per_angle_mode_actual == "constant":
-            _n_scaling = 0
-        elif per_angle_mode_actual == "averaged":
-            _n_scaling = 2
-        else:  # individual
-            _n_scaling = 2 * n_phi
-        log_effective_per_angle_mode(
-            logger,
-            mode=MODE_SHORT.get(per_angle_mode_actual, per_angle_mode_actual),
-            n_phi=n_phi,
-            n_physics=n_physical,
-            n_scaling=_n_scaling,
-            threshold=constant_scaling_threshold,
-        )
-
-    # =====================================================================
-    # CONSTANT/AUTO_AVERAGED MODES: Quantile-Based Scaling
-    # =====================================================================
-    # - constant: per-angle values are FIXED (not optimized), 7 params
-    # - averaged: averaged values are OPTIMIZED as initial values, 9 params
-    # =====================================================================
-    use_fixed_scaling = False
-    fixed_contrast_per_angle: np.ndarray | None = None
-    fixed_offset_per_angle: np.ndarray | None = None
-    fixed_contrast_jax: jnp.ndarray | None = None
-    fixed_offset_jax: jnp.ndarray | None = None
-    # For averaged mode: averaged values to use as initial optimization values
-    averaged_contrast_init: float | None = None
-    averaged_offset_init: float | None = None
-
-    if use_constant and per_angle_scaling:
-        logger.info("Computing quantile-based per-angle scaling estimates...")
-        try:
-            # Extract bounds for clipping
-            contrast_bounds = (0.0, 1.0)  # Default
-            offset_bounds = (0.5, 1.5)  # Default
-            if bounds is not None:
-                lower_bounds, upper_bounds = bounds
-                if len(lower_bounds) >= n_phi and len(upper_bounds) >= n_phi:
-                    contrast_bounds = (
-                        float(lower_bounds[0]),
-                        float(upper_bounds[0]),
-                    )
-                    offset_bounds = (
-                        float(lower_bounds[n_phi]),
-                        float(upper_bounds[n_phi]),
-                    )
-
-            # Compute quantile-based per-angle scaling
-            fixed_contrast_per_angle, fixed_offset_per_angle = _compute_quantile_per_angle_scaling(
-                stratified_data=stratified_data,
-                contrast_bounds=contrast_bounds,
-                offset_bounds=offset_bounds,
-                logger=logger,
-            )
-
-            if fixed_contrast_per_angle is not None and fixed_offset_per_angle is not None:
-                if per_angle_mode_actual == "constant":
-                    # constant: Use per-angle values DIRECTLY as FIXED
-                    use_fixed_scaling = True
-                    fixed_contrast_jax = jnp.asarray(fixed_contrast_per_angle)
-                    fixed_offset_jax = jnp.asarray(fixed_offset_per_angle)
-
-                    logger.info("Fixed per-angle scaling computed (FIXED, not optimized):")
-                    logger.info(
-                        f"  Contrast: mean={np.nanmean(fixed_contrast_per_angle):.4f}, "
-                        f"range=[{np.nanmin(fixed_contrast_per_angle):.4f}, "
-                        f"{np.nanmax(fixed_contrast_per_angle):.4f}]"
-                    )
-                    logger.info(
-                        f"  Offset: mean={np.nanmean(fixed_offset_per_angle):.4f}, "
-                        f"range=[{np.nanmin(fixed_offset_per_angle):.4f}, "
-                        f"{np.nanmax(fixed_offset_per_angle):.4f}]"
-                    )
-                elif per_angle_mode_actual == "averaged":
-                    # averaged: AVERAGE per-angle values → use as INITIAL for optimization
-                    averaged_contrast_init = float(np.nanmean(fixed_contrast_per_angle))
-                    averaged_offset_init = float(np.nanmean(fixed_offset_per_angle))
-
-                    logger.info("Averaged scaling computed (initial values for optimization):")
-                    logger.info(f"  Averaged contrast: {averaged_contrast_init:.4f}")
-                    logger.info(f"  Averaged offset: {averaged_offset_init:.4f}")
-                    logger.info("  These will be OPTIMIZED along with 7 physical params (9 total)")
-
-                    # Do NOT set use_fixed_scaling = True for averaged
-                    # The averaged values are just initial guesses for optimization
-            else:  # pragma: no cover – defensive; function always returns arrays
-                logger.warning(  # type: ignore[unreachable]
-                    "Failed to compute quantile-based scaling, "
-                    "falling back to standard constant mode (optimizing 2 params)"
-                )
-        except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
-            logger.warning(
-                f"Error computing quantile-based scaling: {e}, "
-                f"falling back to standard constant mode"
-            )
-            use_fixed_scaling = False
-
-    # Layer 2: Hierarchical Optimization Configuration
-    # =====================================================================
-    # CRITICAL FIX (Jan 2026): Auto-enable hierarchical when shear_weighting
-    # is enabled. Shear weighting is ONLY applied inside hierarchical
-    # optimizer's loss function. Without hierarchical, the gradient
-    # cancellation for gamma_dot_t0 is NOT prevented!
-    #
-    # Root cause: The shear gradient ∂L/∂γ̇₀ ∝ Σ cos(φ₀-φ) cancels when
-    # summing over angles spanning 360° (e.g., 23 angles → 94.6% cancellation).
-    # Shear weighting emphasizes shear-sensitive angles to prevent this.
-    # =====================================================================
-    shear_weighting_config_early = ad_config.get("shear_weighting", {})
-    shear_weighting_will_be_enabled = (
-        shear_weighting_config_early.get("enable", True) and is_laminar_flow and n_phi > 3
+    layer_setup = configure_streaming_layers(
+        per_angle_mode_actual=per_angle_mode_actual,
+        constant_scaling_threshold=constant_scaling_threshold,
+        per_angle_scaling=per_angle_scaling,
+        n_phi=n_phi,
+        n_physical=n_physical,
+        n_physical_free=n_physical_free,
+        free_physical_names=free_physical_names,
+        physical_param_names=physical_param_names,
+        is_laminar_flow=is_laminar_flow,
+        phi_unique=phi_unique,
+        initial_params=initial_params,
+        bounds=bounds,
+        stratified_data=stratified_data,
+        resolved_physical=resolved_physical,
+        ad_config=ad_config,
+        hierarchical_config=hierarchical_config,
+        regularization_config=regularization_config,
+        gradient_monitoring_config=gradient_monitoring_config,
+        enable_group_variance_regularization=enable_group_variance_regularization,
+        group_variance_lambda=group_variance_lambda,
+        logger=logger,
+        HierarchicalOptimizer=HierarchicalOptimizer,
+        AdaptiveRegularizationConfig=AdaptiveRegularizationConfig,
+        ShearSensitivityWeighting=ShearSensitivityWeighting,
+        compute_quantile_per_angle_scaling=_compute_quantile_per_angle_scaling,
     )
-
-    enable_hierarchical = hierarchical_config.get("enable", True)
-
-    # Override: shear weighting requires hierarchical optimization to function
-    if shear_weighting_will_be_enabled and not enable_hierarchical:
-        logger.warning("=" * 60)
-        logger.warning("ANTI-DEGENERACY: Shear weighting enabled but hierarchical disabled!")
-        logger.warning("  Auto-enabling hierarchical optimization to apply shear weights.")
-        logger.warning("  Without this, gradient cancellation will collapse gamma_dot_t0.")
-        logger.warning("=" * 60)
-        enable_hierarchical = True
-
-    hierarchical_optimizer = None
-    # Skip hierarchical optimization in constant scaling mode:
-    # - Constant mode already prevents per-angle absorption (2 DoF vs 46)
-    # - HierarchicalOptimizer expects n_per_angle = 2*n_phi (contrast + offset)
-    # - Using hierarchical with constant mode causes index mismatch error
-    if enable_hierarchical and per_angle_scaling and not use_constant:
-        # n_physical defined unconditionally above
-        hier_config = HierarchicalConfig(
-            enable=True,
-            max_outer_iterations=hierarchical_config.get("max_outer_iterations", 5),
-            outer_tolerance=float(hierarchical_config.get("outer_tolerance", 1e-6)),
-            physical_max_iterations=hierarchical_config.get("physical_max_iterations", 100),
-            per_angle_max_iterations=hierarchical_config.get("per_angle_max_iterations", 50),
-        )
-        hierarchical_optimizer = HierarchicalOptimizer(
-            config=hier_config,
-            n_phi=n_phi,
-            # A fixed physical parameter is stripped out of the vector this
-            # optimizer receives (`fit_initial_params`, wrapped via
-            # `active_model_fn`/`loss_fn`), so its internal physical-index
-            # split must be sized to the REDUCED count, not the full
-            # `n_physical` -- otherwise `.physical_indices` runs past the
-            # end of the actual (reduced-length) parameter array.
-            n_physical=n_physical_free,
-        )
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 2 - Hierarchical Optimization")
-        logger.info(f"  Enabled: {enable_hierarchical}")
-        logger.info(f"  Max outer iterations: {hier_config.max_outer_iterations}")
-        logger.info(f"  Outer tolerance: {hier_config.outer_tolerance}")
-        if shear_weighting_will_be_enabled:
-            logger.info("  Shear weighting: WILL BE APPLIED via hierarchical loss function")
-        logger.info("=" * 60)
-    elif use_constant and enable_hierarchical and per_angle_scaling:
-        # Log that hierarchical is skipped due to constant scaling mode
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 2 - Hierarchical Optimization")
-        logger.info("  Skipped: constant scaling mode already prevents per-angle absorption")
-        logger.info("  Reason: Only 2 per-angle DoF (vs 46), no need for hierarchical alternation")
-        logger.info("=" * 60)
-
-    # Layer 3: Adaptive Relative Regularization Configuration
-    # Replaces/enhances the basic group variance regularization with CV-based approach
-    regularization_mode = regularization_config.get("mode", "relative")
-    regularization_lambda = float(regularization_config.get("lambda", 1.0))
-    target_cv = float(regularization_config.get("target_cv", 0.10))
-    target_contribution = float(regularization_config.get("target_contribution", 0.10))
-    max_cv = float(regularization_config.get("max_cv", 0.20))
-    auto_tune_lambda = bool(regularization_config.get("auto_tune_lambda", True))
-
-    adaptive_regularizer = None
-    if per_angle_scaling:
-        # L3 group indices come from the canonical ParameterIndexMapper.
-        # Bridge the controller's resolved flags to the canonical mode string.
-        from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
-
-        # Derive from per_angle_mode_actual directly (it is always one of
-        # "constant"/"averaged"/"individual" per use_constant's definition
-        # above), NOT from the use_fixed_scaling/use_averaged_scaling success
-        # flags: a quantile-estimation failure in "constant" mode leaves
-        # use_fixed_scaling=False while use_constant/per_angle_mode_actual
-        # stay "constant" (see the `elif use_constant:` param-vector branch
-        # below, added specifically for this fallback state) — the old
-        # two-way ternary fell through to "individual" for that state,
-        # mis-sizing L3's group indices against the real 2-element scaling
-        # head.
-        #
-        # But literal "constant" is ALSO wrong for that fallback state:
-        # ParameterIndexMapper.canonical(mode="constant", ...).n_optimized is
-        # 0 (frozen, no scaling head at all), while the `elif use_constant:`
-        # branch below builds a REAL 2-param [contrast_mean, offset_mean,
-        # *physical] vector for this exact state (quantile estimation failed,
-        # use_fixed_scaling stayed False). A true frozen "constant" fit
-        # (use_fixed_scaling=True) has no scaling head to group; only the
-        # fallback state has one, and it is shaped like "averaged" (2
-        # params), not "individual". Resolve to "averaged" for indexing
-        # purposes in that one case only — per_angle_mode_actual itself is
-        # left untouched (still reported as "constant" in diagnostics). See
-        # _resolve_scaling_mode_for_indexing.
-        _canonical = _resolve_scaling_mode_for_indexing(per_angle_mode_actual, use_fixed_scaling)
-        _mapper = ParameterIndexMapper.canonical(mode=_canonical, n_phi=n_phi, n_physics=n_physical)
-        mode_group_indices = _mapper.group_indices or None  # [] (constant) -> None
-        logger.debug(f"L3 group indices from mapper ({_canonical}): {_mapper.group_indices}")
-
-        reg_config = AdaptiveRegularizationConfig(
-            enable=True,
-            mode=regularization_mode,
-            lambda_base=regularization_lambda,
-            target_cv=target_cv,
-            target_contribution=target_contribution,
-            max_cv=max_cv,
-            auto_tune_lambda=auto_tune_lambda,
-            group_indices=mode_group_indices,
-        )
-        adaptive_regularizer = AdaptiveRegularizer(reg_config, n_phi)
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 3 - Adaptive Regularization")
-        logger.info(f"  Mode: {regularization_mode}")
-        logger.info(f"  Auto-tuned lambda: {adaptive_regularizer.lambda_value:.2f}")
-        logger.info(f"  Target CV: {target_cv} ({target_cv * 100:.0f}% variation)")
-        logger.info(f"  Max CV: {max_cv}")
-        logger.info(f"  Group indices: {adaptive_regularizer.group_indices}")
-        logger.info("=" * 60)
-
-        # Update group variance settings to use adaptive regularizer's lambda
-        # This ensures NLSQ's built-in regularization is consistent
-        enable_group_variance_regularization = True
-        group_variance_lambda = adaptive_regularizer.lambda_value
-
-    # Layer 4: Gradient Collapse Monitor Configuration
-    gradient_monitor_enabled = gradient_monitoring_config.get("enable", True)
-    gradient_monitor = None
-    if gradient_monitor_enabled and per_angle_scaling:
-        # Phase 6: L4 per-angle count comes from the canonical mapper built in the L3
-        # block above (same `if per_angle_scaling:` guard). Rebuild defensively in case
-        # L3 was skipped (regularization disabled) — it is a cheap pure dataclass.
-        from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper
-
-        # Same fix as _canonical above: derive from per_angle_mode_actual
-        # directly, not from the use_fixed_scaling/use_averaged_scaling
-        # success flags (which can disagree with per_angle_mode_actual on a
-        # constant-mode quantile-estimation failure) -- AND resolve that one
-        # fallback state ("constant" configured, quantile estimation failed)
-        # to "averaged" for indexing, since its real vector is the 2-param
-        # [contrast_mean, offset_mean, *physical] layout, not the frozen
-        # 0-param "constant" layout (see the matching L3 comment above and
-        # _resolve_scaling_mode_for_indexing).
-        _canonical_l4 = _resolve_scaling_mode_for_indexing(per_angle_mode_actual, use_fixed_scaling)
-        n_per_angle = ParameterIndexMapper.canonical(
-            mode=_canonical_l4, n_phi=n_phi, n_physics=n_physical
-        ).n_optimized  # 0 (constant) | 2 (averaged) | 2*n_phi (individual)
-        # The monitor's `.check()` only ever sees the REDUCED gradient/params
-        # array (it is called from `grad_fn`, which differentiates `loss_fn`
-        # -> `active_model_fn`, wrapped to accept free-only physical params
-        # when a fixed physical parameter is active) -- size its indices to
-        # `n_physical_free`, not the full `n_physical`, or they run past the
-        # end of that array.
-        # Use numpy arrays for indices (JAX compatibility)
-        per_angle_indices = np.arange(n_per_angle, dtype=np.intp)
-        physical_indices = np.arange(n_per_angle, n_per_angle + n_physical_free, dtype=np.intp)
-
-        # Compute gamma_dot_t0 index for watch_parameters. In laminar_flow,
-        # physical params are [D0, alpha, D_offset, gamma_dot_t0, beta,
-        # gamma_dot_t_offset, phi0] -- gamma_dot_t0 is nominally at
-        # physical_indices[3]. When a physical parameter earlier in that list
-        # is fixed (and therefore absent from `free_physical_names`),
-        # gamma_dot_t0's position within the REDUCED physical block shifts;
-        # look it up by name instead of assuming index 3. If gamma_dot_t0
-        # ITSELF is the fixed parameter, there is nothing to watch (it is no
-        # longer a free variable at all) -- `watch_parameters` stays empty.
-        _watch_parameters: list[int] = []
-        if "gamma_dot_t0" in free_physical_names:
-            gamma_dot_t0_idx = n_per_angle + free_physical_names.index("gamma_dot_t0")
-            _watch_parameters = [gamma_dot_t0_idx]
-
-        monitor_config = GradientMonitorConfig(
-            enable=True,
-            ratio_threshold=float(gradient_monitoring_config.get("ratio_threshold", 0.01)),
-            consecutive_triggers=gradient_monitoring_config.get("consecutive_triggers", 5),
-            response_mode=gradient_monitoring_config.get("response", "hierarchical"),
-            # NEW (Dec 2025): Watch gamma_dot_t0 specifically for gradient collapse
-            # This detects when shear parameter gradient vanishes during L-BFGS warmup
-            watch_parameters=_watch_parameters,
-            watch_threshold=float(gradient_monitoring_config.get("watch_threshold", 1e-8)),
-        )
-        gradient_monitor = GradientCollapseMonitor(
-            config=monitor_config,
-            physical_indices=physical_indices,
-            per_angle_indices=per_angle_indices,
-        )
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 4 - Gradient Collapse Monitor")
-        logger.info(f"  Enabled: {gradient_monitor_enabled}")
-        logger.info(f"  Ratio threshold: {monitor_config.ratio_threshold}")
-        logger.info(f"  Consecutive triggers: {monitor_config.consecutive_triggers}")
-        logger.info(f"  Response mode: {monitor_config.response_mode}")
-        logger.info("=" * 60)
-
-    # Layer 5: Shear-Sensitivity Weighting
-    # Prevents gradient cancellation for shear parameters by emphasizing
-    # shear-sensitive angles (parallel/antiparallel to flow direction)
-    shear_weighting_config = ad_config.get("shear_weighting", {})
-    shear_weighting_enabled = shear_weighting_config.get("enable", True)
-    shear_weighter: ShearSensitivityWeighting | None = None
-
-    # `_phi0_is_free_for_shear` also gates `shear_weight_update_callback`,
-    # defined much further below in this function -- both read/write the
-    # same enclosing-function-scope name, standard Python closure capture.
-    _phi0_is_free_for_shear = "phi0" in free_physical_names
-    if is_laminar_flow and shear_weighting_enabled and n_phi > 3:
-        # Get initial phi0 from config or use default
-        initial_phi0 = shear_weighting_config.get("initial_phi0", None)
-        if initial_phi0 is None:
-            # Try to get from initial parameters. `initial_params` here is
-            # still the FULL (pre-strip) vector -- the strip happens later,
-            # after all Layer 1-5 anti-degeneracy object construction -- so
-            # `initial_params[-1]` is phi0 (last physical param) UNLESS phi0
-            # is fixed to a value different from its raw config initial
-            # guess, in which case `initial_params[-1]` is the stale
-            # unfixed guess, not the configured override (dev-suite:
-            # three-brain deep-review finding). `resolved_physical.
-            # values_full`, when available, already carries the correct
-            # value at every position -- the fixed override at fixed slots,
-            # the same raw initial value everywhere else -- so prefer it.
-            if resolved_physical is not None and "phi0" in physical_param_names:
-                initial_phi0 = float(
-                    resolved_physical.values_full[physical_param_names.index("phi0")]
-                )
-            else:
-                initial_phi0 = float(initial_params[-1]) if len(initial_params) > 0 else 0.0
-
-        sw_config = ShearWeightingConfig(
-            enable=True,
-            min_weight=float(shear_weighting_config.get("min_weight", 0.3)),
-            alpha=float(shear_weighting_config.get("alpha", 1.0)),
-            update_frequency=int(shear_weighting_config.get("update_frequency", 1)),
-            initial_phi0=initial_phi0,
-            normalize=shear_weighting_config.get("normalize", True),
-        )
-        # `ShearSensitivityWeighting.update_phi0` is only ever called on the
-        # REDUCED (free-only) parameter vector (via
-        # shear_weight_update_callback, itself only invoked from the L2
-        # hierarchical branch's per-angle-optimized params) -- size it to
-        # n_physical_free and look phi0_index up by name (mirrors the L4
-        # gamma_dot_t0_idx fix above), not the full n_physical / a hardcoded
-        # dense-layout index 6. If phi0 itself is the fixed parameter, it is
-        # absent from `free_physical_names`: phi0_index is left at its
-        # default (unused, since `_phi0_is_free_for_shear` gates the update
-        # callback below to a no-op in that case -- phi0 is pinned to
-        # `initial_phi0`, exactly the configured fixed value, for the whole
-        # solve, which is the correct behavior for a value that never
-        # varies).
-        shear_weighter = ShearSensitivityWeighting(
-            phi_angles=phi_unique,
-            n_physical=n_physical_free,
-            phi0_index=(free_physical_names.index("phi0") if _phi0_is_free_for_shear else 0),
-            config=sw_config,
-        )
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY DEFENSE: Layer 5 - Shear-Sensitivity Weighting")
-        logger.info(f"  Enabled: {shear_weighting_enabled}")
-        logger.info(f"  n_phi: {n_phi}")
-        logger.info(f"  min_weight: {sw_config.min_weight:.2f}")
-        logger.info(f"  alpha: {sw_config.alpha:.1f}")
-        logger.info(f"  initial_phi0: {initial_phi0:.1f} deg")
-        logger.info("=" * 60)
-
-    # Store anti-degeneracy components for diagnostics
-    anti_degeneracy_components = {
-        "per_angle_mode": per_angle_mode_actual,
-        "use_constant": use_constant,  # T031: Track constant mode status
-        "use_fixed_scaling": use_fixed_scaling,  # Track fixed scaling status
-        "hierarchical_optimizer": hierarchical_optimizer,
-        "adaptive_regularizer": adaptive_regularizer,
-        "gradient_monitor": gradient_monitor,
-        "shear_weighter": shear_weighter,
-    }
+    use_constant = layer_setup.use_constant
+    use_averaged_scaling = layer_setup.use_averaged_scaling
+    use_fixed_scaling = layer_setup.use_fixed_scaling
+    fixed_contrast_per_angle = layer_setup.fixed_contrast_per_angle
+    fixed_offset_per_angle = layer_setup.fixed_offset_per_angle
+    fixed_contrast_jax = layer_setup.fixed_contrast_jax
+    fixed_offset_jax = layer_setup.fixed_offset_jax
+    averaged_contrast_init = layer_setup.averaged_contrast_init
+    averaged_offset_init = layer_setup.averaged_offset_init
+    hierarchical_optimizer = layer_setup.hierarchical_optimizer
+    adaptive_regularizer = layer_setup.adaptive_regularizer
+    gradient_monitor = layer_setup.gradient_monitor
+    shear_weighter = layer_setup.shear_weighter
+    _phi0_is_free_for_shear = layer_setup.phi0_is_free_for_shear
+    enable_group_variance_regularization = layer_setup.enable_group_variance_regularization
+    group_variance_lambda = layer_setup.group_variance_lambda
+    anti_degeneracy_components = layer_setup.anti_degeneracy_components
     # ===================================================================== #
     if enable_group_variance_regularization and group_variance_indices_raw is None:
         if is_laminar_flow and per_angle_scaling and n_phi > 3:
@@ -1252,18 +893,6 @@ def fit_with_stratified_hybrid_streaming(
     # Create model function
     is_laminar_flow = "gamma_dot_t0" in physical_param_names
 
-    # T042: Compute n_per_angle for model function based on mode
-    # In fixed scaling mode: 0 (all params are physical)
-    # In constant mode (fallback): 1 contrast + 1 offset = 2
-    # In individual mode: n_phi contrast + n_phi offset = 2*n_phi
-    if use_fixed_scaling:
-        # Fixed scaling: all params are physical, no per-angle params in vector
-        n_per_angle = 0
-    elif use_constant:
-        n_per_angle = 2
-    else:
-        n_per_angle = 2 * n_phi
-
     @jax.jit
     def model_fn_pointwise(x_batch: jnp.ndarray, *params_tuple: jnp.ndarray) -> jnp.ndarray:
         """Point-wise model function for hybrid streaming optimizer."""
@@ -1379,33 +1008,9 @@ def fit_with_stratified_hybrid_streaming(
     # Convert to indices (vectorized).
     # NOTE: Both t1 and t2 index into t1_unique because XPCS correlation
     # matrices use a shared time grid (t1_unique == t2_unique).
-    def _bin_to_grid(values: np.ndarray, grid: np.ndarray, axis_name: str) -> np.ndarray:
-        """Bin values onto a grid via searchsorted, warning on out-of-grid points.
-
-        An unguarded clip silently routes data lying outside the fitted grid to
-        the boundary bin, mis-associating it with the wrong (phi, t1, t2) cell —
-        a data-integrity violation. We clip (to stay in-bounds) but surface how
-        many points were affected so misaligned data/config is not silent.
-        """
-        raw = np.searchsorted(grid, values)
-        n_oob = int(np.sum(raw >= len(grid)))
-        # Below-grid points snap to bin 0 just like a legitimate grid[0] value,
-        # so raw alone cannot surface them — count them explicitly (mirrors
-        # the heterodyne twin in heterodyne_hybrid_streaming.py).
-        n_low = int(np.sum(np.asarray(values) < grid[0]))
-        if n_oob > 0 or n_low > 0:
-            logger.warning(
-                "%d data point(s) lie above and %d below the %s grid; clipped to "
-                "the boundary bin. Check data/config grid alignment.",
-                n_oob,
-                n_low,
-                axis_name,
-            )
-        return np.clip(raw, 0, len(grid) - 1)
-
-    phi_idx_arr = _bin_to_grid(all_phi_data, phi_unique, "phi")
-    t1_idx_arr = _bin_to_grid(all_t1_data, t1_unique, "t1")
-    t2_idx_arr = _bin_to_grid(all_t2_data, t1_unique, "t2")
+    phi_idx_arr = _bin_to_grid(all_phi_data, phi_unique, "phi", logger=logger)
+    t1_idx_arr = _bin_to_grid(all_t1_data, t1_unique, "t1", logger=logger)
+    t2_idx_arr = _bin_to_grid(all_t2_data, t1_unique, "t2", logger=logger)
 
     # B2: Store grid indices as int32 (not float64).  Grid indices are
     # non-negative integers; int32 covers any realistic grid (max ~2.1B).
@@ -1507,130 +1112,17 @@ def fit_with_stratified_hybrid_streaming(
         and ad_config.get("enable", True)
     )
     # Track params for fitting
-    fit_initial_params = initial_params.copy()
-    fit_bounds = bounds
-
-    # T034-T038: Constant mode parameter transformation
-    # When use_fixed_scaling=True, use physical params only (fixed contrast/offset from quantiles)
-    # Fallback: Transform per-angle params (2*n_phi) to constant (2) by taking means
-    if use_fixed_scaling:
-        # FIXED SCALING MODE: Use quantile-derived fixed per-angle scaling
-        # Parameters are physical-only, contrast/offset are NOT in the param vector
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY EXECUTION: Fixed Per-Angle Scaling")
-        physical_params = initial_params[2 * n_phi :]
-
-        # New parameter layout: [physical_params] only
-        fit_initial_params = physical_params
-
-        logger.info(f"  Original params: {len(initial_params)}")
-        logger.info(f"  Fixed scaling params: {len(fit_initial_params)} (physical only)")
-        logger.info(f"  Per-angle reduction: {2 * n_phi} -> 0 (using fixed arrays)")
-
-        # Transform bounds to physical only
-        if bounds is not None:
-            lower_bounds, upper_bounds = bounds
-            fit_bounds = (lower_bounds[2 * n_phi :], upper_bounds[2 * n_phi :])
-            logger.info(f"  Bounds reduced to physical only: {len(fit_bounds[0])} params")
-        logger.info("=" * 60)
-    elif use_averaged_scaling:
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY EXECUTION: Auto Averaged Scaling Mode")
-        # Transform per-angle params to single values (means) for optimization
-        per_angle_params = initial_params[: 2 * n_phi]
-        physical_params = initial_params[2 * n_phi :]
-
-        # Split per-angle into contrast and offset groups
-        contrast_per_angle = per_angle_params[:n_phi]
-        offset_per_angle = per_angle_params[n_phi : 2 * n_phi]
-
-        # Use quantile-based averaged values if computed, else take means
-        if averaged_contrast_init is not None and averaged_offset_init is not None:
-            contrast_mean = averaged_contrast_init
-            offset_mean = averaged_offset_init
-            logger.info("  Using quantile-based averaged initial values (OPTIMIZED)")
-        else:
-            contrast_mean = np.nanmean(contrast_per_angle)
-            offset_mean = np.nanmean(offset_per_angle)
-            logger.info("  Using parameter-based averaged initial values (OPTIMIZED)")
-
-        # New parameter layout: [contrast_const, offset_const, physical_params]
-        fit_initial_params = np.concatenate([[contrast_mean], [offset_mean], physical_params])
-
-        logger.info(f"  Original params: {len(initial_params)}")
-        logger.info(f"  Constant params: {len(fit_initial_params)}")
-        logger.info(f"  Per-angle reduction: {2 * n_phi} -> 2")
-        logger.info(f"  Contrast mean: {contrast_mean:.6f}")
-        logger.info(f"  Offset mean: {offset_mean:.6f}")
-
-        # T039: Transform bounds for constant mode
-        if bounds is not None:
-            lower_bounds, upper_bounds = bounds
-            # For constant mode, use the bounds of the first per-angle param
-            # (all per-angle bounds are typically the same)
-            fit_lower = np.concatenate(
-                [
-                    [lower_bounds[0]],
-                    [lower_bounds[n_phi]],
-                    lower_bounds[2 * n_phi :],
-                ]
-            )
-            fit_upper = np.concatenate(
-                [
-                    [upper_bounds[0]],
-                    [upper_bounds[n_phi]],
-                    upper_bounds[2 * n_phi :],
-                ]
-            )
-            fit_bounds = (fit_lower, fit_upper)
-        logger.info("=" * 60)
-    elif use_constant:
-        # Fallback: explicit "constant" mode where quantile-based fixed-scaling
-        # estimation raised (use_fixed_scaling stayed False, see the except
-        # block above). Without this branch fit_initial_params/fit_bounds stay
-        # at the full per-angle length (2*n_phi + n_physical) while
-        # model_fn_pointwise's `elif use_constant:` branch (and n_per_angle=2
-        # above) expect only 2 + n_physical params — a silent parameter-vector
-        # corruption (per-angle contrast/offset leaking into physics slots).
-        # Mirror the averaged-mode transform above, but using the mean of the
-        # raw per-angle initial values (quantile estimates are unavailable).
-        logger.warning("=" * 60)
-        logger.warning("ANTI-DEGENERACY EXECUTION: Constant Scaling (quantile fallback)")
-        logger.warning("  Quantile-based fixed scaling failed; using mean of initial values")
-        per_angle_params = initial_params[: 2 * n_phi]
-        physical_params = initial_params[2 * n_phi :]
-        contrast_per_angle = per_angle_params[:n_phi]
-        offset_per_angle = per_angle_params[n_phi : 2 * n_phi]
-        contrast_mean = np.nanmean(contrast_per_angle)
-        offset_mean = np.nanmean(offset_per_angle)
-
-        # New parameter layout: [contrast_const, offset_const, physical_params]
-        fit_initial_params = np.concatenate([[contrast_mean], [offset_mean], physical_params])
-
-        logger.warning(f"  Original params: {len(initial_params)}")
-        logger.warning(f"  Constant params: {len(fit_initial_params)}")
-        logger.warning(f"  Per-angle reduction: {2 * n_phi} -> 2")
-        logger.warning(f"  Contrast mean: {contrast_mean:.6f}")
-        logger.warning(f"  Offset mean: {offset_mean:.6f}")
-
-        if bounds is not None:
-            lower_bounds, upper_bounds = bounds
-            fit_lower = np.concatenate(
-                [
-                    [lower_bounds[0]],
-                    [lower_bounds[n_phi]],
-                    lower_bounds[2 * n_phi :],
-                ]
-            )
-            fit_upper = np.concatenate(
-                [
-                    [upper_bounds[0]],
-                    [upper_bounds[n_phi]],
-                    upper_bounds[2 * n_phi :],
-                ]
-            )
-            fit_bounds = (fit_lower, fit_upper)
-        logger.warning("=" * 60)
+    fit_initial_params, fit_bounds = forward_transform_per_angle_params(
+        initial_params=initial_params,
+        bounds=bounds,
+        n_phi=n_phi,
+        use_fixed_scaling=use_fixed_scaling,
+        use_averaged_scaling=use_averaged_scaling,
+        use_constant=use_constant,
+        averaged_contrast_init=averaged_contrast_init,
+        averaged_offset_init=averaged_offset_init,
+        logger=logger,
+    )
 
     # =====================================================================
     # Fixed/active physical parameters: strip the fixed physical slots out
@@ -1740,7 +1232,19 @@ def fit_with_stratified_hybrid_streaming(
             anti_degeneracy_components.get("shear_weighter"),
         )
 
-        def loss_fn(params: Any) -> Any:
+        # L5 weights are a TRACED argument of the loss, not a closure capture:
+        # ``jax.jit`` would otherwise bake ``shear_weighter._weights_jax`` in
+        # as a trace-time constant, and ``update_phi0`` (called every outer
+        # iteration by ``shear_weight_update_callback``) rebinds that array,
+        # so the phi0 feedback loop would be silently frozen at iteration 0.
+        _shear_enabled = shear_weighter_local is not None
+
+        def _current_shear_weights() -> Any:
+            return (
+                shear_weighter_local.get_weights_jax() if shear_weighter_local is not None else None
+            )
+
+        def _loss_core(params: Any, shear_w: Any) -> Any:
             """Loss function for hierarchical optimizer.
 
             CRITICAL: Must use jnp (JAX) operations, NOT np (NumPy).
@@ -1748,7 +1252,8 @@ def fit_with_stratified_hybrid_streaming(
             resulting in zero gradients for all parameters.
 
             Layer 5: Shear-sensitivity weighting is applied here to prevent
-            gradient cancellation for shear parameters (gamma_dot_t0, phi0).
+            gradient cancellation for shear parameters (gamma_dot_t0, phi0);
+            ``shear_w`` is the per-angle weight table (traced; see above).
             """
             # Convert params to JAX array if needed for tracing
             params_jax = jnp.asarray(params)
@@ -1767,18 +1272,18 @@ def fit_with_stratified_hybrid_streaming(
             # weighting, when also active, combines with it rather than
             # silently overriding it.
             residuals_sw = _sigma_weighted_residuals(residuals, sigma)
-            if shear_weighter_local is not None:
-                # Use shear-weighted loss instead of uniform MSE. Passing the
-                # already sigma-divided residuals means apply_weights_to_loss's
-                # sum(w * r**2) becomes sum(w * (r/sigma)**2) -- both layers
-                # combined, matching the sibling plain-path branch's
-                # optimizer.fit(sigma=sigma, ...).
+            if _shear_enabled:
+                # Shear-weighted loss instead of uniform MSE, evaluated on the
+                # TRACED weight table (via `weights=`) so phi0 updates reach
+                # the jitted gradient. Passing the already sigma-divided
+                # residuals means sum(w * r**2) becomes sum(w * (r/sigma)**2)
+                # -- both layers combined, matching the sibling plain-path
+                # branch's optimizer.fit(sigma=sigma, ...).
+                assert shear_weighter_local is not None
                 weighted_loss = shear_weighter_local.apply_weights_to_loss(
-                    residuals_sw, phi_indices_jax
+                    residuals_sw, phi_indices_jax, weights=shear_w
                 )
             else:
-                # CRITICAL: Use jnp operations, NOT np -- np.mean breaks JAX
-                # autodiff and causes zero gradients.
                 weighted_loss = jnp.mean(residuals_sw**2) * len(y_data)
 
             # Add adaptive regularization if enabled
@@ -1792,14 +1297,27 @@ def fit_with_stratified_hybrid_streaming(
                 return weighted_loss + reg_term
             return weighted_loss
 
+        # Jit once outside the per-call closures. ``jax.grad(lambda p: ...)``
+        # inside grad_fn re-traced on every call (op-by-op dispatch over the
+        # full residual graph), then re-evaluated loss_fn(params) again just
+        # for the L4 monitor; _vag now supplies both the gradient and the
+        # loss value from one compiled call (mirrors stratified_ls.py's
+        # "do not re-trace the large residual graph" jitted loss/value_and_grad
+        # pair).
+        _vag = jax.jit(jax.value_and_grad(_loss_core, argnums=0))
+
+        def loss_fn(params: Any) -> Any:
+            """Loss on the live L5 weights (HierarchicalOptimizer.fit)."""
+            # Compiled loss -- same value grad_fn's _vag call discards.
+            return _vag(params, _current_shear_weights())[0]
+
         def grad_fn(params: Any) -> Any:
             """Gradient function with optional monitoring."""
-            # Use JAX autodiff for gradient computation
-            grad = jax.grad(lambda p: loss_fn(p))(params)
+            loss_val, grad = _vag(params, _current_shear_weights())
 
             # Layer 4: Gradient monitoring
             if gradient_monitor is not None:
-                gradient_monitor.check(grad, iteration_counter[0], params, loss_fn(params))
+                gradient_monitor.check(grad, iteration_counter[0], params, loss_val)
                 iteration_counter[0] += 1
 
             return grad
@@ -1838,8 +1356,14 @@ def fit_with_stratified_hybrid_streaming(
         s2_hier = hier_result.fun / max(n_hier_data - n_hier_params, 1)
         try:
             popt_jax = jnp.asarray(hier_result.x)
-            H = np.asarray(jax.hessian(loss_fn)(popt_jax))
-        except Exception as e:
+            # Bind the FINAL L5 weights once; the Hessian is a post-solve
+            # quantity so a fresh trace here is correct (and keeps the
+            # ``jax.hessian(fn)(p)`` call shape tests monkeypatch).
+            _w_final = _current_shear_weights()
+            _loss_final = functools.partial(_loss_core, shear_w=_w_final)
+
+            H = np.asarray(jax.jit(jax.hessian(_loss_final))(popt_jax))
+        except (ValueError, RuntimeError, MemoryError, np.linalg.LinAlgError) as e:
             logger.warning(f"Could not compute Hessian: {e}. Using identity placeholder.")
             H = None
 
@@ -2006,204 +1530,17 @@ def fit_with_stratified_hybrid_streaming(
     # =====================================================================
     # Fixed scaling mode inverse transformation
     # Expand physical-only params back to per-angle format using fixed scaling arrays
-    if use_fixed_scaling:
-        assert fixed_contrast_per_angle is not None  # set when use_fixed_scaling is True
-        assert fixed_offset_per_angle is not None  # set when use_fixed_scaling is True
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY EXECUTION: Inverse Fixed Scaling Transform")
-        # Layout: [physical_params] - popt contains ONLY physical parameters
-        physical_params_opt = popt
-
-        # Use the pre-computed fixed per-angle scaling from quantiles
-        contrast_per_angle_opt = fixed_contrast_per_angle
-        offset_per_angle_opt = fixed_offset_per_angle
-
-        # Reconstruct full parameter vector in original layout
-        popt = np.concatenate([contrast_per_angle_opt, offset_per_angle_opt, physical_params_opt])
-
-        logger.info(f"  Physical params: {len(physical_params_opt)}")
-        logger.info(f"  Fixed per-angle scaling restored: {len(popt)} total params")
-        logger.info(
-            f"  Contrast (fixed): mean={np.nanmean(contrast_per_angle_opt):.4f}, "
-            f"range=[{np.nanmin(contrast_per_angle_opt):.4f}, {np.nanmax(contrast_per_angle_opt):.4f}]"
-        )
-        logger.info(
-            f"  Offset (fixed): mean={np.nanmean(offset_per_angle_opt):.4f}, "
-            f"range=[{np.nanmin(offset_per_angle_opt):.4f}, {np.nanmax(offset_per_angle_opt):.4f}]"
-        )
-
-        # Transform covariance from physical-only space to full space
-        # For fixed scaling mode, the Jacobian is simpler:
-        # Per-angle params are fixed (variance = 0), physical params have identity
-        # J[i, j] = 0 for per-angle params (i < 2*n_phi)
-        # J[2*n_phi+i, i] = 1 for physical params (identity)
-        pcov_physical = result.get("pcov", None)
-        n_physical = len(physical_params_opt)
-
-        if (
-            pcov_physical is not None
-            and pcov_physical.shape[0] == n_physical
-            and pcov_physical.shape[1] == n_physical
-        ):
-            n_per_angle_total = 2 * n_phi  # contrast + offset per-angle
-            n_total_restored = n_per_angle_total + n_physical
-
-            # Build full covariance matrix
-            # Per-angle params have zero covariance (they're fixed)
-            # Physical params have the original covariance
-            try:
-                pcov_full = np.zeros((n_total_restored, n_total_restored))
-                # Physical params covariance block
-                pcov_full[2 * n_phi :, 2 * n_phi :] = pcov_physical
-                result["pcov_transformed"] = pcov_full
-                logger.info("  Covariance expanded: per-angle=0 (fixed), physical=preserved")
-            except (
-                ValueError,
-                RuntimeError,
-                MemoryError,
-                np.linalg.LinAlgError,
-            ) as e:
-                logger.warning(f"  Covariance expansion failed: {e}. Using identity fallback.")
-                result["pcov_transformed"] = None
-        else:
-            pcov_shape = pcov_physical.shape if pcov_physical is not None else None
-            logger.warning(
-                f"  Physical covariance unavailable or wrong shape (got {pcov_shape}, "
-                f"expected ({n_physical}, {n_physical})). "
-                "Using identity fallback."
-            )
-            result["pcov_transformed"] = None
-
-        logger.info("=" * 60)
-
-    # T046-T049: Auto averaged mode inverse transformation
-    # Expand averaged parameters back to per-angle format for backward compatibility
-    elif use_averaged_scaling:
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY EXECUTION: Inverse Auto Averaged Transform")
-        # Layout: [contrast_const, offset_const, physical_params]
-        from xpcsjax.optimization.nlsq.data_prep import (
-            expand_per_angle_parameters,
-        )
-
-        contrast_const = popt[0]
-        offset_const = popt[1]
-        n_physical_opt = len(popt) - 2
-        expanded = expand_per_angle_parameters(
-            popt,
-            None,
-            n_phi,
-            n_physical_opt,
-        )
-        popt = expanded.params
-
-        logger.info(f"  Constant params: 2 + {n_physical_opt} physical")
-        logger.info(f"  Restored per-angle params: {len(popt)}")
-        logger.info(f"  Contrast (uniform): {contrast_const:.6f}")
-        logger.info(f"  Offset (uniform): {offset_const:.6f}")
-
-        # Transform covariance from constant space to per-angle space
-        # For constant mode, the Jacobian is simpler: broadcasting matrix
-        # J[i, 0] = 1 for i in 0..n_phi-1 (contrast params)
-        # J[n_phi+i, 1] = 1 for i in 0..n_phi-1 (offset params)
-        # J[2*n_phi+i, 2+i] = 1 for physical params (identity)
-        pcov_constant = result.get("pcov", None)
-        n_constant_total = 2 + n_physical_opt
-
-        if (
-            pcov_constant is not None
-            and pcov_constant.shape[0] == n_constant_total
-            and pcov_constant.shape[1] == n_constant_total
-        ):
-            n_per_angle_total = 2 * n_phi  # contrast + offset per-angle
-            n_physical = n_physical_opt
-            n_total_restored = n_per_angle_total + n_physical
-
-            # Build Jacobian for constant → per-angle transformation
-            J_full = np.zeros((n_total_restored, n_constant_total))
-            # Contrast broadcast: d(contrast_per_angle[i])/d(contrast_const) = 1
-            J_full[:n_phi, 0] = 1.0
-            # Offset broadcast: d(offset_per_angle[i])/d(offset_const) = 1
-            J_full[n_phi : 2 * n_phi, 1] = 1.0
-            # Physical params: identity (pass-through)
-            J_full[2 * n_phi :, 2:] = np.eye(n_physical)
-
-            # Transform covariance: pcov_full = J @ pcov_constant @ J.T
-            try:
-                pcov_transformed = J_full @ pcov_constant @ J_full.T
-                result["pcov_transformed"] = pcov_transformed
-                logger.info("  Covariance transformed from constant to per-angle space")
-            except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
-                logger.warning(f"  Covariance transformation failed: {e}. Using identity fallback.")
-                result["pcov_transformed"] = None
-        else:
-            pcov_shape = pcov_constant.shape if pcov_constant is not None else None
-            logger.warning(
-                f"  Constant covariance unavailable or wrong shape (got {pcov_shape}, "
-                f"expected ({n_constant_total}, {n_constant_total})). "
-                "Using identity fallback."
-            )
-            result["pcov_transformed"] = None
-
-        logger.info("=" * 60)
-    elif use_constant:
-        # Inverse of the forward-transform quantile-fallback branch above:
-        # explicit "constant" mode whose quantile-based fixed-scaling estimation
-        # failed used the same [contrast_const, offset_const, physical_params]
-        # layout as use_averaged_scaling, so popt/pcov must be expanded back to
-        # the per-angle layout the same way — otherwise popt stays at length
-        # 2 + n_physical instead of the 2*n_phi + n_physical the caller
-        # (residual_fn, diagnostics) expects.
-        logger.warning("=" * 60)
-        logger.warning("ANTI-DEGENERACY EXECUTION: Inverse Constant Transform (quantile fallback)")
-        from xpcsjax.optimization.nlsq.data_prep import (
-            expand_per_angle_parameters,
-        )
-
-        contrast_const = popt[0]
-        offset_const = popt[1]
-        n_physical_opt = len(popt) - 2
-        expanded = expand_per_angle_parameters(
-            popt,
-            None,
-            n_phi,
-            n_physical_opt,
-        )
-        popt = expanded.params
-
-        logger.warning(f"  Constant params: 2 + {n_physical_opt} physical")
-        logger.warning(f"  Restored per-angle params: {len(popt)}")
-        logger.warning(f"  Contrast (uniform): {contrast_const:.6f}")
-        logger.warning(f"  Offset (uniform): {offset_const:.6f}")
-
-        pcov_constant = result.get("pcov", None)
-        n_constant_total = 2 + n_physical_opt
-
-        if (
-            pcov_constant is not None
-            and pcov_constant.shape[0] == n_constant_total
-            and pcov_constant.shape[1] == n_constant_total
-        ):
-            n_per_angle_total = 2 * n_phi
-            n_physical = n_physical_opt
-            n_total_restored = n_per_angle_total + n_physical
-
-            J_full = np.zeros((n_total_restored, n_constant_total))
-            J_full[:n_phi, 0] = 1.0
-            J_full[n_phi : 2 * n_phi, 1] = 1.0
-            J_full[2 * n_phi :, 2:] = np.eye(n_physical)
-
-            try:
-                pcov_transformed = J_full @ pcov_constant @ J_full.T
-                result["pcov_transformed"] = pcov_transformed
-                logger.warning("  Covariance transformed from constant to per-angle space")
-            except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
-                logger.warning(f"  Covariance transformation failed: {e}. Using identity fallback.")
-                result["pcov_transformed"] = None
-        else:
-            result["pcov_transformed"] = None
-
-        logger.warning("=" * 60)
+    popt = inverse_transform_per_angle_params(
+        popt=popt,
+        result=result,
+        n_phi=n_phi,
+        use_fixed_scaling=use_fixed_scaling,
+        use_averaged_scaling=use_averaged_scaling,
+        use_constant=use_constant,
+        fixed_contrast_per_angle=fixed_contrast_per_angle,
+        fixed_offset_per_angle=fixed_offset_per_angle,
+        logger=logger,
+    )
 
     # Log gradient monitor summary if available
     if gradient_monitor is not None:

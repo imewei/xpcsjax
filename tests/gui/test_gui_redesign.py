@@ -17,8 +17,8 @@ import yaml
 pytest.importorskip("PySide6")
 pytest.importorskip("pyqtgraph")
 
-from xpcsjax.gui.views.plots_view import PhiResultsGrid  # noqa: E402
-from xpcsjax.gui.viz_bundle import VizBundle  # noqa: E402
+from xpcsjax.gui.views.plots_view import PhiResultsGrid
+from xpcsjax.gui.viz_bundle import VizBundle
 
 _MODES = ("static_anisotropic", "static_isotropic", "laminar_flow", "two_component")
 
@@ -348,7 +348,9 @@ def test_main_window_shows_grid_on_valid_bundle(qtbot, tmp_path):
         parameters={"D0": 1.0},
     )
     win._show_result_with_bundle(summary, str(tmp_path))
-    assert win._central_stack.currentIndex() == 1  # the per-phi grid page
+    # Bundle load runs on a QThreadPool worker thread (D10); wait for the
+    # queued signal that applies it back to the UI.
+    qtbot.waitUntil(lambda: win._central_stack.currentIndex() == 1, timeout=5000)
     assert win._result_grid.section_count() == 2
 
 
@@ -415,34 +417,18 @@ def test_parse_optional_rejects_non_finite(bad):
 
 def test_close_project_tears_down_active_worker(qtbot):
     """Close Project must not orphan a running fit worker (no cancel handle left)."""
+    from tests.gui.ipc_fakes import FakeHandle
+
     win = _window(qtbot)
 
-    calls = {"cancel": 0, "shutdown": 0}
-
-    class _FakeEvent:
-        def disconnect(self):
-            pass
-
-    class _FakeHandle:
-        def __init__(self):
-            self.event = _FakeEvent()
-
-        def is_running(self):
-            return True
-
-        def cancel(self):
-            calls["cancel"] += 1
-
-        def shutdown(self):
-            calls["shutdown"] += 1
-
-    win._queue._handles["r1"] = _FakeHandle()
+    handle = FakeHandle(alive=True)
+    win._queue._handles["r1"] = handle
     assert win._queue.active_count() == 1
 
     win.close_project()
 
     assert win._queue.active_count() == 0  # the orphaned worker was torn down
-    assert calls["cancel"] == 1 and calls["shutdown"] == 1
+    assert handle.cancel_calls == 1
 
 
 def test_on_create_config_guards_overwrite_retry_failure(qtbot, tmp_path, monkeypatch):

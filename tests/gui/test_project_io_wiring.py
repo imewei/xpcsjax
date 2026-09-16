@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from xpcsjax.gui.app import build_workbench  # noqa: E402
+from xpcsjax.gui.app import build_workbench
 
 
 def test_save_then_open_round_trips_through_window(qtbot, tmp_path):
