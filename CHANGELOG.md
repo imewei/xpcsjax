@@ -11,6 +11,8 @@ the rendered documentation.
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-09-16
+
 ### Added
 
 - **Mode-agnostic fit-quality metric `nrmse`** (`xpcsjax/service/fit_quality.py`),
@@ -917,7 +919,8 @@ results, public API, and config formats are identical to 0.1.0.
 - GPU support. v0.1 sets `NLSQ_SKIP_GPU_CHECK=1` and runs CPU-only;
   GPU paths are planned for v0.2+.
 
-[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/imewei/xpcsjax/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/imewei/xpcsjax/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/imewei/xpcsjax/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/imewei/xpcsjax/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/imewei/xpcsjax/compare/v0.1.4...v0.1.5

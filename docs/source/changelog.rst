@@ -10,6 +10,25 @@ Unreleased
 
 *Nothing yet.*
 
+v0.1.8 — codebase-review hardening: data-integrity fixes, covariance-contract unification, dead-code cleanup
+--------------------------------------------------------------------------------------------------------------
+
+*Released 2026-09-16.*
+
+* **Mode-agnostic fit-quality metric** ``nrmse`` surfaced in
+  ``nlsq_diagnostics["fit_quality"]`` / ``nlsq_result.json``.
+* **Homodyne and heterodyne uncertainties now follow one covariance
+  contract on every solve path** — placeholder/singular covariance reports
+  NaN with ``covariance_is_placeholder`` instead of a fabricated zero,
+  identity, or floored value.
+* **Data-integrity fixes:** APS-U bin-skip index mislabeling, NPZ cache
+  keyed to its source HDF5 file, homodyne angle-stratified fits no longer
+  fit the ``c2`` diagonal.
+* **~4K lines of dead code removed** (``performance_engine.py``,
+  ``memory_manager`` dead methods, unreachable ``ImportError`` fallback
+  shims) with no numerical or CLI-facing behavior change.
+* Full details in ``CHANGELOG.md``.
+
 v0.1.7 — NLSQ floor raised to 0.7.6, warning-free verify gate
 -------------------------------------------------------------
 
