@@ -7,6 +7,7 @@ All GUI-process-side only: pyqtgraph; no JAX.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 import pyqtgraph as pg
@@ -35,10 +36,8 @@ def _fit_square_view(plot: pg.PlotItem) -> None:
     """
     vb = plot.getViewBox()
     vb.setAspectLocked(False)
-    try:
+    with contextlib.suppress(Exception):
         vb.setDefaultPadding(0.0)
-    except Exception:
-        pass
 
 
 class _SquareAspectMixin(_SquareBase):

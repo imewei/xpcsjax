@@ -16,6 +16,7 @@ Notes
 Author: Homodyne Development Team. Date: 2026-01-14.
 """
 
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -746,7 +747,11 @@ def combine_angle_results(
         var_matrix = np.array([np.diag(cov) for cov in cov_list])
         # Angle-level scalar weight from the mean of that angle's KNOWN
         # variances (a NaN entry is "unknown here", not "angle failed").
-        with np.errstate(invalid="ignore"):
+        # An angle with no finite variance at any parameter is an all-NaN row;
+        # nanmean's "Mean of empty slice" warning is expected there, not a bug
+        # (the `finite` mask below correctly zero-weights that angle).
+        with np.errstate(invalid="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
             mean_vars = np.nanmean(np.where(np.isfinite(var_matrix), var_matrix, np.nan), axis=1)
         finite = np.isfinite(mean_vars)
         weights = np.zeros_like(mean_vars)

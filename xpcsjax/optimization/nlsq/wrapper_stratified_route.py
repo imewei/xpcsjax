@@ -182,10 +182,10 @@ def run_stratified_ls_route(
     actual_n_params = len(validated_params)
     effective_n_params = actual_n_params  # Default: no reduction
 
+    n_angles_check = len(np.unique(stratified_data.phi_flat))
     if per_angle_scaling and config is not None and hasattr(config, "config"):
         nlsq_cfg = (config.config.get("optimization") or {}).get("nlsq") or {}
         ad_cfg = nlsq_cfg.get("anti_degeneracy", {})
-        n_angles_check = len(np.unique(stratified_data.phi_flat))
         # Static-pinned resolver owner (spec Seam 1): same numeric outcome
         # as the former inline auto/constant ladder for laminar, but static
         # fits always route on the dense individual count so a static

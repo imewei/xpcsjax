@@ -106,7 +106,11 @@ def run_worker(job: FitJob, event_queue: Any) -> None:
             )
         )
         emitter.emit(Finished(run_id="", seq=0, result_path=str(out_dir) if out_dir else ""))
-    except BaseException:
+    except (Exception, KeyboardInterrupt):
+        # Catches KeyboardInterrupt too (the parent may forward SIGINT while a
+        # fit is running) so the terminal event contract still holds. Deliberately
+        # does NOT catch SystemExit/GeneratorExit — those are process-exit
+        # signals, not fit failures, and must propagate normally.
         emitter.emit(Failed(run_id="", seq=0, traceback=traceback.format_exc()))
     finally:
         root.removeHandler(handler)

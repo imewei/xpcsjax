@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from xpcsjax.gui.ipc.emitter import EventEmitter
@@ -20,12 +21,10 @@ class QueueLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         """Convert ``record`` to a LogLine and enqueue it; never raises."""
-        try:
+        with contextlib.suppress(Exception):
             self._emitter.emit(
                 LogLine(run_id="", seq=0, level=record.levelname, msg=record.getMessage())
             )
-        except Exception:
-            pass
 
 
 class BannerLogHandler(logging.Handler):
@@ -42,11 +41,9 @@ class BannerLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         """Classify the record; emit a Banner when recognized."""
-        try:
+        with contextlib.suppress(Exception):
             from xpcsjax.gui.ipc.diagnostics import classify_banner
 
             banner = classify_banner(record.getMessage())
             if banner is not None:
                 self._emitter.emit(banner)
-        except Exception:
-            pass

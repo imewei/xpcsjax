@@ -8,6 +8,7 @@ serial-routing rule); raise ``max_concurrent`` only with headroom.
 from __future__ import annotations
 
 import shutil
+import warnings
 from collections import deque
 from collections.abc import Callable
 from functools import partial
@@ -29,6 +30,21 @@ from xpcsjax.service.events import (
     LogLine,
     Started,
 )
+
+
+def _safe_disconnect_event(handle: WorkerHandle) -> None:
+    """Disconnect ``handle.event``, tolerating an already-disconnected signal.
+
+    PySide6 raises ``RuntimeError``/``TypeError`` for some already-disconnected
+    cases but only warns (``libpyside`` ``RuntimeWarning``) for others; both
+    mean the same benign thing here, so both are swallowed.
+    """
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            handle.event.disconnect()
+    except (RuntimeError, TypeError):  # already disconnected
+        pass
 
 
 class FitQueueController(QObject):
@@ -133,10 +149,7 @@ class FitQueueController(QObject):
         # usually only just been signalled, not yet confirmed dead.
         handle = self._handles.get(run_id)
         if handle is not None and handle.is_running():
-            try:
-                handle.event.disconnect()
-            except (RuntimeError, TypeError):  # already disconnected
-                pass
+            _safe_disconnect_event(handle)
             # Keep a reference until cleanup completes (see _cancelling docstring
             # at __init__) — otherwise nothing holds the handle (and its live
             # QTimer) alive once it's popped from self._handles. Connected
@@ -301,10 +314,7 @@ class FitQueueController(QObject):
         self._output_dirs.pop(run_id, None)
         # Free the slot (disconnect first, matching Plan-D's handle contract) + start next.
         handle = self._handles.pop(run_id)
-        try:
-            handle.event.disconnect()
-        except (RuntimeError, TypeError):  # already disconnected
-            pass
+        _safe_disconnect_event(handle)
         handle.shutdown()  # join the reader QThread before dropping the last ref —
         #                    the reader just emitted this terminal and is returning;
         #                    without the join Qt may destroy a still-running QThread.

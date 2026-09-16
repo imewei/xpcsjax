@@ -28,6 +28,7 @@ None mutate solver state or influence numerics — log text is invisible to the
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Sequence
 from typing import Any
 
@@ -191,10 +192,8 @@ def log_quantile_scaling(contrast_pa: np.ndarray, offset_pa: np.ndarray) -> None
         logger.info("  Contrast: mean=%.4f, std=%.4f", float(np.nanmean(c)), float(np.nanstd(c)))
         logger.info("  Offset: mean=%.4f, std=%.4f", float(np.nanmean(o)), float(np.nanstd(o)))
     except Exception:
-        try:
+        with contextlib.suppress(Exception):
             logger.debug("log_quantile_scaling skipped (non-finite/empty input)")
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------

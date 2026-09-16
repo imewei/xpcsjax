@@ -84,6 +84,7 @@ References
 - Documentation: See CHANGELOG.md and CLAUDE.md for detailed status
 """
 
+import contextlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
@@ -311,10 +312,8 @@ def _build_homodyne_l4_callback(
         def _observer_only(
             iteration: Any, cost: Any, params: Any, info: Any = None, **kw: Any
         ) -> None:
-            try:
+            with contextlib.suppress(Exception):
                 on_iteration(int(iteration), float(cost))
-            except Exception:
-                pass
 
         return None, _observer_only
 
@@ -365,10 +364,8 @@ def _build_homodyne_l4_callback(
         iteration: Any, cost: Any, params: Any, info: Any = None, **kw: Any
     ) -> None:
         _l4_callback(iteration, cost, params, info, **kw)  # existing L4 work, unchanged
-        try:
+        with contextlib.suppress(Exception):
             on_iteration(int(iteration), float(cost))  # cost == SSR
-        except Exception:
-            pass
 
     return monitor, _l4_plus_observer
 

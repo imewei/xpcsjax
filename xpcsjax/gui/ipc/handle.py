@@ -6,6 +6,7 @@ at module level but is itself JAX-free at import — its service imports are laz
 
 from __future__ import annotations
 
+import contextlib
 import multiprocessing
 import os
 import queue as _queue
@@ -369,8 +370,6 @@ class WorkerHandle(QObject):
                 self._proc = None
         queue = self._queue
         if queue is not None:
-            try:
+            with contextlib.suppress(Exception):
                 queue.close()
-            except Exception:
-                pass
             self._queue = None

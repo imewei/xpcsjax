@@ -7,6 +7,7 @@ monitoring.
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import functools
 import inspect
@@ -1031,10 +1032,8 @@ def log_phase(
     # only, like the completion log below: a raising handler must not prevent
     # the phase body from running.
     if threshold_s <= 0:
-        try:
+        with contextlib.suppress(Exception):
             resolved_logger.log(level, "Phase '%s' started", name)
-        except Exception:
-            pass
 
     start_time = time.perf_counter()
 
@@ -1207,7 +1206,7 @@ def log_calls(
 
             # Log function entry — wrapped so a raising handler never aborts the call
             if log_enabled:
-                try:
+                with contextlib.suppress(Exception):
                     if include_args:
                         args_str = ", ".join([repr(arg) for arg in args])
                         kwargs_str = ", ".join([f"{k}={repr(v)}" for k, v in kwargs.items()])
@@ -1215,29 +1214,23 @@ def log_calls(
                         resolved_logger.log(level, "Calling %s(%s)", func_name, all_args)
                     else:
                         resolved_logger.log(level, "Calling %s", func_name)
-                except Exception:
-                    pass
 
             try:
                 result = func(*args, **kwargs)
 
                 # Log function exit — wrapped so a raising handler never aborts the return
                 if log_enabled:
-                    try:
+                    with contextlib.suppress(Exception):
                         if include_result:
                             resolved_logger.log(level, "Completed %s -> %r", func_name, result)
                         else:
                             resolved_logger.log(level, "Completed %s", func_name)
-                    except Exception:
-                        pass
 
                 return result
 
             except Exception as e:
-                try:
+                with contextlib.suppress(Exception):
                     resolved_logger.log(logging.ERROR, "Exception in %s: %s", func_name, e)
-                except Exception:
-                    pass
                 raise
 
         return wrapper  # type: ignore[return-value]
@@ -1290,21 +1283,19 @@ def log_performance(
 
                 # Wrapped so a raising handler never aborts the decorated return
                 if duration >= threshold:
-                    try:
+                    with contextlib.suppress(Exception):
                         resolved_logger.log(
                             level,
                             "Performance: %s completed in %.3fs",
                             func_name,
                             duration,
                         )
-                    except Exception:
-                        pass
 
                 return result
 
             except Exception as e:
                 duration = time.perf_counter() - start_time
-                try:
+                with contextlib.suppress(Exception):
                     resolved_logger.log(
                         logging.ERROR,
                         "Performance: %s failed after %.3fs: %s",
@@ -1312,8 +1303,6 @@ def log_performance(
                         duration,
                         e,
                     )
-                except Exception:
-                    pass
                 raise
 
         return wrapper  # type: ignore[return-value]
@@ -1434,10 +1423,8 @@ def log_once(logger: LoggerType, level: int, key: str, msg: str, *args: Any) -> 
     never escapes to the call site.
     """
     if _should_log_once(key):
-        try:
+        with contextlib.suppress(Exception):
             logger.log(level, msg, *args)
-        except Exception:
-            pass
 
 
 @contextmanager
@@ -1461,7 +1448,7 @@ def logged_errors(
     try:
         yield
     except Exception as exc:
-        try:
+        with contextlib.suppress(Exception):
             if once_key is None or _should_log_once(once_key):
                 log_exception(
                     logger,
@@ -1469,8 +1456,6 @@ def logged_errors(
                     context={"operation": operation, **context},
                     level=level,
                 )
-        except Exception:
-            pass
         if policy == "reraise":
             raise
 

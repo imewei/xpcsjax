@@ -110,6 +110,7 @@ def test_out_of_core_singular_hessian_reports_nan_and_flag(monkeypatch, fixed):
     assert np.all(np.isnan(unc))
 
 
+@pytest.mark.filterwarnings("ignore:Ill-conditioned Jacobian.*:UserWarning:nlsq.stability.guard")
 def test_laminar_stratified_ls_never_ships_identity_sigma():
     """F1 on the >=1M stratified-LS path (direct strategy call): whenever the
     strategy has no real Gauss-Newton covariance (accepted L2 popt, or a
@@ -210,6 +211,7 @@ def test_failed_fit_sentinels_are_nan_and_flagged():
     assert res_ok.nlsq_diagnostics["covariance_is_placeholder"] is False
 
 
+@pytest.mark.filterwarnings("ignore:Ill-conditioned Jacobian.*:UserWarning:nlsq.stability.guard")
 def test_sequential_singular_angle_is_excluded_not_weighted_as_sigma_one():
     """A per-angle singular JᵀJ yields a NaN per-angle covariance that the
     inverse-variance combination EXCLUDES; a parameter singular at every angle

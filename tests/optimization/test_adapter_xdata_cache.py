@@ -23,8 +23,10 @@ predictions.
 """
 
 import numpy as np
+import pytest
 
 from xpcsjax.config.parameter_registry import AnalysisMode
+from xpcsjax.optimization.nlsq import adapter
 from xpcsjax.optimization.nlsq.adapter import clear_model_cache, get_or_create_model
 
 # laminar per-angle params for n_phi=1: [contrast, offset, *physical(7)]
@@ -87,3 +89,25 @@ def test_repeated_same_object_is_cached_and_correct():
         again = np.asarray(model_func(x_a, *_PARAMS))
         np.testing.assert_allclose(again, first, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(first, _expected(t1a, t2a), rtol=1e-12, atol=1e-12)
+
+
+def test_model_cache_evicts_least_recently_used_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hit refreshes recency, so it survives the next capacity eviction."""
+    clear_model_cache()
+    monkeypatch.setattr(adapter, "_CACHE_MAX_SIZE", 2)
+
+    first = (AnalysisMode.STATIC_ISOTROPIC, np.array([0.0]), 0.01)
+    second = (AnalysisMode.STATIC_ISOTROPIC, np.array([1.0]), 0.02)
+    third = (AnalysisMode.STATIC_ISOTROPIC, np.array([2.0]), 0.03)
+
+    get_or_create_model(*first, enable_jit=False)
+    get_or_create_model(*second, enable_jit=False)
+    _, _, hit = get_or_create_model(*first, enable_jit=False)
+    assert hit is True
+
+    get_or_create_model(*third, enable_jit=False)
+
+    _, _, first_hit = get_or_create_model(*first, enable_jit=False)
+    _, _, second_hit = get_or_create_model(*second, enable_jit=False)
+    assert first_hit is True
+    assert second_hit is False

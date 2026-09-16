@@ -64,8 +64,10 @@ from __future__ import annotations
 
 import time
 import weakref
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from threading import RLock
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -146,8 +148,9 @@ class ModelCacheKey:
 class CachedModel:
     """Cached model instance with its prediction function.
 
-    Stored in a dict with LRU eviction: the oldest entry is removed when the
-    cache reaches its size limit.
+    Stored in an insertion-ordered cache. Cache hits move the entry to the
+    most-recently-used position; the least-recently-used entry is evicted when
+    the cache reaches its size limit.
 
     Attributes
     ----------
@@ -157,8 +160,7 @@ class CachedModel:
     model_func : Callable
         Model prediction function (NumPy-compatible wrapper for NLSQ curve_fit).
     created_at : float
-        Creation timestamp (``time.time()``), used for LRU eviction and
-        diagnostics.
+        Creation timestamp (``time.time()``), retained for diagnostics.
     n_hits : int
         Cache-hit counter for monitoring.
     """
@@ -173,13 +175,15 @@ class CachedModel:
 # T003: Module-level _model_cache dict with LRU eviction
 # T004: _cache_stats dict for hit/miss tracking
 # =============================================================================
-# Module-level cache (per-process in ProcessPoolExecutor spawn context)
-# Thread safety: Python GIL protects dict operations; no explicit locks needed
+# Module-level cache (per-process in ProcessPoolExecutor spawn context).
+# The lock protects compound lookup/evict/insert operations. The GIL only
+# protects individual dict operations, not this cache transaction.
 # Using regular dict instead of WeakValueDictionary because we return (model, model_func)
 # directly, not CachedModel - so the wrapper would be garbage collected immediately.
-_model_cache: dict[ModelCacheKey, CachedModel] = {}
+_model_cache: OrderedDict[ModelCacheKey, CachedModel] = OrderedDict()
 _cache_stats: dict[str, int] = {"hits": 0, "misses": 0}
 _CACHE_MAX_SIZE: int = 64  # LRU eviction threshold
+_model_cache_lock = RLock()
 
 
 # =============================================================================
@@ -452,22 +456,26 @@ def get_or_create_model(
     # Create cache key
     cache_key = _make_cache_key(normalized_mode, phi_angles, q, per_angle_scaling, dt_val)
 
-    # Check cache
-    cached = _model_cache.get(cache_key)
-    if cached is not None:
-        _cache_stats["hits"] += 1
-        cached.n_hits += 1
-        logger.debug(
-            "Model cache hit: mode=%s, n_phi=%d, q=%.6g, hits=%d",
-            normalized_mode,
-            len(phi_angles),
-            q,
-            cached.n_hits,
-        )
-        return cached.model, cached.model_func, True
+    # Check cache. A hit must update recency, otherwise insertion order turns
+    # the advertised LRU policy into FIFO eviction.
+    with _model_cache_lock:
+        cached = _model_cache.get(cache_key)
+        if cached is not None:
+            _model_cache.move_to_end(cache_key)
+            _cache_stats["hits"] += 1
+            cached.n_hits += 1
+            logger.debug(
+                "Model cache hit: mode=%s, n_phi=%d, q=%.6g, hits=%d",
+                normalized_mode,
+                len(phi_angles),
+                q,
+                cached.n_hits,
+            )
+            return cached.model, cached.model_func, True
 
-    # Cache miss - create new model
-    _cache_stats["misses"] += 1
+    # Build outside the lock because model construction may initialize JAX.
+    # A concurrent caller can build the same key, but the locked re-check at
+    # insertion prevents duplicate eviction or replacement of its cache entry.
     logger.debug(
         "Model cache miss: mode=%s, n_phi=%d, q=%.6g",
         normalized_mode,
@@ -628,21 +636,31 @@ def get_or_create_model(
     creation_time = time.time() - start_time
     logger.debug("Model created in %.3fs (JIT=%s)", creation_time, jit_applied)
 
-    # LRU eviction: remove oldest entry if cache is full
-    if len(_model_cache) >= _CACHE_MAX_SIZE:
-        # Find oldest entry by created_at
-        oldest_key = min(_model_cache.keys(), key=lambda k: _model_cache[k].created_at)
-        del _model_cache[oldest_key]
-        logger.debug("LRU eviction: removed oldest cached model")
-
-    # Cache the model
     cached_model = CachedModel(
         model=model,
         model_func=model_func,
         created_at=time.time(),
         n_hits=0,
     )
-    _model_cache[cache_key] = cached_model
+
+    with _model_cache_lock:
+        # Another caller may have finished the same build while this caller was
+        # outside the lock. Reuse its model rather than replacing it or evicting
+        # an unrelated entry.
+        cached = _model_cache.get(cache_key)
+        if cached is not None:
+            _model_cache.move_to_end(cache_key)
+            _cache_stats["hits"] += 1
+            cached.n_hits += 1
+            return cached.model, cached.model_func, True
+
+        # OrderedDict keeps LRU at the front and MRU at the end.
+        if len(_model_cache) >= _CACHE_MAX_SIZE:
+            _model_cache.popitem(last=False)
+            logger.debug("LRU eviction: removed least-recently-used cached model")
+
+        _model_cache[cache_key] = cached_model
+        _cache_stats["misses"] += 1
 
     return model, model_func, False
 
@@ -663,8 +681,9 @@ def clear_model_cache() -> int:
     Useful for testing or when configuration changes require fresh models.
     """
     global _cache_stats
-    n_cleared = len(_model_cache)
-    _model_cache.clear()
+    with _model_cache_lock:
+        n_cleared = len(_model_cache)
+        _model_cache.clear()
     logger.info("Cleared model cache: %d models removed", n_cleared)
     return n_cleared
 
@@ -681,11 +700,12 @@ def get_cache_stats() -> dict[str, int]:
         Dictionary with keys ``"hits"`` (cache-hit count), ``"misses"``
         (cache-miss count), and ``"size"`` (current cache size).
     """
-    return {
-        "hits": _cache_stats["hits"],
-        "misses": _cache_stats["misses"],
-        "size": len(_model_cache),
-    }
+    with _model_cache_lock:
+        return {
+            "hits": _cache_stats["hits"],
+            "misses": _cache_stats["misses"],
+            "size": len(_model_cache),
+        }
 
 
 @dataclass
