@@ -395,6 +395,15 @@ def fit_two_component_via_engine(
 
     phi_arr = np.asarray(phi, dtype=np.float64)
     n_phi = len(phi_arr)
+    if len(np.unique(phi_arr)) != n_phi:
+        # The engine sizes its per-angle slots by DISTINCT angle while this route
+        # builds bounds and results per input row; the two disagree for duplicate
+        # angles. Say so and let the caller's fallback (fit_nlsq_multi_phi) run,
+        # instead of failing later on a shape mismatch.
+        raise NotImplementedError(
+            "fit_two_component_via_engine does not support duplicate phi angles; "
+            "falling back to fit_nlsq_multi_phi."
+        )
 
     # The engine indexes per-angle scaling by SORTED phi. For ``individual`` mode
     # with non-ascending phi, solve on sorted data and restore the caller's angle

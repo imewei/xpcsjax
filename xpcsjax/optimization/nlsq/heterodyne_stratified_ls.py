@@ -1448,7 +1448,11 @@ def fit_heterodyne_stratified_least_squares(
         popt=popt,
         pcov=pcov,
         info=info,
-        phi_angles=np.asarray(phi),
+        # Duplicate angles share one scaling slot / one chi2 entry (slots are in
+        # sorted-unique order), so label the slots, not the raw rows.
+        phi_angles=(
+            np.unique(phi) if len(np.unique(phi)) != len(np.asarray(phi)) else np.asarray(phi)
+        ),
         per_angle_mode=mode,
         scaling_source="stratified_ls",
         chi2_per_angle=chi2_per_angle,

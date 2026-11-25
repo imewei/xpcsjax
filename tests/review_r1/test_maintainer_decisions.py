@@ -129,6 +129,46 @@ def test_gui_b2_service_phi_subset_slices_per_row_q():
     np.testing.assert_allclose(data["wavevector_q_list"], [0.011])
 
 
+# ------------------------------------------------------------------------ R3-A1
+def _duplicate_phi_fixture():
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+
+    model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=12)
+    phi = np.array(phi, copy=True)
+    phi[-1] = phi[0]
+    return model, c2, phi
+
+
+def test_r3_a1_stratified_labels_match_shared_slots_for_duplicate_phi(monkeypatch):
+    from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares as fit_strat,
+    )
+
+    def solve(self, *, initial_params, **kwargs):
+        return NLSQResult(np.asarray(initial_params), self._parameter_names, True, "ok")
+
+    monkeypatch.setattr(NLSQAdapter, "fit", solve)
+    model, c2, phi = _duplicate_phi_fixture()
+    result = fit_strat(
+        model=model, c2=c2, phi=phi, weights=None, config=NLSQConfig(per_angle_mode="individual")
+    )
+    diag = result.nlsq_diagnostics
+    np.testing.assert_array_equal(diag["phi_angles"], np.unique(phi))
+    assert len(diag["chi2_per_angle"]) == len(diag["phi_angles"])
+
+
+def test_r3_a1_engine_route_declines_duplicate_phi():
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_engine_route import fit_two_component_via_engine
+
+    model, c2, phi = _duplicate_phi_fixture()
+    with pytest.raises(NotImplementedError, match="duplicate phi"):
+        fit_two_component_via_engine(model, c2, phi, NLSQConfig(per_angle_mode="individual"))
+
+
 # ---------------------------------------------------------------------- cli-B10
 def test_cli_b10_package_no_longer_exports_an_ambiguous_main():
     import subprocess
