@@ -131,6 +131,36 @@ def test_gui_b2_service_phi_subset_slices_per_row_q():
     np.testing.assert_allclose(data["wavevector_q_list"], [0.011])
 
 
+# ---------------------------------------------------------------------- core-B3
+@pytest.mark.parametrize("enable_cache", [True, False])
+@pytest.mark.parametrize("late_axis", ["t1", "t2"])
+def test_core_b3_adapter_rejects_times_beyond_its_fixed_grid(enable_cache, late_axis):
+    from xpcsjax.core.jax_backend import FALLBACK_TIME_GRID_SIZE
+    from xpcsjax.optimization.nlsq.adapter import AdapterConfig, NLSQAdapter
+
+    dt = 0.5
+    t_end = (FALLBACK_TIME_GRID_SIZE - 1) * dt
+    adapter = NLSQAdapter(config=AdapterConfig(enable_cache=enable_cache, enable_jit=False))
+
+    def build(t_late):
+        data = {"t1": np.array([0.0, dt]), "t2": np.array([0.0, dt])}
+        data[late_axis] = np.array([0.0, t_late])
+        data.update(phi=np.array([0.0]), q=0.01, dt=dt, L=1.0)
+        return adapter._build_model_function(
+            data=data,
+            config={},
+            analysis_mode="static_isotropic",
+            per_angle_scaling=True,
+            n_phi=1,
+        )
+
+    build(t_end)  # the last grid point is still exact
+    with pytest.raises(ValueError, match="use_adapter=False"):
+        build(t_end + dt)
+    with pytest.raises(ValueError, match="use_adapter=False"):
+        build(-dt)
+
+
 # ---------------------------------------------------------------------- data-B9
 def test_data_b9_cache_key_is_cache_file_path_and_legacy_key_warns(tmp_path, caplog):
     import logging
