@@ -340,7 +340,8 @@ def configure_streaming_layers(
     auto_tune_lambda = bool(regularization_config.get("auto_tune_lambda", True))
 
     adaptive_regularizer = None
-    if per_angle_scaling:
+    # ``regularization.enable: false`` switches Layer 3 off (default: on).
+    if per_angle_scaling and regularization_config.get("enable", True) is not False:
         # L3 group indices come from the canonical ParameterIndexMapper.
         # Bridge the controller's resolved flags to the canonical mode string.
         from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper

@@ -450,11 +450,14 @@ optimization:
         per_angle_max_iterations: 50
 
       # ---- L3 Adaptive Regularization (CV-based) ----
-      # Off by default — enable only if L2+L5 are insufficient. The
-      # "relative" mode scales lambda by data variance so it is invariant
+      # On by default where the layer applies. (Until 2026-11 this flag was ignored
+      # and the layer ran even with `enable: false`; it is now honoured, and the
+      # shipped value keeps the previous behaviour.) Set `enable: false` to switch
+      # Layer 3 off.
+      # The "relative" mode scales lambda by data variance so it is invariant
       # to data magnitude; auto-tune adjusts lambda during the solve.
       regularization:
-        enable: false
+        enable: true                       # false switches Layer 3 off
         mode: "relative"                   # "absolute" | "relative" | "auto"
         lambda: 1.0
         target_cv: 0.10

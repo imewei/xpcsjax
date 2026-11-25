@@ -128,7 +128,7 @@ def _fit(execute_layers: bool, *, regularization: bool = True):
         },
     }
     # ``regularization_mode`` defaults to "relative" (L3 active); "none" is the
-    # explicit opt-out (regularization.enable is ignored by AntiDegeneracyConfig).
+    # explicit opt-out (``regularization.enable: false`` maps onto it).
     ad["regularization"] = (
         {"enable": True, "mode": "relative", "lambda": 1.0} if regularization else {"mode": "none"}
     )

@@ -191,7 +191,13 @@ class AntiDegeneracyConfig:
                 hierarchical.get("per_angle_max_iterations"), 50
             ),
             # Regularization
-            regularization_mode=regularization.get("mode", "relative"),
+            # ``enable: false`` is the documented off switch; it maps onto the
+            # existing "none" opt-out so every consumer sees one signal.
+            regularization_mode=(
+                "none"
+                if regularization.get("enable", True) is False
+                else regularization.get("mode", "relative")
+            ),
             regularization_lambda=safe_float(regularization.get("lambda"), 1.0),
             regularization_target_cv=safe_float(regularization.get("target_cv"), 0.10),
             regularization_target_contribution=safe_float(
@@ -479,32 +485,40 @@ class AntiDegeneracyController:
         # Layer 3: Adaptive Regularization
         # T020: Use mapper.get_group_indices() instead of n_phi-based calculation
         # This fixes the dimension mismatch across resolved per-angle scaling modes
-        reg_config = AdaptiveRegularizationConfig(
-            enable=True,
-            mode=cast(Literal["absolute", "relative", "auto"], config.regularization_mode),
-            lambda_base=config.regularization_lambda,
-            target_cv=config.regularization_target_cv,
-            target_contribution=config.regularization_target_contribution,
-            max_cv=config.regularization_max_cv,
-            auto_tune_lambda=config.regularization_auto_tune_lambda,
-            group_indices=self.mapper.get_group_indices(),  # T020: Use mapper indices
-        )
-        self.regularizer = AdaptiveRegularizer(
-            reg_config,
-            # Pass the TRUE angle count: AdaptiveRegularizer's second positional
-            # arg is n_phi (used by the `mode=="auto" and n_phi > 5` gate), not a
-            # per-group count. The group layout is already supplied via
-            # reg_config.group_indices above, so n_per_group (1 for averaged/
-            # constant) must NOT be bound here or `auto` mode would silently fall
-            # back to absolute-variance regularization even with many angles.
-            self.mapper.n_phi,
-        )
-        logger.info("=" * 60)
-        logger.info("ANTI-DEGENERACY: Layer 3 - Adaptive Regularization")
-        logger.info(f"  Mode: {config.regularization_mode}")
-        logger.info(f"  Auto-tuned lambda: {self.regularizer.lambda_value:.2f}")
-        logger.info(f"  Target CV: {config.regularization_target_cv}")
-        logger.info("=" * 60)
+        if config.regularization_mode == "none":
+            # regularization.enable: false (or mode: "none"): Layer 3 is off.
+            self.regularizer = None
+            logger.info("=" * 60)
+            logger.info("ANTI-DEGENERACY: Layer 3 - Adaptive Regularization")
+            logger.info("  Disabled (regularization.enable: false)")
+            logger.info("=" * 60)
+        else:
+            reg_config = AdaptiveRegularizationConfig(
+                enable=True,
+                mode=cast(Literal["absolute", "relative", "auto"], config.regularization_mode),
+                lambda_base=config.regularization_lambda,
+                target_cv=config.regularization_target_cv,
+                target_contribution=config.regularization_target_contribution,
+                max_cv=config.regularization_max_cv,
+                auto_tune_lambda=config.regularization_auto_tune_lambda,
+                group_indices=self.mapper.get_group_indices(),  # T020: Use mapper indices
+            )
+            self.regularizer = AdaptiveRegularizer(
+                reg_config,
+                # Pass the TRUE angle count: AdaptiveRegularizer's second positional
+                # arg is n_phi (used by the `mode=="auto" and n_phi > 5` gate), not a
+                # per-group count. The group layout is already supplied via
+                # reg_config.group_indices above, so n_per_group (1 for averaged/
+                # constant) must NOT be bound here or `auto` mode would silently fall
+                # back to absolute-variance regularization even with many angles.
+                self.mapper.n_phi,
+            )
+            logger.info("=" * 60)
+            logger.info("ANTI-DEGENERACY: Layer 3 - Adaptive Regularization")
+            logger.info(f"  Mode: {config.regularization_mode}")
+            logger.info(f"  Auto-tuned lambda: {self.regularizer.lambda_value:.2f}")
+            logger.info(f"  Target CV: {config.regularization_target_cv}")
+            logger.info("=" * 60)
 
         # Layer 4: Gradient Collapse Monitor
         # Use mapper for consistent index calculation

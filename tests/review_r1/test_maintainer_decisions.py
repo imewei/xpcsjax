@@ -83,3 +83,47 @@ def test_core_b1_loader_reports_frames_clamped_at_end():
     loader.analyzer_config = {"dt": 0.1, "start_frame": 1, "end_frame": 80}
     loader._apply_frame_slicing_to_selected_q(np.ones((1, 80, 80)))
     assert loader._frames_clamped_at_end() == 0
+
+
+# ------------------------------------------------- opthet-B10 / optstrat-B9 (L3 enable)
+def _ad_block(enable):
+    reg = {"mode": "relative", "lambda": 1.0}
+    if enable is not None:
+        reg["enable"] = enable
+    return {"enable": True, "per_angle_mode": "auto", "regularization": reg}
+
+
+@pytest.mark.parametrize("enable, l3_on", [(None, True), (True, True), (False, False)])
+def test_l3_enable_flag_controls_the_shared_controller(enable, l3_on):
+    from xpcsjax.optimization.nlsq.anti_degeneracy_controller import AntiDegeneracyController
+
+    ctrl = AntiDegeneracyController.from_config(
+        config_dict=_ad_block(enable),
+        n_phi=3,
+        phi_angles=np.deg2rad(np.array([0.0, 60.0, 120.0])),
+        n_physical=7,
+    )
+    assert (ctrl.regularizer is not None) is l3_on
+
+
+@pytest.mark.parametrize("enable, mode", [(None, "relative"), (True, "relative"), (False, "none")])
+def test_l3_enable_flag_controls_the_heterodyne_config(enable, mode):
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+
+    cfg = NLSQConfig.from_dict({"anti_degeneracy": _ad_block(enable)})
+    assert cfg.regularization_mode == mode
+
+
+@pytest.mark.parametrize(
+    "template", ["static_anisotropic", "static_isotropic", "laminar_flow", "two_component"]
+)
+def test_shipped_templates_keep_layer_3_on(template):
+    """Templates used to ship ``enable: false`` while the flag was ignored (L3 ran)."""
+    from pathlib import Path
+
+    import yaml
+
+    path = Path(__file__).resolve().parents[2] / "xpcsjax" / "config" / "templates"
+    cfg = yaml.safe_load((path / f"xpcsjax_{template}.yaml").read_text(encoding="utf-8"))
+    reg = cfg["optimization"]["nlsq"]["anti_degeneracy"]["regularization"]
+    assert reg["enable"] is True and reg["mode"] != "none"

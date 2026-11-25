@@ -309,7 +309,7 @@ optimization:
         per_angle_max_iterations: 50
 
       regularization:
-        enable: false
+        enable: true                       # false switches Layer 3 off
         mode: "relative"
         lambda: 1.0
         target_cv: 0.10
