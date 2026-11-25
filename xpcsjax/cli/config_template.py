@@ -10,7 +10,6 @@ the public symbols as a facade so existing callers are unaffected.
 
 from __future__ import annotations
 
-import json
 import sys
 from importlib.resources import files
 from pathlib import Path
@@ -149,9 +148,9 @@ def generate_config(
         # the emitter folds long space-containing scalars (e.g. a path with
         # spaces) onto continuation lines that the [0] slice would silently drop.
         if isinstance(value, str) and "\n" in value:
-            # A JSON string is a valid single-line YAML double-quoted scalar;
-            # yaml.dump would emit a multi-line one that [0] truncates.
-            return json.dumps(value, ensure_ascii=False)
+            # Force the double-quoted style: it escapes the newline (and any
+            # control / non-BMP character) so the scalar stays on one line.
+            return yaml.dump(value, default_style='"', width=1 << 31).strip()
         return yaml.dump(value, default_flow_style=True, width=1 << 31).splitlines()[0].strip()
 
     if data_path is not None:

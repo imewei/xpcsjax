@@ -92,8 +92,9 @@ def _store_symmetrized(
             f"losslessly in the {out.dtype} buffer set by the first bin"
         )
     # Promote before adding: integer/bool addition wraps in the source dtype.
-    # (No copy, bit-identical, when the dtypes already match.)
-    half = half.astype(out.dtype, copy=False)
+    # Float bins keep their own arithmetic (as the quality-path reconstructor does).
+    if half.dtype.kind in "iub":
+        half = half.astype(out.dtype)
     out[i] = half + half.T
     out[i][diag_idx] /= 2
 
@@ -127,7 +128,7 @@ def guard_aps_u_intermediate_allocation(
         return
     probe = corr_group[c2_keys[in_range[0]]]
     probe_shape = tuple(int(d) for d in probe.shape)
-    itemsize = _c2_out_dtype(probe.dtype).itemsize  # the promoted buffer dtype
+    itemsize = max(_c2_out_dtype(corr_group[c2_keys[bi]].dtype).itemsize for bi in in_range)
     # Reconstructed matrix is square (c2_half + c2_half.T), so the half-matrix is
     # square (n_t, n_t) and bounds the per-matrix reconstructed size.
     _check_square_matrix(probe_shape, source=source)

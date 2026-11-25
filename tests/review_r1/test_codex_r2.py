@@ -256,3 +256,149 @@ def test_r2_optstrat_b16_standard_executor_accepts_unbounded():
         lambda xb, a: a * xb, x, 2 * x, np.array([1.0]), None, "linear", "jac", logging.getLogger()
     )
     np.testing.assert_allclose(np.asarray(result.popt), [2.0], rtol=1e-6)
+
+
+# ----------------------------------------------------------------- round 3 (R3-*)
+@pytest.mark.parametrize("singleton", [False, True])
+def test_r3_a2_engine_broadcasts_shared_weight_slab(monkeypatch, singleton):
+    from tests.review_r1.test_codex_opthet import _patch_exact_fit, _unsorted_two_angle
+    from xpcsjax.optimization.nlsq.heterodyne_engine_route import fit_two_component_via_engine
+
+    model, c2, phi = _unsorted_two_angle()
+    _patch_exact_fit(monkeypatch, {})
+    cfg = NLSQConfig(per_angle_mode="individual")
+    weights = np.ones_like(c2[:1] if singleton else c2[0])
+    result = fit_two_component_via_engine(model, c2, phi, cfg, weights=weights)
+    assert result.chi_squared < 1e-12
+
+
+def test_r3_a3_row_count_uses_engine_thresholds():
+    from types import SimpleNamespace
+
+    from xpcsjax.optimization.nlsq.strategies.stratified_ls import _n_contributing_rows
+
+    t = np.arange(4.0)
+    t1, t2 = (a.ravel() for a in np.meshgrid(t, t, indexing="ij"))
+    sigma = np.ones((1, 4, 4))
+    sigma[0, 0, 1] = 1e-12  # below the engine's 1e-10 sigma mask
+    assert _n_contributing_rows(SimpleNamespace(t1_flat=t1, t2_flat=t2, sigma=sigma)) == 11
+
+
+def test_r3_a5_phi_row_vector_is_rejected():
+    import io
+
+    from tests.review_r1.test_codex_data import _bare_loader, _qc_data
+    from xpcsjax.data.npz_cache import load_from_cache
+    from xpcsjax.data.xpcs_loader import XPCSDataFormatError
+
+    data = _qc_data()
+    data.update(
+        c2_exp=np.repeat(data["c2_exp"], 2, axis=0),
+        wavevector_q_list=np.array([0.01, 0.01]),
+        phi_angles_list=np.array([[0.0, 45.0]]),
+    )
+    buf = io.BytesIO()
+    np.savez(buf, **data)
+    buf.seek(0)
+    with pytest.raises(XPCSDataFormatError):
+        load_from_cache(_bare_loader(), buf)
+
+
+@pytest.mark.parametrize("path", ["scan\u0085test\n.h5", "scan\x7ftest\n.h5"])
+def test_r3_a6_control_characters_in_newline_path_round_trip(tmp_path, path):
+    import yaml
+
+    from xpcsjax.cli.config_template import generate_config
+
+    out = generate_config("static_isotropic", tmp_path / "cfg.yaml", data_path=path)
+    assert yaml.safe_load(out.read_text())["experimental_data"]["file_path"] == path
+
+
+def test_r3_a8_zero_data_dof_reports_placeholder_covariance():
+    def run(mode):
+        m, c2, phi = make_synthetic_two_component(n_phi=3, n_t=4)
+        m.param_manager.set_vary("D_offset_ref", False)
+        m.param_manager.set_vary("D_offset_sample", False)
+        cfg = NLSQConfig(
+            per_angle_mode="individual",
+            regularization_mode=mode,
+            group_variance_lambda=0.0,
+            loss="linear",
+            max_nfev=100,
+        )
+        return fit_nlsq_multi_phi(m, c2, phi, cfg)
+
+    a, b = run("adaptive"), run("none")
+    assert b.nlsq_diagnostics["covariance_is_placeholder"]
+    assert a.nlsq_diagnostics["covariance_is_placeholder"]
+
+
+def test_r3_a9_schema_validation_reports_overflowing_number():
+    from xpcsjax.data.config import validate_config_schema
+
+    report = validate_config_schema(
+        {
+            "experimental_data": {"data_folder_path": ".", "data_file_name": "x.hdf"},
+            "analyzer_parameters": {"start_frame": 1, "end_frame": 4, "dt": 10**400},
+        }
+    )
+    assert not report.is_valid
+
+
+def test_r3_c1_stateful_plot_model_keeps_its_own_grid_at_fit_q():
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    from xpcsjax.core.homodyne_model import HomodyneModel
+    from xpcsjax.viz.nlsq_plots import _evaluate_c2_per_angle
+
+    cfg = {
+        "analysis_mode": "static_isotropic",
+        "analyzer_parameters": {
+            "dt": 0.1,
+            "start_frame": 1,
+            "end_frame": 4,
+            "scattering": {"wavevector_q": 0.0054},
+            "geometry": {"stator_rotor_gap": 1.0},
+        },
+    }
+    model = HomodyneModel(cfg)
+    plot_cfg = deepcopy(cfg)
+    del plot_cfg["analyzer_parameters"]["start_frame"]
+    del plot_cfg["analyzer_parameters"]["end_frame"]
+    result = SimpleNamespace(parameters=np.array([0.2, 1.0, 100.0, 0.8, 0.25]))
+    surface = _evaluate_c2_per_angle(model, result, {"wavevector_q_list": [0.005]}, plot_cfg, 0.0)
+    assert surface.shape == (4, 4) and np.isfinite(surface).all()
+    measured_cfg = deepcopy(cfg)
+    measured_cfg["analyzer_parameters"]["scattering"]["wavevector_q"] = 0.005
+    expected = HomodyneModel(measured_cfg).compute_c2_single_angle(
+        result.parameters[2:], 0.0, 0.2, 1.0
+    )
+    np.testing.assert_allclose(surface, np.asarray(expected))
+
+
+def test_r3_c2_standard_executor_reports_backend_verdict():
+    import logging
+    from unittest.mock import patch
+
+    from xpcsjax.optimization.nlsq.strategies import executors
+
+    real = executors.curve_fit
+
+    def short_budget(*args, **kwargs):
+        kwargs["max_nfev"] = 1
+        return real(*args, **kwargs)
+
+    x = np.arange(1.0, 5.0)
+    with patch.object(executors, "curve_fit", short_budget):
+        r = executors.get_executor("standard").execute(
+            lambda xb, a: a * xb,
+            x,
+            2 * x,
+            np.array([1.0]),
+            None,
+            "linear",
+            "jac",
+            logging.getLogger(),
+        )
+    assert r.info["success"] is False

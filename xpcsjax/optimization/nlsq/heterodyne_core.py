@@ -1685,6 +1685,10 @@ def _fit_joint_averaged_multi_phi(
                 _dof_scale = (_dof_valid + int(n_penalty_rows)) / _dof_valid
                 covariance = covariance * _dof_scale
                 uncertainties = uncertainties * np.sqrt(_dof_scale)
+            else:
+                # Only the penalty rows gave the solver a positive dof.
+                covariance = np.full_like(covariance, np.nan)
+                uncertainties = np.full_like(uncertainties, np.nan)
 
     solve_success = bool(joint_result.success) and not floor_reverted
     # A kept global escape (or a warm-start kept over a failed search) has its
@@ -3817,6 +3821,10 @@ def _build_joint_result(
             _dof_scale = (_dof_valid + int(n_penalty_rows)) / _dof_valid
             covariance = covariance * _dof_scale
             uncertainties = uncertainties * np.sqrt(_dof_scale)
+        else:
+            # Only the penalty rows gave the solver a positive dof.
+            covariance = np.full_like(covariance, np.nan)
+            uncertainties = np.full_like(uncertainties, np.nan)
 
     # When no NLSQ result backs this assembly, the verdict depends on WHY
     # ``joint_result`` is None. A kept GLOBAL ESCAPE returns a pre-accepted

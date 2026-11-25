@@ -383,6 +383,11 @@ def save_to_cache(loader: XPCSDataLoader, data: dict[str, Any], cache_path: str)
     logger.debug(f"Q-vector: {actual_q:.6f} +/- {q_variance:.6f} A^-1")
 
 
+def _is_raw_source(path: str) -> bool:
+    """Return True if *path* is an existing raw data file the cache can be rebuilt from."""
+    return os.path.isfile(path) and not path.lower().endswith(".npz")
+
+
 def validate_cache_q_vector(loader: XPCSDataLoader, cache_metadata: dict[str, Any]) -> None:
     """Validate that cached q-vector is compatible with current configuration."""
     from xpcsjax.data.xpcs_loader import CacheStaleError, XPCSDataFormatError
@@ -515,7 +520,7 @@ def validate_cache_q_vector(loader: XPCSDataLoader, cache_metadata: dict[str, An
         if comparable and (
             applied_start != req_start
             or 0 < req_end < applied_end
-            or (req_end > applied_end and os.path.isfile(source))
+            or ((req_end > applied_end or req_end == -1) and _is_raw_source(source))
         ):
             raise CacheStaleError(
                 f"Cache frame-window mismatch: configured start_frame={req_start}, "

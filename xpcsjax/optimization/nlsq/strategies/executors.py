@@ -170,7 +170,7 @@ class StandardExecutor(OptimizationExecutor):
             x_scale = np.abs(initial_params) + 1e-3
 
         try:
-            popt, pcov = curve_fit(
+            fit_result = curve_fit(
                 residual_fn,
                 xdata,
                 ydata,
@@ -195,7 +195,13 @@ class StandardExecutor(OptimizationExecutor):
                     f"(threshold: {SLOW_OPERATION_THRESHOLD_S}s)"
                 )
 
-            info = {"success": True, "strategy": "standard", "duration_s": _duration}
+            popt, pcov = fit_result
+            info = {
+                # The backend's verdict (False e.g. when max_nfev is exhausted).
+                "success": bool(getattr(fit_result, "success", True)),
+                "strategy": "standard",
+                "duration_s": _duration,
+            }
             return ExecutionResult(
                 popt=np.asarray(popt),
                 pcov=np.asarray(pcov),

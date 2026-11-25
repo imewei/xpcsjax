@@ -270,8 +270,9 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
         # angles with the wrong matrices downstream. (wavevector_q_list is
         # deliberately excluded: its length is not tied to the stack here.)
         if "phi_angles_list" in data:
-            n_phi = int(np.asarray(data["phi_angles_list"]).size)
-            if n_phi != int(c2.shape[0]):
+            _phi = np.atleast_1d(np.asarray(data["phi_angles_list"]))
+            n_phi = int(_phi.size)
+            if n_phi != int(c2.shape[0]) or int(_phi.shape[0]) != n_phi:
                 raise XPCSDataFormatError(
                     f"phi_angles_list from {source!r} has {n_phi} entries but c2_exp "
                     f"holds {int(c2.shape[0])} matrices; they must match one-to-one."
@@ -808,6 +809,7 @@ class XPCSDataLoader:
             values, non-square matrices, oversized allocation, or a
             non-monotonic time axis).
         """
+        self.load_degradations = []  # per-load signal, not loader-lifetime history
         # Construct file paths
         data_folder = self.exp_config.get("data_folder_path", "./")
         data_file = self.exp_config.get("data_file_name", "")

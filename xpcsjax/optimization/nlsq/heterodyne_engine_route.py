@@ -450,6 +450,9 @@ def fit_two_component_via_engine(
         weights = np.asarray(weights, dtype=np.float64)
         if weights.ndim == 2:
             weights = weights[np.newaxis, ...]
+        if weights.shape != c2.shape:
+            # Shared (1, N, N) slab: the scorer vmaps over the angle axis.
+            weights = np.broadcast_to(weights, c2.shape).copy()
 
     # The engine solve is UNWEIGHTED: build_heterodyne_stratified_data is called
     # below WITHOUT weights (sigma=None / unit sigma). Uniform weights only
