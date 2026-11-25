@@ -1306,6 +1306,12 @@ class CMAESWrapper:
         # the success flag rests on refinement alone, so the caller in
         # heterodyne_core (which picks CMA-ES vs NLSQ off this flag) is not misled.
         success = cmaes_converged or nlsq_refined
+        # ``success`` stays the candidate-ELIGIBILITY flag callers gate on (an
+        # adopted refinement makes the point usable). ``converged`` is the honest
+        # verdict: the global search converged, or the adopted refinement did.
+        diagnostics["converged"] = bool(
+            cmaes_converged or (nlsq_refined and diagnostics.get("refinement_converged", False))
+        )
         if nlsq_refined and not cmaes_converged:
             logger.warning(
                 "CMA-ES did not meet a convergence criterion (reason=%s); success "

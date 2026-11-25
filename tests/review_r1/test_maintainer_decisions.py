@@ -85,6 +85,35 @@ def test_core_b1_loader_reports_frames_clamped_at_end():
     assert loader._frames_clamped_at_end() == 0
 
 
+# ------------------------------------------------------------------------ R2-A4
+def test_r2_a4_unconverged_search_plus_unconverged_refinement_is_not_converged():
+    from unittest.mock import patch
+
+    from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapper, CMAESWrapperConfig
+
+    class Search:
+        def __init__(self, config):
+            pass
+
+        def fit(self, **kw):
+            return {
+                "popt": kw["p0"],
+                "cmaes_diagnostics": {"convergence_reason": "max_generations"},
+            }
+
+    x = np.arange(1.0, 5.0)
+    cfg = CMAESWrapperConfig(
+        refinement_workflow="standard", refinement_max_nfev=1, auto_memory=False
+    )
+    with patch("nlsq.global_optimization.CMAESOptimizer", Search):
+        r = CMAESWrapper(cfg).fit(
+            lambda x, a: a * x, x, 2 * x, np.array([1.0]), (np.array([0.0]), np.array([4.0]))
+        )
+    assert r.nlsq_refined and r.diagnostics["refinement_converged"] is False
+    assert r.success  # still an eligible candidate for the keep-better callers
+    assert r.diagnostics["converged"] is False  # but not reported as converged
+
+
 # --------------------------------------- optescape-B3 / optstrat-B10 (dead streaming)
 def test_streaming_refinement_is_skipped_explicitly(caplog):
     from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapper, CMAESWrapperConfig
