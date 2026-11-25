@@ -160,7 +160,10 @@ weights.
 Closing check (`2026-11-25-evidence/pr81_codex_closing.md`, `pr81_agy_closing.md`): both reviewers
 confirmed every finding fixed and accepted the one sub-point left unchanged. Codex found one
 regression from the fixes — on heterodyne hybrid streaming an explicit `regularization.enable:
-null` had always meant off and was turned on by the shared gate — which is fixed with a test.
+null` had always meant off and was turned on by the shared gate — which is fixed with a test. Codex
+confirmed that fix (`pr81_codex_final.md`, must-fix 0). A last gap found while verifying — hybrid
+streaming returned its optimizer's finite covariance for a fit masked down to no data DOF — is
+closed the same way as on the stratified path (NaN, `covariance_is_placeholder`).
 
 ## Verification status
 

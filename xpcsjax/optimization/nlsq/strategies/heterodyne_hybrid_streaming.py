@@ -1063,6 +1063,10 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
     # Thread data-point count for reduced-chi dof (Finding 3)
     info["n_data_points"] = meta.get("n_contributing_points", meta["n_data_points"])
     info["n_data_rows"] = meta["n_data_points"]  # masked rows included
+    if info["n_data_points"] != info["n_data_rows"] and info["n_data_points"] <= len(popt):
+        # Masked down to no data dof: the optimizer's covariance describes nothing.
+        pcov = np.full_like(np.asarray(pcov, dtype=np.float64), np.nan)
+        info["covariance_is_placeholder"] = True
 
     # ------------------------------------------------------------------
     # SSR + frozen baseline (Task 2)

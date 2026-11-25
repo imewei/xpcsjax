@@ -225,3 +225,42 @@ def test_heterodyne_streaming_keeps_treating_a_null_l3_enable_as_off(enable, exp
             anti_degeneracy_config=ad,
         )
     assert seen["l3"] is expected
+
+
+def test_streaming_masked_fit_with_no_dof_has_no_covariance():
+    from unittest.mock import patch
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies import heterodyne_hybrid_streaming as stream
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=8)
+    pm = model.param_manager
+
+    class Solver:
+        def __init__(self, cfg):
+            pass
+
+        def fit(self, **kwargs):
+            p = kwargs["p0"]
+            return {"x": p, "pcov": np.eye(len(p)), "success": True}
+
+    def fit(weights):
+        with patch.object(stream, "AdaptiveHybridStreamingOptimizer", Solver):
+            return stream.fit_with_stratified_hybrid_streaming_heterodyne(
+                stratified_data=build_heterodyne_stratified_data(model, c2, phi, weights),
+                model=model,
+                physical_param_names=list(pm.varying_names),
+                initial_params=pm.get_initial_values(),
+                bounds=pm.get_bounds(),
+                anti_degeneracy_config={"per_angle_mode": "constant"},
+            )
+
+    _, cov, info = fit(None)
+    assert np.isfinite(cov).all() and info["covariance_is_placeholder"] is False
+
+    weights = np.zeros_like(c2)
+    weights[0, 1, 2:6] = 1.0  # 4 observations
+    _, cov, info = fit(weights)
+    assert np.isnan(cov).all() and info["covariance_is_placeholder"] is True
