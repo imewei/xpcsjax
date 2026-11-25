@@ -85,6 +85,50 @@ def test_core_b1_loader_reports_frames_clamped_at_end():
     assert loader._frames_clamped_at_end() == 0
 
 
+# ------------------------------------------------------------ data-B1 / gui-B2
+def _per_row_q_data():
+    return {
+        "phi_angles_list": np.array([0.0, 90.0, 180.0]),
+        "c2_exp": np.ones((3, 4, 4)),
+        "wavevector_q_list": np.array([0.010, 0.011, 0.012]),
+        "t1": np.arange(4.0),
+        "t2": np.arange(4.0),
+    }
+
+
+def test_data_b1_per_row_q_follows_the_kept_angles():
+    from xpcsjax.data.angle_filtering import apply_angle_filtering_for_optimization
+
+    config = {
+        "phi_filtering": {"enabled": True, "target_ranges": [{"min_angle": 80, "max_angle": 100}]}
+    }
+    out = apply_angle_filtering_for_optimization(_per_row_q_data(), config)
+    np.testing.assert_allclose(out["phi_angles_list"], [90.0])
+    # The fit reads wavevector_q_list[0]: it must be the q of a row that was kept.
+    np.testing.assert_allclose(out["wavevector_q_list"], [0.011])
+
+
+def test_data_b1_single_entry_q_is_left_alone():
+    from xpcsjax.data.angle_filtering import apply_angle_filtering_for_optimization
+
+    data = _per_row_q_data()
+    data["wavevector_q_list"] = np.array([0.010])
+    config = {
+        "phi_filtering": {"enabled": True, "target_ranges": [{"min_angle": 80, "max_angle": 100}]}
+    }
+    out = apply_angle_filtering_for_optimization(data, config)
+    np.testing.assert_allclose(out["wavevector_q_list"], [0.010])
+
+
+def test_gui_b2_service_phi_subset_slices_per_row_q():
+    from xpcsjax.service.data import _subset_data_by_phi
+
+    data = _per_row_q_data()
+    _subset_data_by_phi(data, np.asarray(data["phi_angles_list"]), [90.0])
+    np.testing.assert_allclose(data["phi_angles_list"], [90.0])
+    np.testing.assert_allclose(data["wavevector_q_list"], [0.011])
+
+
 # ------------------------------------------------------------------------ R2-A4
 def test_r2_a4_unconverged_search_plus_unconverged_refinement_is_not_converged():
     from unittest.mock import patch

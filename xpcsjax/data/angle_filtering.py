@@ -243,7 +243,8 @@ def apply_angle_filtering_for_optimization(
         Full data dictionary with all angles, containing keys:
         - phi_angles_list: np.ndarray of phi angles (n_phi,)
         - c2_exp: np.ndarray of correlation data (n_phi, n_t1, n_t2)
-        - wavevector_q_list: np.ndarray (preserved unchanged)
+        - wavevector_q_list: np.ndarray (a per-row list is sliced with the kept
+          rows; a scalar / single-entry q is preserved unchanged)
         - t1: np.ndarray (preserved unchanged)
         - t2: np.ndarray (preserved unchanged)
     config : ConfigManager or dict
@@ -362,6 +363,13 @@ def apply_angle_filtering_for_optimization(
     filtered_data = data.copy()
     filtered_data["phi_angles_list"] = filtered_phi_angles
     filtered_data["c2_exp"] = filtered_c2_exp
+    # A per-row q list (one q per matrix, e.g. APS-old bins within tolerance) must
+    # follow the rows that were kept: the fit reads wavevector_q_list[0], which
+    # would otherwise be the q of a row that may have been filtered out. A scalar
+    # or single-entry q is left as it is.
+    q_list = data.get("wavevector_q_list")
+    if q_list is not None and np.ndim(q_list) == 1 and len(q_list) == len(phi_angles) > 1:
+        filtered_data["wavevector_q_list"] = np.asarray(q_list)[np.asarray(filtered_indices)]
 
     elapsed_ms = (time.perf_counter() - start_time) * 1000
     logger.debug(f"Angle filtering completed in {elapsed_ms:.3f}ms")
