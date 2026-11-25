@@ -151,7 +151,7 @@ def generate_config(
         if isinstance(value, str) and "\n" in value:
             # A JSON string is a valid single-line YAML double-quoted scalar;
             # yaml.dump would emit a multi-line one that [0] truncates.
-            return json.dumps(value)
+            return json.dumps(value, ensure_ascii=False)
         return yaml.dump(value, default_flow_style=True, width=1 << 31).splitlines()[0].strip()
 
     if data_path is not None:

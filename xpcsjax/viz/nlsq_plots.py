@@ -29,6 +29,7 @@ xpcsjax.fit_nlsq : Produces the :class:`OptimizationResult` these plots consume.
 
 from __future__ import annotations
 
+import copy
 import io
 import json
 import multiprocessing
@@ -535,6 +536,30 @@ def _fit_q(data: dict[str, Any], config_q: Any) -> Any:
     return config_q
 
 
+def _stateful_model_at_fit_q(model: Any, data: dict[str, Any], config: dict[str, Any]) -> Any:
+    """Return a stateful model whose pre-computed factors use the fit's q.
+
+    ``HomodyneModel`` bakes ``analyzer_parameters.scattering.wavevector_q`` into its
+    physics factors at construction, while the fit uses the loader's selected bin
+    (see :func:`_fit_q`). When they differ, rebuild once for the fit's q (cached on
+    the model); otherwise return ``model`` unchanged.
+    """
+    model_q = getattr(model, "wavevector_q", None)
+    fit_q = _fit_q(data, model_q)
+    scattering = (config.get("analyzer_parameters") or {}).get("scattering")
+    if model_q is None or fit_q is None or not isinstance(scattering, dict):
+        return model
+    if np.isclose(float(fit_q), float(model_q), rtol=1e-12, atol=0.0):
+        return model
+    cached = getattr(model, "_fit_q_twin", None)
+    if cached is None or cached[0] != fit_q:
+        twin_config = copy.deepcopy(config)
+        twin_config["analyzer_parameters"]["scattering"]["wavevector_q"] = fit_q
+        cached = (fit_q, type(model)(twin_config))
+        model._fit_q_twin = cached
+    return cached[1]
+
+
 def _evaluate_c2_per_angle(
     model: Any,
     result: Any,
@@ -588,6 +613,7 @@ def _evaluate_c2_per_angle(
         # dispatch rather than isinstance-per-type keeps any future
         # homodyne-family model working as long as it exposes one of these APIs.
         if hasattr(model, "compute_c2_single_angle"):
+            model = _stateful_model_at_fit_q(model, data, config)
             c2 = model.compute_c2_single_angle(physical_params, phi_deg, contrast, offset)
             return np.asarray(c2)
         ap = config.get("analyzer_parameters") or {}

@@ -298,12 +298,15 @@ class ConfigTextEditorDialog(QDialog):
         # Atomic: write a sibling temp then os.replace, so a failed write never
         # truncates the existing config.
         # (Not mkstemp: that would leave the config owner-only, 0600.)
-        tmp = self._path.with_name(f"{self._path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        # Resolve first: os.replace on a symlink would swap the LINK for a regular
+        # file and leave the shared target unchanged.
+        target = self._path.resolve() if self._path.is_symlink() else self._path
+        tmp = target.with_name(f"{target.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
         try:
             tmp.write_text(self._editor.toPlainText(), encoding="utf-8")
-            if self._path.exists():
-                shutil.copymode(self._path, tmp)
-            os.replace(tmp, self._path)
+            if target.exists():
+                shutil.copymode(target, tmp)
+            os.replace(tmp, target)
         except BaseException:
             tmp.unlink(missing_ok=True)
             raise

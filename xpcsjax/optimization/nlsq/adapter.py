@@ -1244,7 +1244,8 @@ class NLSQAdapter(NLSQAdapterBase):
         # no meaningful dof; flooring it to 1 would let a trivially-small SSR
         # mint a confidently "good" quality_flag for a statistically
         # meaningless fit. Mirrors wrapper.py's _safe_reduced_chi_squared.
-        dof = n_data - n_params
+        # Restored fixed slots were never estimated: no degree of freedom.
+        dof = n_data - (n_params - int(info.get("n_fixed_params", 0)))
         reduced_chi_squared = chi_squared / dof if dof > 0 else float("inf")
 
         # Convergence status
@@ -1581,6 +1582,7 @@ class NLSQAdapter(NLSQAdapterBase):
             ):
                 n_physical = len(resolved_physical.physical_names)
                 n_prefix = len(popt) - int(_phys_free_mask.sum())
+                info["n_fixed_params"] = int((~_phys_free_mask).sum())
                 popt = np.concatenate(
                     [
                         popt[:n_prefix],

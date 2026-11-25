@@ -403,6 +403,9 @@ def fit_two_component_via_engine(
     if (
         np.ndim(c2) == 3
         and not np.array_equal(_order, np.arange(n_phi))
+        # Duplicate angles share one scaling slot, so the per-row un-permute
+        # below does not apply; that layout keeps the unsorted behaviour.
+        and len(np.unique(phi_arr)) == n_phi
         and _resolve_effective_mode(config, n_phi) == "individual"
     ):
         from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
@@ -416,7 +419,13 @@ def fit_two_component_via_engine(
                 np.asarray(c2)[_order],
                 phi_arr[_order],
                 config,
-                weights=_w[_order] if _w is not None and _w.ndim == 3 else weights,
+                # Only a per-angle stack is reordered; a shared (1, N, N) slab
+                # or a 2-D matrix broadcasts across angles as-is.
+                weights=(
+                    _w[_order]
+                    if _w is not None and _w.ndim == 3 and _w.shape[0] == n_phi
+                    else weights
+                ),
             ),
             _order,
         )

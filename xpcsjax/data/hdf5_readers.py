@@ -91,6 +91,9 @@ def _store_symmetrized(
             f"{source}: matrix {i} has dtype {half.dtype}, which cannot be stored "
             f"losslessly in the {out.dtype} buffer set by the first bin"
         )
+    # Promote before adding: integer/bool addition wraps in the source dtype.
+    # (No copy, bit-identical, when the dtypes already match.)
+    half = half.astype(out.dtype, copy=False)
     out[i] = half + half.T
     out[i][diag_idx] /= 2
 
@@ -124,7 +127,7 @@ def guard_aps_u_intermediate_allocation(
         return
     probe = corr_group[c2_keys[in_range[0]]]
     probe_shape = tuple(int(d) for d in probe.shape)
-    itemsize = np.dtype(probe.dtype).itemsize
+    itemsize = _c2_out_dtype(probe.dtype).itemsize  # the promoted buffer dtype
     # Reconstructed matrix is square (c2_half + c2_half.T), so the half-matrix is
     # square (n_t, n_t) and bounds the per-matrix reconstructed size.
     _check_square_matrix(probe_shape, source=source)
@@ -363,7 +366,7 @@ def load_aps_old_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]
             _check_allocation_budget(
                 int(n_sel),
                 int(_n_t),
-                _probe_half.dtype.itemsize,
+                _c2_out_dtype(_probe_half.dtype).itemsize,
                 source="HDF5 correlation dataset",
             )
             c2_matrices_array = np.empty(
@@ -691,7 +694,7 @@ def load_aps_u_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]:
             _check_allocation_budget(
                 len(bin_indices),
                 int(_n_t_u),
-                _first_half.dtype.itemsize,
+                _c2_out_dtype(_first_half.dtype).itemsize,
                 source="HDF5 correlation dataset",
             )
             c2_matrices_array = np.empty(

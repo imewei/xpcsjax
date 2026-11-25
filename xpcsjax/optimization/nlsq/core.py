@@ -2915,6 +2915,9 @@ def fit_nlsq_cmaes(
                 n_params = len(final_params)
         else:
             n_params = len(final_params)
+        if _cmaes_phys_free_mask is not None:
+            # Restored fixed physical slots were never estimated: no DOF.
+            n_params -= int((~_cmaes_phys_free_mask).sum())
         # An underdetermined fit (n_params >= n_data) has no meaningful dof;
         # flooring it to 1 would let a trivially-small SSR mint a confidently
         # "good" quality_flag for a statistically meaningless fit. Mirrors

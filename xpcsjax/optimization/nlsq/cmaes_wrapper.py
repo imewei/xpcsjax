@@ -700,10 +700,6 @@ class CMAESWrapper:
                     "streaming": "hybrid_streaming",
                 }
                 _method = _method_map.get(self.config.refinement_workflow)
-                if _method == "hybrid_streaming":
-                    # The streaming solver rejects these TRF-only kwargs (TypeError),
-                    # which silently skipped the refinement.
-                    refinement_kwargs = {}
                 # NLSQ returns a CurveFitResult that unpacks as (popt, pcov) and
                 # also carries the solver's own convergence verdict.
                 fit_result = curve_fit(

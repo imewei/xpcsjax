@@ -270,7 +270,7 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
         # angles with the wrong matrices downstream. (wavevector_q_list is
         # deliberately excluded: its length is not tied to the stack here.)
         if "phi_angles_list" in data:
-            n_phi = int(np.atleast_1d(np.asarray(data["phi_angles_list"])).shape[0])
+            n_phi = int(np.asarray(data["phi_angles_list"]).size)
             if n_phi != int(c2.shape[0]):
                 raise XPCSDataFormatError(
                     f"phi_angles_list from {source!r} has {n_phi} entries but c2_exp "
@@ -1089,9 +1089,11 @@ class XPCSDataLoader:
 
         Note: Diagonal correction is now applied post-load for consistent behavior.
         """
+        if c2_half.dtype.kind in "iub":
+            # Promote BEFORE adding: integer/bool addition wraps in the source
+            # dtype, and the in-place /= 2 below is undefined on integers.
+            c2_half = c2_half.astype(_hdf5_readers._c2_out_dtype(c2_half.dtype))
         c2_full = c2_half + c2_half.T
-        if c2_full.dtype.kind in "iub":  # in-place /= 2 is undefined on integer dtypes
-            c2_full = c2_full.astype(_hdf5_readers._c2_out_dtype(c2_full.dtype))
         # Correct diagonal (was doubled in addition)
         diag_indices = np.diag_indices(c2_half.shape[0])
         c2_full[diag_indices] /= 2

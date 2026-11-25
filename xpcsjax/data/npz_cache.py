@@ -148,7 +148,9 @@ def load_from_cache(loader: XPCSDataLoader, cache_path: str) -> dict[str, Any]:
                 )
             validate_cache_q_vector(loader, metadata)
             for reason in metadata.get("load_degradations") or []:
-                loader._record_degradation(f"{reason} (replayed from cache metadata)")
+                replayed = f"{reason} (replayed from cache metadata)"
+                if replayed not in getattr(loader, "load_degradations", []):
+                    loader._record_degradation(replayed)
             logger.debug(f"Cache metadata validation passed: {metadata}")
         elif "cache_metadata" in data.files:
             # Legacy object-serialized metadata is a trust-boundary problem
@@ -495,8 +497,33 @@ def validate_cache_q_vector(loader: XPCSDataLoader, cache_metadata: dict[str, An
     cached_start = cache_metadata.get("requested_start_frame")
     cached_end = cache_metadata.get("requested_end_frame")
     if cached_start is None or cached_end is None:
+        # Older cache: only the APPLIED (clamped) window is recorded. A different
+        # start, or fewer requested frames than cached, is certainly stale. More
+        # requested frames than cached is either a clamp or another window; that
+        # cannot be told apart here, so regenerate when the HDF5 source exists.
+        applied_start = cache_metadata.get("start_frame")
+        applied_end = cache_metadata.get("end_frame")
+        req_start = loader.analyzer_config.get("start_frame", 1)
+        req_end = loader.analyzer_config.get("end_frame", -1)
+        exp_cfg = getattr(loader, "exp_config", None) or {}
+        source = os.path.join(
+            str(exp_cfg.get("data_folder_path") or ""), str(exp_cfg.get("data_file_name") or "")
+        )
+        comparable = all(
+            isinstance(v, int) for v in (applied_start, applied_end, req_start, req_end)
+        )
+        if comparable and (
+            applied_start != req_start
+            or 0 < req_end < applied_end
+            or (req_end > applied_end and os.path.isfile(source))
+        ):
+            raise CacheStaleError(
+                f"Cache frame-window mismatch: configured start_frame={req_start}, "
+                f"end_frame={req_end} but the (pre-fingerprint) cache holds frames "
+                f"{applied_start}-{applied_end}.",
+            )
         logger.warning(
-            "Cache metadata predates frame-window fingerprinting; cannot "
+            "Cache metadata predates frame-window fingerprinting; cannot fully "
             "verify the cached start_frame/end_frame match the current config.",
         )
     else:

@@ -342,8 +342,12 @@ def validate_config_schema(
                         )
 
     # Validate specific parameter values
-    errors.extend(_validate_parameter_values(config))
-    warnings.extend(_validate_parameter_warnings(config))
+    try:
+        errors.extend(_validate_parameter_values(config))
+        warnings.extend(_validate_parameter_warnings(config))
+    except (TypeError, ValueError) as exc:
+        # e.g. a non-numeric dt: this function's contract is an error report.
+        errors.append(f"Invalid parameter value: {exc}")
 
     return ConfigValidationResult(
         is_valid=len(errors) == 0,

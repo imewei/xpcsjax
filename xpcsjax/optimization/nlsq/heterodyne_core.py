@@ -3809,6 +3809,14 @@ def _build_joint_result(
         if joint_result is not None and joint_result.covariance is not None
         else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
     )
+    if n_penalty_rows and joint_result is not None:
+        # The solver's s² counted the L3 penalty rows as observations; put the
+        # covariance back on the data-row dof (same rule as the averaged path).
+        _dof_valid = int(data_only_residual.size) - int(prob.x0.size)
+        if _dof_valid > 0:
+            _dof_scale = (_dof_valid + int(n_penalty_rows)) / _dof_valid
+            covariance = covariance * _dof_scale
+            uncertainties = uncertainties * np.sqrt(_dof_scale)
 
     # When no NLSQ result backs this assembly, the verdict depends on WHY
     # ``joint_result`` is None. A kept GLOBAL ESCAPE returns a pre-accepted
@@ -3945,7 +3953,7 @@ def _build_joint_result(
         covariance_is_placeholder=(joint_result is not None)
         and not bool(np.all(np.isfinite(uncertainties))),
         covariance_dof={
-            "n_rows_solver": int(data_only_residual.size),
+            "n_rows_solver": int(data_only_residual.size) + int(n_penalty_rows),
             "n_valid": int(data_only_residual.size),
             "n_params": int(n_total_params),
         },

@@ -600,7 +600,10 @@ def fit_heterodyne_stratified_least_squares(
     if (
         np.ndim(c2) == 3
         and not np.array_equal(_order, np.arange(len(_phi_in)))
-        and _resolve_effective_mode(config, len(np.unique(_phi_in))) == "individual"
+        # Duplicate angles share one scaling slot, so the per-row un-permute
+        # does not apply; that layout keeps the unsorted behaviour.
+        and len(np.unique(_phi_in)) == len(_phi_in)
+        and _resolve_effective_mode(config, len(_phi_in)) == "individual"
     ):
         from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
             restore_input_angle_order,
@@ -613,7 +616,11 @@ def fit_heterodyne_stratified_least_squares(
                 c2=np.asarray(c2)[_order],
                 phi=_phi_in[_order],
                 config=config,
-                weights=_w[_order] if _w is not None and _w.ndim == 3 else weights,
+                weights=(
+                    _w[_order]
+                    if _w is not None and _w.ndim == 3 and _w.shape[0] == len(_phi_in)
+                    else weights
+                ),
                 target_chunk_size=target_chunk_size,
                 shuffle=shuffle,
                 use_index_based=use_index_based,

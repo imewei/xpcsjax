@@ -3229,7 +3229,12 @@ class NLSQWrapper(NLSQAdapterBase):
         final_residuals = residual_func(combined_solver, phi_flat, t1_flat, t2_flat, g2_flat)
         chi_squared = float(np.sum(final_residuals**2))
         n_data = len(phi_flat)
-        n_params = len(sequential_result.combined_parameters)
+        # A fixed slot (lower == upper) is restored into the vector but was never
+        # estimated, so it must not consume a degree of freedom.
+        _n_fixed_seq = (
+            int(np.sum(np.asarray(bounds[0]) == np.asarray(bounds[1]))) if bounds is not None else 0
+        )
+        n_params = len(sequential_result.combined_parameters) - _n_fixed_seq
         reduced_chi_squared = _safe_reduced_chi_squared(chi_squared, n_data, n_params)
 
         # Diagnostics payload

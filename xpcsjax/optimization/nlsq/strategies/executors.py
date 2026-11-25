@@ -175,7 +175,7 @@ class StandardExecutor(OptimizationExecutor):
                 xdata,
                 ydata,
                 p0=initial_params.tolist(),
-                bounds=bounds,
+                bounds=bounds if bounds is not None else (-np.inf, np.inf),
                 loss=loss_name,
                 x_scale=x_scale,
                 gtol=1e-6,
