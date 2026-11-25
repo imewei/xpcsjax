@@ -7,7 +7,7 @@ weight arrays from data statistics.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -322,6 +322,7 @@ def noise_normalized_reduced_chi2(
     c2_data: np.ndarray,
     n_data_valid: int,
     n_params: int,
+    n_rows: int | None = None,
 ) -> float:
     """Noise-normalised reduced chi-squared targeting ≈ 1.0 for a good fit.
 
@@ -345,10 +346,16 @@ def noise_normalized_reduced_chi2(
         Per-angle C2 matrix or batched ``(n_phi, n_time, n_time)``; used only
         to estimate ``sigma**2_noise``.
     n_data_valid
-        Number of residuals actually fit (off-diagonal, ``t=0`` boundary
-        excluded) — i.e. ``len(data_only_residual)``.
+        Number of residual rows that are observations (off-diagonal, ``t=0``
+        boundary and zero-weight rows excluded). Equals
+        ``len(data_only_residual)`` only when every weight is positive; pass
+        that full length as ``n_rows``.
     n_params
         Number of fitted parameters.
+    n_rows
+        Length of the residual vector, when it can exceed ``n_data_valid``
+        (zero-weight rows). If masking leaves no degrees of freedom the
+        statistic is undefined and ``nan`` is returned.
 
     Returns
     -------
@@ -360,8 +367,49 @@ def noise_normalized_reduced_chi2(
     --------
     far_lag_noise_variance : Supplies the ``sigma**2_noise`` estimate used here.
     """
+    if n_rows is not None and n_rows != n_data_valid and n_data_valid <= n_params:
+        return float("nan")
     n_dof = max(int(n_data_valid) - int(n_params), 1)
     sigma2_noise = far_lag_noise_variance(c2_data)
     if sigma2_noise > 1e-12:
         return float(ssr) / (sigma2_noise * n_dof)
     return float(ssr) / n_dof
+
+
+def n_contributing_rows(weights_batch: Any) -> int:
+    """Count the joint-residual rows that carry an observation.
+
+    The joint kernels gather the off-diagonal, ``t > 0`` support of every angle
+    and multiply by ``sqrt(weight)``, so a zero-weight pixel still occupies a row
+    (always 0) without being an observation. Applies that same gather to the
+    ``(n_phi, N, N)`` weights. Equals the residual length for all-positive weights.
+    """
+    from xpcsjax.core.heterodyne_jax_backend import _offdiag_indices
+
+    w = np.asarray(weights_batch)
+    rows, cols = _offdiag_indices(int(w.shape[-1]))
+    return int(np.count_nonzero(w[..., rows, cols] > 0))
+
+
+def covariance_on_valid_rows(
+    covariance: np.ndarray,
+    uncertainties: np.ndarray,
+    *,
+    n_rows_solver: int,
+    n_valid: int,
+    n_params: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Put a solver covariance on the degrees of freedom of the real observations.
+
+    The solver scaled its covariance by ``cost / (n_rows_solver - p)``, counting
+    L3 penalty rows and zero-weight rows as observations. No-op when every row
+    is an observation; with no data dof left there is no covariance, so both
+    arrays become NaN.
+    """
+    if n_rows_solver == n_valid:
+        return covariance, uncertainties
+    dof_valid = n_valid - n_params
+    if dof_valid <= 0:
+        return np.full_like(covariance, np.nan), np.full_like(uncertainties, np.nan)
+    scale = (n_rows_solver - n_params) / dof_valid
+    return covariance * scale, uncertainties * np.sqrt(scale)

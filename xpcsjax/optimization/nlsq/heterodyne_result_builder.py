@@ -784,6 +784,9 @@ def build_hybrid_streaming_result(
         ssr = float(info.get("cost", 0.0)) * 2.0  # optimizer cost = 0.5 * SSR
     # Finding 3: dof = n_data - n_params.  n_data_points is threaded from the
     # wrapper via info so this is always correct when the hybrid path ran.
+    # In ``info`` it is the OBSERVATION count (zero-weight rows excluded), not the
+    # residual length: that is ``info["n_data_rows"]`` (set by the stratified-LS
+    # and hybrid-streaming drivers), or ``meta["n_data_points"]`` upstream.
     n_data = int(info.get("n_data_points", 0))
     # Codex review: for the compressed averaged layout popt is
     # [c_avg, o_avg, physics] (n_physics + 2), but the constrained model consumes
@@ -824,7 +827,12 @@ def build_hybrid_streaming_result(
     # Falls back to plain MSE when the noise estimate is absent/degenerate,
     # matching ``noise_normalized_reduced_chi2``.
     sigma2_noise = float(info.get("sigma2_noise", 0.0))
-    if ssr <= 0:
+    # Masked down to no data dof (``n_data_rows`` counts the masked rows too):
+    # the statistic is undefined, not 0 and not SSR / 1.
+    _n_rows = info.get("n_data_rows")
+    if _n_rows is not None and int(_n_rows) != n_data and n_data <= _n_params_for_dof:
+        reduced_chi2 = float("nan")
+    elif ssr <= 0:
         reduced_chi2 = 0.0
     elif sigma2_noise > 1e-12:
         reduced_chi2 = ssr / (sigma2_noise * n_dof)

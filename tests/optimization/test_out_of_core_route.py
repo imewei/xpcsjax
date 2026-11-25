@@ -87,7 +87,10 @@ def test_laminar_mode_constant_token_is_not_pinned():
         n_phi=n_phi,
         n_physical=n_physical,
     )
-    expected_dof = n_physical  # "constant" -> 0 optimized scaling params
+    # The out-of-core loop fits the dense vector it is given (it has no
+    # frozen-scaling reduction), so the 2*n_phi scaling slots count as fitted.
+    expected_dof = len(result.parameters)
+    assert expected_dof == 2 * n_phi + n_physical
     expected_reduced_chi2 = 130.0 / max(1, 1_000_000 - expected_dof)
     assert result.reduced_chi_squared == pytest.approx(expected_reduced_chi2)
 

@@ -361,6 +361,14 @@ def _fit_joint_constant_multi_phi(
     # ------------------------------------------------------------------
     # 8. Translate heterodyne NLSQResult → homodyne-side OptimizationResult.
     # ------------------------------------------------------------------
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        covariance_on_valid_rows,
+        n_contributing_rows,
+        noise_normalized_reduced_chi2,
+    )
+
+    # Zero-weight pixels keep a (always-zero) residual row but are not observations.
+    n_valid = n_contributing_rows(weights_batch)
     # Escape contract: a kept global-escape vector has no covariance solve, so
     # uncertainties / covariance are NaN (mirrors the averaged escape).
     if is_escape:
@@ -377,6 +385,13 @@ def _fit_joint_constant_multi_phi(
             if nlsq_result.covariance is not None
             else np.full((n_physics, n_physics), np.nan, dtype=np.float64)
         )
+        covariance, uncertainties = covariance_on_valid_rows(
+            covariance,
+            uncertainties,
+            n_rows_solver=int(final_residual.size),
+            n_valid=n_valid,
+            n_params=int(n_physics),
+        )
 
     # The OptimizationResult ``chi_squared`` field carries SSR (sum of
     # squared *raw* residuals, homodyne convention). We compute it directly
@@ -392,15 +407,12 @@ def _fit_joint_constant_multi_phi(
     # photon-noise correction the other heterodyne paths use. ``chi_squared``
     # (= ssr) and ``chi2_per_angle`` are untouched, so SSR conservation
     # (``chi2_per_angle.sum() == chi_squared``) still holds.
-    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
-        noise_normalized_reduced_chi2,
-    )
-
     reduced_chi2 = noise_normalized_reduced_chi2(
         ssr=ssr,
         c2_data=c2_data,
-        n_data_valid=int(final_residual.size),
+        n_data_valid=n_valid,
         n_params=n_physics,
+        n_rows=int(final_residual.size),
     )
 
     wall_time = time.perf_counter() - t_start
@@ -414,6 +426,8 @@ def _fit_joint_constant_multi_phi(
         solve_success = bool(escape_kept_success)
     convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
     quality_flag: QualityFlag = "good" if solve_success else "marginal"
+    if np.isnan(reduced_chi2) and n_valid != int(final_residual.size):
+        quality_flag = "unknown"  # masked down to no data dof: nothing to grade
 
     # L2 hierarchical: no-op for constant mode. The whole solve IS the
     # "stage 1" of the two-stage pattern (physics-only with quantile-fixed
@@ -463,7 +477,7 @@ def _fit_joint_constant_multi_phi(
     )
     diagnostics["covariance_dof"] = {
         "n_rows_solver": int(final_residual.size),
-        "n_valid": int(final_residual.size),
+        "n_valid": n_valid,
         "n_params": int(n_physics),
     }
     # L2/L3/L4/L5 activation block via the shared assembler. Constant mode never

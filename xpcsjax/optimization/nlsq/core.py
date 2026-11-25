@@ -2999,7 +2999,13 @@ def fit_nlsq_cmaes(
             covariance=_cm_cov,
             chi_squared=cmaes_result.chi_squared,
             reduced_chi_squared=reduced_chi_squared,
-            convergence_status="converged" if cmaes_result.success else "failed",
+            # The honest verdict when the wrapper recorded one; ``success`` alone
+            # is also true for a kept-but-unconverged refinement.
+            convergence_status=(
+                "converged"
+                if cmaes_result.diagnostics.get("converged", cmaes_result.success)
+                else "failed"
+            ),
             iterations=cmaes_result.diagnostics.get("generations", 0),
             execution_time=execution_time,
             device_info={

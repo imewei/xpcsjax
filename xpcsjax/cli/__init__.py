@@ -2,7 +2,12 @@
 
 This subpackage is lazy-loaded: importing :mod:`xpcsjax.cli` does NOT
 import JAX or any of the heavy submodules. Attribute access (e.g.
-``xpcsjax.cli.main``) triggers the actual import via ``__getattr__``.
+``xpcsjax.cli.run_nlsq``) triggers the actual import via ``__getattr__``.
+
+The entry-point function is deliberately NOT re-exported here: a lazy ``main``
+would share its name with the :mod:`xpcsjax.cli.main` submodule, and
+``from xpcsjax.cli import main`` then returned the module, not the function.
+Use ``from xpcsjax.cli.main import main``.
 
 Mirrors heterodyne's CLI lazy-import surface so test mocks can target
 the same import paths.
@@ -21,14 +26,12 @@ if TYPE_CHECKING:
     from xpcsjax.cli.config_generator import main as config_main
     from xpcsjax.cli.config_handling import apply_cli_overrides, load_and_merge_config
     from xpcsjax.cli.data_pipeline import load_and_validate_data, resolve_phi_angles
-    from xpcsjax.cli.main import main
     from xpcsjax.cli.optimization_runner import run_nlsq
     from xpcsjax.cli.plot_dispatch import dispatch_plots
     from xpcsjax.cli.xla_config import configure_xla
 
 
 _IMPORTS: dict[str, tuple[str, str]] = {
-    "main": ("xpcsjax.cli.main", "main"),
     "config_main": ("xpcsjax.cli.config_generator", "main"),
     "configure_xla": ("xpcsjax.cli.xla_config", "configure_xla"),
     "create_parser": ("xpcsjax.cli.args_parser", "create_parser"),
@@ -63,7 +66,6 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "main",
     "config_main",
     "configure_xla",
     "create_parser",

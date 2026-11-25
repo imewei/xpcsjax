@@ -45,6 +45,18 @@ from xpcsjax.optimization.nlsq.parameter_utils import ResolvedPhysicalParameters
 from xpcsjax.optimization.nlsq.shear_weighting import ShearWeightingConfig
 
 
+def l3_is_enabled(regularization_config: dict[str, Any]) -> bool:
+    """Whether a ``regularization`` config block asks for Layer 3.
+
+    Off for ``enable: false`` and for ``mode: "none"`` (the controller's own
+    off value); on otherwise, including when the block is empty.
+    """
+    return (
+        regularization_config.get("enable", True) is not False
+        and regularization_config.get("mode", "relative") != "none"
+    )
+
+
 def _resolve_scaling_mode_for_indexing(mode: str, use_fixed_scaling: bool) -> str:
     """Resolve the canonical per-angle mode used for L3/L4 index construction.
 
@@ -340,7 +352,8 @@ def configure_streaming_layers(
     auto_tune_lambda = bool(regularization_config.get("auto_tune_lambda", True))
 
     adaptive_regularizer = None
-    if per_angle_scaling:
+    # ``regularization.enable: false`` switches Layer 3 off (default: on).
+    if per_angle_scaling and l3_is_enabled(regularization_config):
         # L3 group indices come from the canonical ParameterIndexMapper.
         # Bridge the controller's resolved flags to the canonical mode string.
         from xpcsjax.optimization.nlsq.parameter_index_mapper import ParameterIndexMapper

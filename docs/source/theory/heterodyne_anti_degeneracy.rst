@@ -84,9 +84,8 @@ path.  "Gated" means the layer runs only for the listed
    * - L3
      - all modes
      - whenever there is a scaling tail (group-variance config on plain
-       branch; ``compute_regularization_jax`` in hier. loss) --
-       ``regularization.enable`` is read but not actually checked as a
-       gate on this path
+       branch; ``compute_regularization_jax`` in hier. loss), unless
+       ``regularization.enable`` is false or ``mode`` is ``"none"``
      - Mode-aware group indices
    * - L4
      - all modes

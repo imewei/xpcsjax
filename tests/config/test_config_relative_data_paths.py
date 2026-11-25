@@ -44,7 +44,6 @@ def test_relative_data_folder_anchored_to_config_dir(tmp_path: Path) -> None:
             "data_file_name": "data.hdf",
             "file_path": "./data.hdf",
             "phi_angles_path": "./",
-            "cache_directory": "./",
         },
     )
     cm = ConfigManager(config_file=str(cfg_path))

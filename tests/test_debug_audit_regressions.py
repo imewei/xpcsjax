@@ -343,6 +343,7 @@ def test_streaming_soft_failure_escalates_to_chunked() -> None:
     the 2026-07-23 debug-audit-fixes spec."""
     import logging
     import time
+    import types
 
     from xpcsjax.optimization.nlsq.fallback_chain import (
         OptimizationStrategy,
@@ -370,7 +371,9 @@ def test_streaming_soft_failure_escalates_to_chunked() -> None:
         nlsq_bounds=None,
         loss_name="linear",
         x_scale_value=1.0,
-        config=object(),
+        # The streaming tier is only attempted for a config that carries the
+        # NLSQConfig hybrid_* fields.
+        config=types.SimpleNamespace(hybrid_normalize=True),
         start_time=time.time(),
         log=logging.getLogger("test_streaming_escalation"),
         enable_recovery=False,

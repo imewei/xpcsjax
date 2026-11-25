@@ -97,6 +97,11 @@ def _subset_data_by_phi(
         for key in _PHI_KEYS:
             if key in data:
                 data[key] = sliced_phi
+        # Keep a per-row q list aligned with the kept rows (see
+        # data.angle_filtering.apply_angle_filtering_for_optimization).
+        q_list = data.get("wavevector_q_list")
+        if q_list is not None and np.ndim(q_list) == 1 and len(q_list) == len(data_phi) > 1:
+            data["wavevector_q_list"] = np.asarray(q_list)[idx]
         logger.info(
             "Subset data to %d requested phi angle(s): %s", len(idx), [float(a) for a in sliced_phi]
         )

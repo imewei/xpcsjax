@@ -123,9 +123,8 @@ experimental_data:
                                      # files, the loader can also read phi
                                      # angles from an internal dataset.
 
-  cache_directory: "./cache"         # Where to write/read npz caches of the
-                                     # processed c2 array (avoids re-reading
-                                     # HDF5 on every fit). MUST be writeable.
+  # cache_file_path: "/path/to/cache" # Optional DIRECTORY for the npz caches.
+                                     # Default: the data folder. MUST be writeable.
 
   use_caching: true                  # true = read/write npz cache (recommended)
                                      # false = always reread HDF5 (slower).
@@ -503,10 +502,13 @@ optimization:
         per_angle_max_iterations: 50
 
       # ---- L3 adaptive regularization (CV-based) ----
-      # Off by default — static fits rarely need extra regularization.
-      # Enable if you see (contrast_i, offset_i) absorbing the diffusion signal.
+      # On by default where the layer applies. (Until 2026-11 this flag was ignored
+      # and the layer ran even with `enable: false`; it is now honoured, and the
+      # shipped value keeps the previous behaviour.) Set `enable: false` to switch
+      # Layer 3 off.
+      # It counters (contrast_i, offset_i) absorbing the diffusion signal.
       regularization:
-        enable: false
+        enable: true                       # false switches Layer 3 off
         mode: "relative"                   # "absolute" | "relative" | "auto"
         lambda: 1.0                        # base regularization strength
         target_cv: 0.10                    # target 10% CV across angles

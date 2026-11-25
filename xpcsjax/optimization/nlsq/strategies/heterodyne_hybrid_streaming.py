@@ -43,6 +43,20 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _observed_ssr(y: np.ndarray, pred: np.ndarray, sigma: np.ndarray | None) -> float:
+    """Raw sum of squared errors over the pixels that are observations.
+
+    A masked pixel (``sigma`` non-finite or non-positive) is not counted in the
+    dof, so its error must not enter the chi-squared numerator either.
+    Unweighted otherwise, as this path has always reported.
+    """
+    sq = (np.asarray(y) - np.asarray(pred)) ** 2
+    if sigma is None:
+        return float(np.sum(sq))
+    s = np.asarray(sigma)
+    return float(np.sum(sq[np.isfinite(s) & (s > 0)]))
+
+
 def _sigma_weighted_mse(residuals: Any, sigma: Any | None) -> Any:
     """Mean-squared residual, optionally weighted by per-point sigma.
 
@@ -347,18 +361,27 @@ def build_heterodyne_pointwise_model(
     if hasattr(stratified_data, "sigma") and stratified_data.sigma is not None:
         # sigma's angle axis follows the input phi order (stratified_data.phi_raw);
         # phi_idx_pre below is a SORTED-phi index. No-op for ascending phi.
-        sigma_3d = sigma_in_sorted_phi_order(
-            np.asarray(stratified_data.sigma, dtype=np.float64),
-            getattr(stratified_data, "phi_raw", None),
-        )
-        # Reuse the pre-keep phi/t indices from the PRE-filter arrays so the
-        # mask aligns with the flat order we started from.
-        phi_idx_pre = _bin_to_grid(all_phi, phi_unique, "phi_sigma_pre")
-        t1_idx_pre = _bin_to_grid(all_t1, t_unique, "t1_sigma_pre")
-        t2_idx_pre = _bin_to_grid(all_t2, t_unique, "t2_sigma_pre")
-        # `keep` was built from the same pre-filter arrays, so this is aligned.
-        sigma_sel = sigma_3d[phi_idx_pre[keep], t1_idx_pre[keep], t2_idx_pre[keep]]
-        meta_sigma = sigma_sel
+        sigma_raw = np.asarray(stratified_data.sigma, dtype=np.float64)
+        phi_raw = getattr(stratified_data, "phi_raw", None)
+        if (
+            phi_raw is not None
+            and len(np.unique(phi_raw)) != len(phi_raw)
+            and sigma_raw.size == len(all_phi)
+        ):
+            # Duplicate angles share one phi slot but each measurement has its own
+            # sigma slab, so a phi-slot gather would hand one row's mask to the
+            # other. The flat arrays are the input rows raveled in order
+            # (build_heterodyne_stratified_data), so take sigma the same way.
+            meta_sigma = sigma_raw.reshape(-1)[keep]
+        else:
+            sigma_3d = sigma_in_sorted_phi_order(sigma_raw, phi_raw)
+            # Reuse the pre-keep phi/t indices from the PRE-filter arrays so the
+            # mask aligns with the flat order we started from.
+            phi_idx_pre = _bin_to_grid(all_phi, phi_unique, "phi_sigma_pre")
+            t1_idx_pre = _bin_to_grid(all_t1, t_unique, "t1_sigma_pre")
+            t2_idx_pre = _bin_to_grid(all_t2, t_unique, "t2_sigma_pre")
+            # `keep` was built from the same pre-filter arrays, so this is aligned.
+            meta_sigma = sigma_3d[phi_idx_pre[keep], t1_idx_pre[keep], t2_idx_pre[keep]]
 
     # ------------------------------------------------------------------
     # Scaling-tail parameter bounds (used by later tasks for joint bounds array)
@@ -394,6 +417,13 @@ def build_heterodyne_pointwise_model(
         "offset_arr": offset_arr,
         "keep_mask": keep,
         "n_data_points": int(keep.sum()),
+        # Rows that are observations: a zero-weight pixel (sigma = inf) keeps its
+        # row but contributes nothing, so it must not count toward the dof.
+        "n_contributing_points": (
+            int(keep.sum())
+            if meta_sigma is None
+            else int(np.count_nonzero(np.isfinite(meta_sigma) & (meta_sigma > 0)))
+        ),
         "sigma": meta_sigma,
         # Unique time grid the pointwise kernel was indexed against (t1_idx /
         # t2_idx in x_data address THIS array, not necessarily model.t — they
@@ -621,8 +651,15 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         or None  # [] (constant) -> None, matching the existing "no L3 groups" sentinel
     )
 
+    from xpcsjax.optimization.nlsq.strategies.hybrid_streaming_layers import l3_is_enabled
+
+    # This path has always read ``enable`` by truthiness, so an explicit null is off
+    # here; ``mode: "none"`` is off too.
     regularization_active = (
-        (n_scaling > 0) and (_group_indices is not None) and reg_cfg_dict.get("enable", True)
+        (n_scaling > 0)
+        and (_group_indices is not None)
+        and bool(reg_cfg_dict.get("enable", True))
+        and l3_is_enabled(reg_cfg_dict)
     )
 
     adaptive_regularizer: AdaptiveRegularizer | None = None
@@ -1024,13 +1061,18 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         info["hybrid_streaming_diagnostics"] = {k: info[k] for k in ("nit", "success") if k in info}
 
     # Thread data-point count for reduced-chi dof (Finding 3)
-    info["n_data_points"] = meta["n_data_points"]
+    info["n_data_points"] = meta.get("n_contributing_points", meta["n_data_points"])
+    info["n_data_rows"] = meta["n_data_points"]  # masked rows included
+    if info["n_data_points"] != info["n_data_rows"] and info["n_data_points"] <= len(popt):
+        # Masked down to no data dof: the optimizer's covariance describes nothing.
+        pcov = np.full_like(np.asarray(pcov, dtype=np.float64), np.nan)
+        info["covariance_is_placeholder"] = True
 
     # ------------------------------------------------------------------
     # SSR + frozen baseline (Task 2)
     # ------------------------------------------------------------------
     pred = np.asarray(model_fn(x_data, *popt))
-    info["ssr"] = float(np.sum((y_data - pred) ** 2))
+    info["ssr"] = _observed_ssr(y_data, pred, meta.get("sigma"))
 
     if meta["n_scaling"] > 0:
         n_phys = meta["n_physics_varying"]
@@ -1054,7 +1096,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         frozen = frozen_head + list(popt[n_scal:])
         if len(frozen) == len(popt):
             pred0 = np.asarray(model_fn(x_data, *frozen))
-            info["ssr_frozen_baseline"] = float(np.sum((y_data - pred0) ** 2))
+            info["ssr_frozen_baseline"] = _observed_ssr(y_data, pred0, meta.get("sigma"))
         else:
             # Mismatch guard: fall back to current SSR (no meaningful baseline)
             info["ssr_frozen_baseline"] = info["ssr"]

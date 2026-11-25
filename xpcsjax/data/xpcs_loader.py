@@ -813,10 +813,18 @@ class XPCSDataLoader:
             non-monotonic time axis).
         """
         self.load_degradations = []  # per-load signal, not loader-lifetime history
+        self._applied_start_frame = self._applied_end_frame = None  # set by this load
         # Construct file paths
         data_folder = self.exp_config.get("data_folder_path", "./")
         data_file = self.exp_config.get("data_file_name", "")
-        cache_folder = self.exp_config.get("cache_file_path", data_folder)
+        # ``or``: a null ``cache_file_path`` means "the data folder", not a crash.
+        cache_folder = self.exp_config.get("cache_file_path") or data_folder
+        if self.exp_config.get("cache_directory") and not self.exp_config.get("cache_file_path"):
+            logger.warning(
+                "experimental_data.cache_directory is not used; caches are read and written in "
+                "the data folder (%s). Set experimental_data.cache_file_path to choose a directory.",
+                data_folder,
+            )
 
         # Get frame parameters
         start_frame = self.analyzer_config.get("start_frame", 1)
@@ -1015,6 +1023,11 @@ class XPCSDataLoader:
         # preprocessing crashes); `_degraded` is the single boolean to branch on.
         if self.load_degradations:
             data["load_degradations"] = list(self.load_degradations)
+        # Tell time-axis consumers (HeterodyneModel.sync_time_axis) when the data
+        # is short because end_frame was clamped, not because leading frames
+        # were excluded.
+        if self._frames_clamped_at_end():
+            data["frames_clamped_at_end"] = self._frames_clamped_at_end()
         data["_degraded"] = (
             bool(self.load_degradations)
             or bool(data.get("_preprocessing_degraded", False))
@@ -1022,6 +1035,21 @@ class XPCSDataLoader:
         )
 
         return data
+
+    def _frames_clamped_at_end(self) -> int:
+        """Return how many frames the applied window fell short of ``end_frame``.
+
+        ``0`` when the request was satisfied, used the ``-1`` "all frames"
+        sentinel, or the applied window is unknown (e.g. a bare NPZ).
+        """
+        requested = self.analyzer_config.get("end_frame")
+        applied = getattr(self, "_applied_end_frame", None)
+        # Programmatic configs may carry NumPy integers; a bool is not a frame count.
+        for v in (requested, applied):
+            if isinstance(v, bool) or not isinstance(v, (int, np.integer)):
+                return 0
+        req, app = int(requested), int(applied)  # type: ignore[arg-type]
+        return req - app if req > app > 0 else 0
 
     @log_performance(threshold=0.2)
     def _load_from_cache(self, cache_path: str) -> dict[str, Any]:

@@ -139,6 +139,12 @@ def run_out_of_core_route(
         n_params_effective = effective_constrained_dof(
             resolved_mode, n_phi=n_phi, n_physical=n_physical
         )
+        if resolved_mode == "constant" and len(popt) != n_physical:
+            # The out-of-core loop has no frozen-scaling reduction: handed a dense
+            # vector it differentiates and steps the scaling slots too (see
+            # out_of_core._effective_param_count_for_ooc, which sizes the
+            # covariance the same way). Those fitted slots are degrees of freedom.
+            n_params_effective = None
     dof = n_params_effective if n_params_effective is not None else len(popt)
     reduced_chi2 = info.get("chi_squared", 0.0) / max(1, n_points - dof)
     quality_flag = quality_flag_from_reduced_chi2(reduced_chi2)

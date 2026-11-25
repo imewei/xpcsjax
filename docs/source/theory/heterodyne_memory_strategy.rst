@@ -176,11 +176,10 @@ Layer activation on the STREAMING path
   computation itself raises, which is logged as an error since the
   reported uncertainties are then not meaningful.
 - **L3** — active whenever there is a scaling tail (``per_angle_scaling``
-  is true); the config's ``regularization.enable`` flag is read into
-  local variables but is **not** actually checked before constructing
-  ``AdaptiveRegularizer`` (``AdaptiveRegularizationConfig(enable=True,
-  ...)`` is hardcoded). Uses group-variance config on the plain branch and
-  ``compute_regularization_jax`` inside the hierarchical loss.
+  is true), and skipped when ``regularization.enable`` is false or
+  ``regularization.mode`` is ``"none"``. Uses group-variance config on the
+  plain branch and ``compute_regularization_jax`` inside the hierarchical
+  loss.
 - **L4** — the monitor is *constructed* whenever
   ``gradient_monitoring.enable`` (default ``True``) and there is a scaling
   tail, but it is only ever *checked* on the L2 (hierarchical) branch's

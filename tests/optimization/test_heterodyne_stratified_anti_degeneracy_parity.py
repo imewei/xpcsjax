@@ -172,23 +172,24 @@ def test_l4_banner_suppressed_when_gradient_monitoring_disabled(caplog):
     assert "Layer 4 - Gradient Collapse Monitor" not in caplog.text
 
 
-def test_l3_banner_always_on_even_when_regularization_disabled(caplog):
-    """L3 is NOT gated by a regularization.enable field — it stays on under master enable.
+def test_l3_disabled_by_regularization_enable_false(caplog):
+    """``regularization.enable: false`` switches Layer 3 off (shared with laminar).
 
-    Pins the controller's current (laminar-shared) behavior: there is no
-    ``regularization.enable`` key, so the Layer 3 banner emits under master
-    ``enable`` regardless. Matching laminar; documented, not changed.
+    The banner is still emitted, now stating that the layer is disabled, and no
+    regularizer is constructed. (Before 2026-11-25 the flag was ignored.)
     """
     cfg = _ad_config_dict()
-    cfg["regularization"] = {"enable": False, "mode": "relative"}  # 'enable' ignored by design
+    cfg["regularization"] = {"enable": False, "mode": "relative"}
     phi_deg = np.array([0.0, 60.0, 120.0], dtype=np.float64)
     with caplog.at_level(
         logging.INFO, logger="xpcsjax.optimization.nlsq.anti_degeneracy_controller"
     ):
-        _hsl._emit_anti_degeneracy_parity_banners(
+        ctrl = _hsl._emit_anti_degeneracy_parity_banners(
             anti_degeneracy_dict=cfg, phi_deg=phi_deg, n_physical=14
         )
     assert "Layer 3 - Adaptive Regularization" in caplog.text
+    assert "Disabled (regularization.enable: false)" in caplog.text
+    assert ctrl is not None and ctrl.regularizer is None
 
 
 def test_mode_banner_reports_heterodyne_physical_count(caplog):

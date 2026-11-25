@@ -669,6 +669,25 @@ class CMAESWrapper:
         from nlsq import curve_fit
 
         n_data = len(ydata)
+        if self.config.refinement_workflow == "streaming":
+            # NLSQ's hybrid_streaming method accepts neither the TRF tolerances
+            # nor a sigma, so this workflow has never completed a refinement.
+            # Skip it explicitly (same outcome: the CMA-ES point is kept).
+            mesg = (
+                "refinement_workflow='streaming' is not supported; use 'auto' or "
+                "'standard'. Refinement skipped, CMA-ES result kept."
+            )
+            logger.warning("[CMA-ES] %s", mesg)
+            return {
+                "popt": p0,
+                "pcov": None,
+                "chi_squared": None,
+                "infodict": {},
+                "mesg": mesg,
+                "ier": -1,
+                "success": False,
+                "adoptable": False,
+            }
         logger.info(
             f"[CMA-ES] Refinement starting: workflow={self.config.refinement_workflow}, "
             f"n_data={n_data:,}, ftol={self.config.refinement_ftol:.1e}, "
@@ -1287,6 +1306,12 @@ class CMAESWrapper:
         # the success flag rests on refinement alone, so the caller in
         # heterodyne_core (which picks CMA-ES vs NLSQ off this flag) is not misled.
         success = cmaes_converged or nlsq_refined
+        # ``success`` stays the candidate-ELIGIBILITY flag callers gate on (an
+        # adopted refinement makes the point usable). ``converged`` is the honest
+        # verdict: the global search converged, or the adopted refinement did.
+        diagnostics["converged"] = bool(
+            cmaes_converged or (nlsq_refined and diagnostics.get("refinement_converged", False))
+        )
         if nlsq_refined and not cmaes_converged:
             logger.warning(
                 "CMA-ES did not meet a convergence criterion (reason=%s); success "

@@ -855,6 +855,21 @@ def fit_heterodyne_stratified_least_squares(
             params_test[phys_idx] += 0.01
         residuals_1 = np.asarray(residual_fn(params_test), dtype=np.float64)
         gradient_estimate = float(np.abs(np.sum(residuals_1 - residuals_0)))
+        if gradient_estimate < _grad_threshold:
+            # The first physical parameter alone can be insensitive at a legal
+            # start (e.g. a zero fraction); only a start where NO parameter moves
+            # the residuals is unfittable. Mirrors laminar's stratified_ls.
+            for idx in range(len(p0_full)):
+                params_test = np.array(p0_full, dtype=np.float64, copy=True)
+                params_test[idx] = params_test[idx] * 1.01 + 1e-6
+                gradient_estimate = float(
+                    np.abs(
+                        np.sum(np.asarray(residual_fn(params_test), dtype=np.float64) - residuals_0)
+                    )
+                )
+                if gradient_estimate >= _grad_threshold:
+                    phys_idx = idx
+                    break
         _grad_passed = gradient_estimate >= _grad_threshold
         _hlog.log_gradient_sanity_check(
             residuals_0=residuals_0,
@@ -981,9 +996,9 @@ def fit_heterodyne_stratified_least_squares(
     # ``hierarchical_active`` / ``regularization_active`` markers stay False
     # (byte-identical to the pre-Phase-3 path). When ``execute_layers`` is True
     # AND a layer is configured (``enable_hierarchical`` for L2, or
-    # ``regularization_mode != "none"`` for L3 — ``regularization.enable`` is
-    # IGNORED by the heterodyne config), the layer runs on the SEED (not the
-    # baseline) and its result is kept only if the data-only SSR is no worse than
+    # ``regularization_mode != "none"`` for L3 — ``regularization.enable: false``
+    # forces it to "none"), the layer runs on the SEED (not the baseline) and its
+    # result is kept only if the data-only SSR is no worse than
     # the baseline by more than ``tol`` (keep-better). Penalty rows shape the
     # optimizer search only — the reported chi^2 is recomputed from the data-only
     # residual below, so the objective is never contaminated.
@@ -1245,8 +1260,19 @@ def fit_heterodyne_stratified_least_squares(
     # threshold that gated the baseline solve — rather than risk an OOM after a
     # successful solve. This deliberately trades uncertainties for the fit on
     # large-N fits; the parameters are unaffected.
+    # Zero-weight rows (sigma = inf) are in the residual but are not observations.
+    _n_obs = int(meta.get("n_contributing_points", meta["n_data_points"]))
     if _pcov_from_adapter is not None:
-        pcov: np.ndarray = _pcov_from_adapter
+        from xpcsjax.optimization.nlsq.heterodyne_data_prep import covariance_on_valid_rows
+
+        pcov: np.ndarray = covariance_on_valid_rows(
+            _pcov_from_adapter,
+            np.empty(0),
+            n_rows_solver=int(meta["n_data_points"]),
+            n_valid=_n_obs,
+            n_params=int(popt.size),
+        )[0]
+        _cov_placeholder = _cov_placeholder or not bool(np.all(np.isfinite(pcov)))
     else:
         n_params = int(popt.size)
         n_data = int(meta["n_data_points"])
@@ -1255,6 +1281,10 @@ def fit_heterodyne_stratified_least_squares(
             from xpcsjax.utils.logging import get_logger as _get_logger
 
             _cov_log = _get_logger(__name__)
+            if _n_obs != n_data and _n_obs <= n_params:
+                raise ValueError(
+                    f"{_n_obs} unmasked observations for {n_params} parameters: no data dof"
+                )
             if _dense_j_gb > float(_mem_decision.threshold_gb):
                 raise MemoryError(
                     f"dense Jacobian {_dense_j_gb:.1f} GB exceeds the "
@@ -1272,7 +1302,7 @@ def fit_heterodyne_stratified_least_squares(
             # post-solve memory spike at >=1M points (see _chunked_jacfwd_dense).
             J = _chunked_jacfwd_dense(residual_fn, popt)
             pcov = gauss_newton_covariance(
-                final_residual, J, n_valid=n_data, n_params=n_params, loss=str(config.loss)
+                final_residual, J, n_valid=_n_obs, n_params=n_params, loss=str(config.loss)
             )
             del J
         except (MemoryError, np.linalg.LinAlgError, ValueError, RuntimeError) as _exc:
@@ -1333,8 +1363,10 @@ def fit_heterodyne_stratified_least_squares(
     # (n_scaling=0 -> n_physics); individual is already dense (== popt.size).
     _n_phys_meta = int(meta["n_physics"])
     _n_params_dof = _n_phys_meta if int(meta["n_scaling"]) == 0 else 2 * n_phi_meta + _n_phys_meta
-    _n_dof = max(1, _n_data - _n_params_dof)
+    _n_dof = max(1, _n_obs - _n_params_dof)
     _reduced_chi2 = ssr / (_sigma2_noise * _n_dof) if _sigma2_noise > 1e-12 else ssr / _n_dof
+    if _n_obs != int(meta["n_data_points"]) and _n_obs <= _n_params_dof:
+        _reduced_chi2 = float("nan")  # masked down to no data dof (matches the result)
     _hlog.log_optimization_results(
         success=_eff_success,
         message=_eff_message,
@@ -1394,7 +1426,8 @@ def fit_heterodyne_stratified_least_squares(
         "cost": 0.5 * ssr,
         "nit": _eff_nit,
         "wall_time": _eff_wall,
-        "n_data_points": int(meta["n_data_points"]),
+        "n_data_points": _n_obs,  # the reduced-chi2 dof count in the result builder
+        "n_data_rows": int(meta["n_data_points"]),  # masked rows included
         "sigma2_noise": float(_sigma2_noise),
         "stratification_memory": mem_estimate,
     }
@@ -1448,7 +1481,11 @@ def fit_heterodyne_stratified_least_squares(
         popt=popt,
         pcov=pcov,
         info=info,
-        phi_angles=np.asarray(phi),
+        # Duplicate angles share one scaling slot / one chi2 entry (slots are in
+        # sorted-unique order), so label the slots, not the raw rows.
+        phi_angles=(
+            np.unique(phi) if len(np.unique(phi)) != len(np.asarray(phi)) else np.asarray(phi)
+        ),
         per_angle_mode=mode,
         scaling_source="stratified_ls",
         chi2_per_angle=chi2_per_angle,

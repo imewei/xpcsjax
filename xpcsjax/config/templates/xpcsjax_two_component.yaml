@@ -124,7 +124,8 @@ experimental_data:
                                      # the heterodyne fit converts to RADIANS
                                      # internally for phi0_het comparison.
 
-  cache_directory: "./cache"         # Where to read/write npz caches. MUST be writeable.
+  # cache_file_path: "/path/to/cache" # Optional DIRECTORY for the npz caches.
+                                     # Default: the data folder. MUST be writeable.
   use_caching: true                  # true = use cache (RECOMMENDED).
   cache_filename_template: "cached_c2_frames_${start_frame}_${end_frame}.npz"
   cache_compression: true            # true = gzip cache (smaller).
@@ -517,8 +518,8 @@ optimization:
     #   from a shear-rate γ̇·cos(phi−phi0). The angular pattern that L5
     #   weights against (gradient sign-flip from shear) does not appear
     #   in the same form in the heterodyne residual structure.
-    # If you need to deeply suppress per-angle scaling absorption beyond
-    # L1–L4, enable L3 adaptive regularization below.
+    # L3 adaptive regularization (below, on by default) is what suppresses
+    # per-angle scaling absorption beyond L1, L2 and L4.
     #
     # PER-ANGLE MODE — controls how (contrast, offset) varies with angle:
     #   "constant"    per-angle (β, o) FROZEN from quantile estimate  →  14
@@ -563,10 +564,14 @@ optimization:
         per_angle_max_iterations: 50
 
       # ---- L3 Adaptive Regularization ----
-      # Off by default. Enable if per-angle scaling is absorbing the
-      # cross-term oscillations and L2 alone cannot recover them.
+      # On by default where the layer applies. (Until 2026-11 the joint-fit paths
+      # ignored this flag and ran the layer even with `enable: false`; it is now
+      # honoured. The shipped `true` keeps the previous behaviour everywhere except
+      # hybrid streaming, which already honoured the flag: Layer 3 is now on there.)
+      # Set `enable: false` to switch Layer 3 off.
+      # It counters per-angle scaling absorbing the cross-term oscillations.
       regularization:
-        enable: false
+        enable: true                       # false switches Layer 3 off
         mode: "relative"                # "absolute" | "relative" | "auto"
         lambda: 1.0
         target_cv: 0.10

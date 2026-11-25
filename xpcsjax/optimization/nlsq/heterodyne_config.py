@@ -1025,7 +1025,19 @@ class NLSQConfig:
 
             regularization = raw_anti_degeneracy.get("regularization")
             if isinstance(regularization, dict):
-                _set_from_nested("regularization_mode", regularization.get("mode", _SENTINEL))
+                # ``enable: false`` switches L3 off: the nested ``mode`` is then
+                # not applied and ``regularization_mode`` keeps its "none" default.
+                if regularization.get("enable", True) is not False:
+                    _set_from_nested("regularization_mode", regularization.get("mode", _SENTINEL))
+                else:
+                    # An explicit off switch wins, even over a flat mode.
+                    if normalized_config.get("regularization_mode", "none") != "none":
+                        logger.warning(
+                            "anti_degeneracy.regularization.enable is false: ignoring "
+                            "regularization_mode=%r (Layer 3 is off).",
+                            normalized_config["regularization_mode"],
+                        )
+                    normalized_config["regularization_mode"] = "none"
                 _set_from_nested("group_variance_lambda", regularization.get("lambda", _SENTINEL))
                 _set_from_nested(
                     "regularization_target_cv",

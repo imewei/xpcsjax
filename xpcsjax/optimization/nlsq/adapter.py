@@ -939,6 +939,7 @@ class NLSQAdapter(NLSQAdapterBase):
             if isinstance(config_dict, dict):
                 dt = config_dict.get("analyzer_parameters", {}).get("dt")
         dt_val = float(dt) if dt is not None else None
+        self._reject_times_outside_fallback_grid(data, dt_val)
         # Stator-rotor gap: the kernel's shear prefactor scales with it, so the
         # data's L must reach the closure (1.0 only when the data carries none).
         gap = self._get_attr(data, "L")
@@ -1050,6 +1051,34 @@ class NLSQAdapter(NLSQAdapterBase):
         if isinstance(data, dict):
             return data.get(key, default)
         return getattr(data, key, default)
+
+    def _reject_times_outside_fallback_grid(self, data: Any, dt: float | None) -> None:
+        """Raise when the kernel's fallback time grid would clamp this data.
+
+        This path passes no ``time_grid`` to ``compute_g1_batch``, so the kernel
+        integrates on ``arange(FALLBACK_TIME_GRID_SIZE) * dt`` and evaluates any
+        time outside it at the nearest end point -- a silently wrong model.
+        """
+        if dt is None:  # the kernel itself rejects a missing dt
+            return
+        from xpcsjax.core.jax_backend import FALLBACK_TIME_GRID_SIZE
+
+        t_end = (FALLBACK_TIME_GRID_SIZE - 1) * dt
+        tol = 1e-9 * abs(dt)
+        for name in ("t1", "t2"):
+            t = self._get_attr(data, name)
+            if t is None:
+                t = self._get_attr(data, name + "_2d")
+            if t is None or np.size(t) == 0:
+                continue
+            t_min, t_max = float(np.min(t)), float(np.max(t))
+            if t_max > t_end + tol or t_min < -tol:
+                raise ValueError(
+                    f"NLSQAdapter cannot fit this time axis: {name} spans "
+                    f"[{t_min:.6g}, {t_max:.6g}] but the adapter's fixed time grid covers "
+                    f"[0, {t_end:.6g}] ({FALLBACK_TIME_GRID_SIZE} points at dt={dt:.6g}); times "
+                    "outside it would be evaluated at the grid edge. Use use_adapter=False."
+                )
 
     def _flatten_xpcs_data(
         self,

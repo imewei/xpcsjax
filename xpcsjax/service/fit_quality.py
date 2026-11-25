@@ -128,7 +128,10 @@ def compute_fit_quality(
         from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
 
         hetero_model = HeterodyneModel.from_config(cfg)
-        hetero_model.sync_time_axis(np.arange(c2_exp.shape[1], dtype=np.float64))
+        hetero_model.sync_time_axis(
+            np.arange(c2_exp.shape[1], dtype=np.float64),
+            n_tail_clamped=int(data.get("frames_clamped_at_end", 0) or 0),
+        )
 
     eval_kwargs: dict[str, Any] = {} if hetero_model is None else {"heterodyne_model": hetero_model}
 

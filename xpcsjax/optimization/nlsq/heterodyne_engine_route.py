@@ -25,8 +25,8 @@ longer imports engine-construction helpers from tests.
 Scope: the three in-scope per-angle scaling modes —
 ``constant`` / ``individual`` / ``averaged`` (the canonical production tokens).
 Unsupported per-angle modes are rejected upstream and never reach
-this function; the non-uniform-weights path raises :class:`NotImplementedError`
-as a best-effort guard.
+this function; fits it does not handle (masking or non-unit weights, duplicate
+phi) raise :class:`~xpcsjax.optimization.exceptions.EngineRouteDeclined`.
 
 Result-contract assembly REUSES the production result-builder primitives:
 
@@ -56,6 +56,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from xpcsjax.config.heterodyne_parameter_names import ALL_PARAM_NAMES
+from xpcsjax.optimization.exceptions import EngineRouteDeclined
 
 if TYPE_CHECKING:
     from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
@@ -395,6 +396,15 @@ def fit_two_component_via_engine(
 
     phi_arr = np.asarray(phi, dtype=np.float64)
     n_phi = len(phi_arr)
+    if len(np.unique(phi_arr)) != n_phi:
+        # The engine sizes its per-angle slots by DISTINCT angle while this route
+        # builds bounds and results per input row; the two disagree for duplicate
+        # angles. Say so and let the caller's fallback (fit_nlsq_multi_phi) run,
+        # instead of failing later on a shape mismatch.
+        raise EngineRouteDeclined(
+            "fit_two_component_via_engine does not support duplicate phi angles; "
+            "falling back to fit_nlsq_multi_phi."
+        )
 
     # The engine indexes per-angle scaling by SORTED phi. For ``individual`` mode
     # with non-ascending phi, solve on sorted data and restore the caller's angle
@@ -440,16 +450,40 @@ def fit_two_component_via_engine(
             weights = np.broadcast_to(weights, c2.shape).copy()
 
     # The engine solve is UNWEIGHTED: build_heterodyne_stratified_data is called
-    # below WITHOUT weights (sigma=None / unit sigma). Uniform weights only
-    # rescale the objective by a constant and leave the argmin unchanged, so they
-    # are safe to proceed with. Non-uniform weights WOULD change the optimum and
+    # below WITHOUT weights (sigma=None / unit sigma). Unit weights, and uniform
+    # weights under the linear loss, leave the argmin unchanged, so they are safe
+    # to proceed with (see the loss check below). Non-uniform weights change the optimum and
     # must not be silently dropped — route those fits to fit_nlsq_multi_phi (which
     # applies weights in its solve) via the caller's best-effort fallback.
-    if weights is not None and weights.size and not np.allclose(weights, weights.flat[0]):
-        raise NotImplementedError(
-            "fit_two_component_via_engine does not honour non-uniform weights "
+    # A non-positive or non-finite weight is a mask, never a uniform rescale; and
+    # ``atol=0`` so a 0 / 1e-9 mask is not mistaken for uniform weights.
+    if (
+        weights is not None
+        and weights.size
+        and not (
+            bool(np.all(np.isfinite(weights) & (weights > 0)))
+            and np.allclose(weights, weights.flat[0], atol=0.0)
+        )
+    ):
+        raise EngineRouteDeclined(
+            "fit_two_component_via_engine does not honour non-uniform or masking weights "
             "(the engine solve is unweighted); falling back to fit_nlsq_multi_phi, "
             "which applies them in the solve."
+        )
+    # Uniform weights rescale every residual by one constant. That leaves the
+    # argmin unchanged only for the LINEAR loss; a robust loss (soft_l1, huber,
+    # ...) compares the residual to a fixed transition scale, so a non-unit
+    # uniform weight changes the minimizer and must reach the weighted solver.
+    if (
+        weights is not None
+        and weights.size
+        and not np.isclose(float(weights.flat[0]), 1.0)
+        and str(getattr(config, "loss", "linear")) != "linear"
+    ):
+        raise EngineRouteDeclined(
+            "fit_two_component_via_engine does not honour non-unit uniform weights "
+            f"under loss={config.loss!r} (the engine solve is unweighted); falling "
+            "back to fit_nlsq_multi_phi, which applies them in the solve."
         )
 
     # -- Resolve mode: returns canonical token (constant/averaged/individual) -
@@ -460,7 +494,7 @@ def fit_two_component_via_engine(
     # Raise NotImplementedError so the caller's try/except falls back cleanly.
     mode = _resolve_effective_mode(config, n_phi)
     if mode not in {"constant", "averaged", "individual"}:
-        raise NotImplementedError(
+        raise EngineRouteDeclined(
             f"fit_two_component_via_engine does not support per_angle_mode "
             f"{mode!r} (the engine-route scope is constant / averaged / individual). "
             "Use the existing fit_nlsq_multi_phi path for unsupported modes."
@@ -476,7 +510,7 @@ def fit_two_component_via_engine(
     # already forces vary=False on the child, so this one condition subsumes
     # the old tied-only check).
     if len(model.param_manager.varying_indices) != len(ALL_PARAM_NAMES):
-        raise NotImplementedError(
+        raise EngineRouteDeclined(
             "fit_two_component_via_engine requires all 14 physics parameters to vary "
             "(no expansion on this route -- a short vector is silently clipped by the "
             "kernel) -- falls back to fit_nlsq_multi_phi, which is expansion-aware."

@@ -76,6 +76,10 @@ logger = get_logger(__name__)
 # Performance Optimization (Spec 001 - FR-002): LRU eviction for better cache utilization
 _meshgrid_cache: OrderedDict[tuple, tuple] = OrderedDict()
 _MESHGRID_CACHE_MAX_SIZE = 64  # Increased for 23-angle datasets
+# Points in the dt-spaced grid the g1 kernels fall back to when the caller passes
+# no ``time_grid``. Times beyond ``(FALLBACK_TIME_GRID_SIZE - 1) * dt`` clamp to its
+# last point, so callers without a grid must reject such data (see NLSQAdapter).
+FALLBACK_TIME_GRID_SIZE = 10001
 # Guards every mutation of _meshgrid_cache (move_to_end, popitem, insert, clear)
 # and _cache_stats — the cache is a process-global shared by all threads.
 _cache_lock = threading.Lock()
@@ -358,8 +362,10 @@ def _compute_g1_diffusion_core(
         # P0-1: Use caller-provided time_grid instead of fixed 10001-point grid.
         # The old hardcoded MAX_GRID_SIZE=10001 truncated integrals for datasets
         # with t_max > 10000*dt, silently biasing g1 values.
-        # Element-wise callers always provide time_grid via model_kwargs.
-        # NLSQ callers use matrix mode (t1.ndim==2), so this branch is not reached.
+        # Element-wise callers on the default paths provide time_grid. NLSQAdapter
+        # reaches the fallback below with 1-D times and no time_grid; it rejects
+        # data beyond (FALLBACK_TIME_GRID_SIZE - 1) * dt up front
+        # (``_reject_times_outside_fallback_grid``).
         if time_grid is not None:
             time_grid_used = time_grid
         else:
@@ -374,8 +380,7 @@ def _compute_g1_diffusion_core(
             # theatre; callers should pass an explicit time_grid instead
             # (see model_for_cmaes in optimization/nlsq/core.py for real
             # callers threading one).
-            _FALLBACK_GRID_SIZE = 10001
-            grid_indices = jnp.arange(_FALLBACK_GRID_SIZE, dtype=jnp.result_type(dt))
+            grid_indices = jnp.arange(FALLBACK_TIME_GRID_SIZE, dtype=jnp.result_type(dt))
             time_grid_used = grid_indices * dt
 
         grid_size = time_grid_used.shape[0]
@@ -536,8 +541,7 @@ def _compute_g1_shear_core(
             # theatre; callers should pass an explicit time_grid instead
             # (see model_for_cmaes in optimization/nlsq/core.py for real
             # callers threading one).
-            _FALLBACK_GRID_SIZE = 10001
-            grid_indices = jnp.arange(_FALLBACK_GRID_SIZE, dtype=jnp.result_type(dt))
+            grid_indices = jnp.arange(FALLBACK_TIME_GRID_SIZE, dtype=jnp.result_type(dt))
             time_grid_used = grid_indices * dt
 
         grid_size = time_grid_used.shape[0]
