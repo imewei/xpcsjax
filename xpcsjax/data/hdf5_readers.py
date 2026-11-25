@@ -126,9 +126,12 @@ def guard_aps_u_intermediate_allocation(
     in_range = [bi for bi in valid_bin_indices if bi < len(c2_keys)]
     if not in_range:
         return
-    probe = corr_group[c2_keys[in_range[0]]]
+    # Budget the LARGEST candidate (shape and promoted dtype, HDF5 metadata only):
+    # a later bin may be wider or bigger than the first one.
+    candidates = [corr_group[c2_keys[bi]] for bi in in_range]
+    probe = max(candidates, key=lambda d: int(np.prod(d.shape)))
     probe_shape = tuple(int(d) for d in probe.shape)
-    itemsize = max(_c2_out_dtype(corr_group[c2_keys[bi]].dtype).itemsize for bi in in_range)
+    itemsize = max(_c2_out_dtype(d.dtype).itemsize for d in candidates)
     # Reconstructed matrix is square (c2_half + c2_half.T), so the half-matrix is
     # square (n_t, n_t) and bounds the per-matrix reconstructed size.
     _check_square_matrix(probe_shape, source=source)

@@ -129,6 +129,48 @@ def test_gui_b2_service_phi_subset_slices_per_row_q():
     np.testing.assert_allclose(data["wavevector_q_list"], [0.011])
 
 
+# ---------------------------------------------------------------------- cli-B10
+def test_cli_b10_package_no_longer_exports_an_ambiguous_main():
+    import subprocess
+    import sys
+
+    # Fresh process: a lazy ``main`` export used to resolve to the submodule.
+    code = (
+        "import xpcsjax.cli as c\n"
+        "assert 'main' not in c.__all__\n"
+        "from xpcsjax.cli.main import main\n"
+        "assert callable(main)\n"
+        "from xpcsjax.cli import run_nlsq\n"
+        "assert callable(run_nlsq)\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-B", "-c", code], capture_output=True, text=True, timeout=300
+    )
+    assert proc.returncode == 0, proc.stderr[-400:]
+
+
+# ------------------------------------------------------------------------ R4-C2
+def test_r4_c2_allocation_guard_budgets_the_largest_candidate(monkeypatch):
+    import io
+
+    import h5py
+
+    from tests.review_r1.test_codex_data import _half, _write_aps_u
+    from xpcsjax.data import xpcs_loader
+    from xpcsjax.data.hdf5_readers import guard_aps_u_intermediate_allocation
+
+    buf = io.BytesIO()
+    _write_aps_u(buf, [_half(1.0), _half(1.0, n_t=8)], [0.0, 90.0])
+    buf.seek(0)
+    monkeypatch.setattr(xpcs_loader, "MAX_CORRELATION_ALLOC_BYTES", 256)
+    with h5py.File(buf, "r") as f:
+        groups = f["xpcs/twotime/correlation_map"]
+        with pytest.raises(xpcs_loader.XPCSDataFormatError):
+            guard_aps_u_intermediate_allocation(
+                groups, sorted(groups), [0, 1], source="candidate probe"
+            )
+
+
 # ------------------------------------------------------------------- optwrap-B4
 def test_optwrap_b4_averaged_covariance_uses_the_expanded_dof(monkeypatch):
     from tests.optimization.test_fixed_parameters_integration import _config, _synthetic_data
