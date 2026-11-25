@@ -368,7 +368,16 @@ class StreamingExecutor(OptimizationExecutor):
         x_scale_value: float | np.ndarray | str,
         logger: Any,
     ) -> ExecutionResult:
-        """Execute streaming optimization using AdaptiveHybridStreamingOptimizer."""
+        """Execute streaming optimization using AdaptiveHybridStreamingOptimizer.
+
+        Notes
+        -----
+        Only a residual function exposing ``jax_residual`` (the stratified,
+        full-batch residual) is supported. A plain callable is wrapped as
+        ``ydata - residual_fn(x, *params)`` against the FULL ``ydata``, which is
+        only meaningful when the optimizer evaluates one full-batch chunk; it is
+        not a chunk-local model. No in-package code path uses this executor.
+        """
         if not STREAMING_AVAILABLE:
             raise RuntimeError(
                 "AdaptiveHybridStreamingOptimizer not available. Upgrade NLSQ: pip install --upgrade nlsq"

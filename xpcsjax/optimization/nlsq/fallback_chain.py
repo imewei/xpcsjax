@@ -325,6 +325,17 @@ def execute_optimization_with_fallback(
             log.info(f"Attempting optimization with {current_strategy.value} strategy...")
 
             if current_strategy == OptimizationStrategy.STREAMING and streaming_available:
+                if config is not None and not hasattr(config, "hybrid_normalize"):
+                    # fit_with_hybrid_streaming_optimizer reads NLSQConfig.hybrid_*
+                    # fields, but the wrapper hands this chain its ConfigManager.
+                    # That call has always died with an AttributeError and fallen
+                    # through to the next tier; say so instead of attempting it.
+                    # (Very large datasets take the dedicated stratified
+                    # hybrid-streaming route before this chain is reached.)
+                    raise RuntimeError(
+                        "the generic hybrid-streaming tier is not supported for this "
+                        "config object; falling back to the next strategy"
+                    )
                 log.info("Using NLSQ AdaptiveHybridStreamingOptimizer for large datasets...")
 
                 popt, pcov, info = fit_with_hybrid_streaming_fn(

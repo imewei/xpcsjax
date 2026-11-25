@@ -85,6 +85,32 @@ def test_core_b1_loader_reports_frames_clamped_at_end():
     assert loader._frames_clamped_at_end() == 0
 
 
+# --------------------------------------- optescape-B3 / optstrat-B10 (dead streaming)
+def test_streaming_refinement_is_skipped_explicitly(caplog):
+    from xpcsjax.optimization.nlsq.cmaes_wrapper import CMAESWrapper, CMAESWrapperConfig
+
+    x = np.arange(1.0, 5.0)
+    p0 = np.array([1.0])
+    with caplog.at_level("WARNING"):
+        result = CMAESWrapper(
+            CMAESWrapperConfig(refinement_workflow="streaming")
+        )._run_nlsq_refinement(lambda x, a: a * x, x, 2 * x, p0, (np.array([0.0]), np.array([4.0])))
+    # Same outcome as before (CMA-ES point kept, nothing adopted), now stated plainly.
+    assert result["adoptable"] is False and result["success"] is False
+    assert result["popt"] is p0 and result["chi_squared"] is None
+    assert "not supported" in result["mesg"] and "not supported" in caplog.text
+
+
+def test_fallback_chain_names_the_unsupported_streaming_tier():
+    import inspect
+
+    from xpcsjax.optimization.nlsq import fallback_chain
+
+    src = inspect.getsource(fallback_chain)
+    # The tier used to die with an AttributeError on ConfigManager.hybrid_normalize.
+    assert "generic hybrid-streaming tier is not supported" in src
+
+
 # ------------------------------------------------- opthet-B10 / optstrat-B9 (L3 enable)
 def _ad_block(enable):
     reg = {"mode": "relative", "lambda": 1.0}

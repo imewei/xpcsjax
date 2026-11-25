@@ -669,6 +669,25 @@ class CMAESWrapper:
         from nlsq import curve_fit
 
         n_data = len(ydata)
+        if self.config.refinement_workflow == "streaming":
+            # NLSQ's hybrid_streaming method accepts neither the TRF tolerances
+            # nor a sigma, so this workflow has never completed a refinement.
+            # Skip it explicitly (same outcome: the CMA-ES point is kept).
+            mesg = (
+                "refinement_workflow='streaming' is not supported; use 'auto' or "
+                "'standard'. Refinement skipped, CMA-ES result kept."
+            )
+            logger.warning("[CMA-ES] %s", mesg)
+            return {
+                "popt": p0,
+                "pcov": None,
+                "chi_squared": None,
+                "infodict": {},
+                "mesg": mesg,
+                "ier": -1,
+                "success": False,
+                "adoptable": False,
+            }
         logger.info(
             f"[CMA-ES] Refinement starting: workflow={self.config.refinement_workflow}, "
             f"n_data={n_data:,}, ftol={self.config.refinement_ftol:.1e}, "
