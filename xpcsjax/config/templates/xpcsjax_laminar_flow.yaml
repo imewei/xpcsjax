@@ -101,7 +101,8 @@ experimental_data:
                                      # For laminar_flow you need ≥ 2 angles
                                      # (parallel + perpendicular to flow).
 
-  cache_directory: "./cache"         # Where to read/write npz caches. MUST be writeable.
+  # cache_file_path: "/path/to/cache" # Optional DIRECTORY for the npz caches.
+                                     # Default: the data folder. MUST be writeable.
   use_caching: true                  # true = use cache (RECOMMENDED).
   cache_filename_template: "cached_c2_frames_${start_frame}_${end_frame}.npz"
                                      # supports ${start_frame}/${end_frame} substitution

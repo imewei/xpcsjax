@@ -817,7 +817,14 @@ class XPCSDataLoader:
         # Construct file paths
         data_folder = self.exp_config.get("data_folder_path", "./")
         data_file = self.exp_config.get("data_file_name", "")
-        cache_folder = self.exp_config.get("cache_file_path", data_folder)
+        # ``or``: a null ``cache_file_path`` means "the data folder", not a crash.
+        cache_folder = self.exp_config.get("cache_file_path") or data_folder
+        if self.exp_config.get("cache_directory") and not self.exp_config.get("cache_file_path"):
+            logger.warning(
+                "experimental_data.cache_directory is not used; caches are read and written in "
+                "the data folder (%s). Set experimental_data.cache_file_path to choose a directory.",
+                data_folder,
+            )
 
         # Get frame parameters
         start_frame = self.analyzer_config.get("start_frame", 1)

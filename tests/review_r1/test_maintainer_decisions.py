@@ -5,6 +5,8 @@ Item IDs refer to ``docs/reviews/2026-11-24-claude-codex-review-loop.md``.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -127,6 +129,36 @@ def test_gui_b2_service_phi_subset_slices_per_row_q():
     _subset_data_by_phi(data, np.asarray(data["phi_angles_list"]), [90.0])
     np.testing.assert_allclose(data["phi_angles_list"], [90.0])
     np.testing.assert_allclose(data["wavevector_q_list"], [0.011])
+
+
+# ---------------------------------------------------------------------- data-B9
+def test_data_b9_cache_key_is_cache_file_path_and_legacy_key_warns(tmp_path, caplog):
+    import logging
+
+    from tests.review_r1.test_codex_data import _half, _hdf_config, _write_aps_u
+    from xpcsjax.config import manager
+    from xpcsjax.data import load_xpcs_data
+
+    config_dir = Path(manager.__file__).parent
+    for shipped in (config_dir / "manager.py", *(config_dir / "templates").glob("*.yaml")):
+        assert "cache_directory" not in shipped.read_text(encoding="utf-8"), shipped.name
+
+    _write_aps_u(tmp_path / "b9.h5", [_half(1.2)], [0.0])
+    cfg = _hdf_config(tmp_path, "b9.h5")
+    # Legacy key + a null supported key: warn, do not crash, cache beside the data.
+    cfg["experimental_data"].update(cache_directory=str(tmp_path / "ignored"), cache_file_path=None)
+    with caplog.at_level(logging.WARNING):
+        load_xpcs_data(config_dict=cfg)
+    assert "cache_directory is not used" in caplog.text
+    assert list(tmp_path.glob("*.npz")) and not (tmp_path / "ignored").exists()
+
+    # The supported key directs the cache.
+    chosen = tmp_path / "chosen"
+    chosen.mkdir()
+    cfg["experimental_data"].update(cache_file_path=str(chosen))
+    del cfg["experimental_data"]["cache_directory"]
+    load_xpcs_data(config_dict=cfg)
+    assert list(chosen.glob("*.npz"))
 
 
 # ---------------------------------------------------------------------- core-B9

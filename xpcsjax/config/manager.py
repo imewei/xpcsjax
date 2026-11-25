@@ -366,7 +366,6 @@ class ConfigManager:
     _DATA_PATH_KEYS: tuple[str, ...] = (
         "data_folder_path",
         "cache_file_path",
-        "cache_directory",
         "phi_angles_path",
         "file_path",
     )
@@ -449,7 +448,6 @@ class ConfigManager:
             },
             "experimental_data": {
                 "file_path": None,
-                "cache_directory": "./cache",
                 "use_caching": True,
             },
             "optimization": {

@@ -123,9 +123,8 @@ experimental_data:
                                      # files, the loader can also read phi
                                      # angles from an internal dataset.
 
-  cache_directory: "./cache"         # Where to write/read npz caches of the
-                                     # processed c2 array (avoids re-reading
-                                     # HDF5 on every fit). MUST be writeable.
+  # cache_file_path: "/path/to/cache" # Optional DIRECTORY for the npz caches.
+                                     # Default: the data folder. MUST be writeable.
 
   use_caching: true                  # true = read/write npz cache (recommended)
                                      # false = always reread HDF5 (slower).

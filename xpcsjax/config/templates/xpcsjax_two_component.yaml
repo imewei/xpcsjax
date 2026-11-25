@@ -124,7 +124,8 @@ experimental_data:
                                      # the heterodyne fit converts to RADIANS
                                      # internally for phi0_het comparison.
 
-  cache_directory: "./cache"         # Where to read/write npz caches. MUST be writeable.
+  # cache_file_path: "/path/to/cache" # Optional DIRECTORY for the npz caches.
+                                     # Default: the data folder. MUST be writeable.
   use_caching: true                  # true = use cache (RECOMMENDED).
   cache_filename_template: "cached_c2_frames_${start_frame}_${end_frame}.npz"
   cache_compression: true            # true = gzip cache (smaller).
