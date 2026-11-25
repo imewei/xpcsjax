@@ -270,9 +270,14 @@ def test_fish_completion_is_nonfatal_noop_but_xla_stays(
 def test_main_fish_xla_only_succeeds(monkeypatch: pytest.MonkeyPatch, fake_venv: Path) -> None:
     monkeypatch.setattr(pi, "is_virtual_environment", lambda: True)
     monkeypatch.setattr(pi, "get_venv_path", lambda: fake_venv)
+    # The mode file goes to $VIRTUAL_ENV, which get_venv_path does not control:
+    # without this the test wrote into the developer's real environment (and
+    # failed whenever that one was read-only).
+    monkeypatch.setenv("VIRTUAL_ENV", str(fake_venv))
     # post-install on fish (completion skipped, XLA applied) must exit 0.
     rc = pi.main(["--shell", "fish", "--xla-mode", "nlsq"])
     assert rc == 0
+    assert (fake_venv / "etc" / "xpcsjax" / "xla_mode").read_text(encoding="utf-8") == "nlsq"
 
 
 # ---------------------------------------------------------------------------
