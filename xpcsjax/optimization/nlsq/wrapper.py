@@ -1806,6 +1806,9 @@ class NLSQWrapper(NLSQAdapterBase):
             },
             logger=logger,
             n_dof_effective=n_dof_effective,
+            # What the solver itself fitted: popt is back at full length here, so
+            # take the restored fixed slots off again.
+            n_solver_params=len(popt) - n_fixed_physical,
             per_angle_mode=resolved_per_angle_mode,
             scaling_plan=scaling_plan,
             scaling_mapper=scaling_mapper,
@@ -1906,6 +1909,7 @@ class NLSQWrapper(NLSQAdapterBase):
         diagnostics_state: dict[str, Any],
         logger: logging.Logger | logging.LoggerAdapter[logging.Logger],
         n_dof_effective: int | None = None,
+        n_solver_params: int | None = None,
         per_angle_mode: str | None = None,
         scaling_plan: Any = None,
         scaling_mapper: Any = None,
@@ -2125,6 +2129,20 @@ class NLSQWrapper(NLSQAdapterBase):
         # are identity (plan is None). Done AFTER final_residuals + params_changed
         # (which need the compressed popt/validated_params) and AFTER the diagnostics
         # pcov s² recompute (which builds the compressed-shape pcov via n_dof_effective).
+        # The solver scaled pcov by cost / (n - p_solver). In ``averaged`` mode the
+        # documented convention (module docstring) is the EXPANDED constrained-model
+        # DOF, the same one reduced chi2 uses; the compressed count gives an
+        # artificially tight covariance. Identity for ``individual``/``constant``.
+        if (
+            pcov is not None
+            and n_solver_params is not None
+            and n_dof_effective is not None
+            and n_dof_effective != n_solver_params
+            and n_data - n_solver_params > 0
+            and n_data - n_dof_effective > 0
+        ):
+            pcov = np.asarray(pcov) * ((n_data - n_solver_params) / (n_data - n_dof_effective))
+
         if scaling_plan is not None and scaling_plan.mode in ("averaged", "constant"):
             # expand_back -> dense params (3-tuple); concatenate to the dense scaling-first
             # vector. expand_covariance -> dense (D,D) covariance (None passes through).

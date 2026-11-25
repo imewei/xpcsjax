@@ -129,6 +129,37 @@ def test_gui_b2_service_phi_subset_slices_per_row_q():
     np.testing.assert_allclose(data["wavevector_q_list"], [0.011])
 
 
+# ------------------------------------------------------------------- optwrap-B4
+def test_optwrap_b4_averaged_covariance_uses_the_expanded_dof(monkeypatch):
+    from tests.optimization.test_fixed_parameters_integration import _config, _synthetic_data
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.optimization.nlsq.core import fit_nlsq_jax
+    from xpcsjax.optimization.nlsq.wrapper import NLSQWrapper
+
+    seen = {}
+    original = NLSQWrapper._post_process_results
+
+    def spy(self, *args, **kwargs):
+        seen["pcov"] = np.array(kwargs["pcov"], copy=True)
+        seen["n_data"] = kwargs["n_data"]
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(NLSQWrapper, "_post_process_results", spy)
+    data = _synthetic_data("laminar_flow")  # 3 angles -> auto resolves to averaged
+    result = fit_nlsq_jax(
+        data, ConfigManager(config_override=_config("laminar_flow")), use_adapter=False
+    )
+    assert result.nlsq_diagnostics["per_angle_mode"] == "averaged"
+    n, p_solver, p_expanded = seen["n_data"], seen["pcov"].shape[0], len(result.parameters)
+    assert (p_solver, p_expanded) == (9, 13)
+    # Physics tail: the solver covariance, re-expressed on the expanded DOF.
+    np.testing.assert_allclose(
+        np.asarray(result.covariance)[-1, -1],
+        seen["pcov"][-1, -1] * (n - p_solver) / (n - p_expanded),
+        rtol=1e-12,
+    )
+
+
 # ------------------------------------------------------------------------ R2-A4
 def test_r2_a4_unconverged_search_plus_unconverged_refinement_is_not_converged():
     from unittest.mock import patch
