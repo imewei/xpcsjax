@@ -855,6 +855,21 @@ def fit_heterodyne_stratified_least_squares(
             params_test[phys_idx] += 0.01
         residuals_1 = np.asarray(residual_fn(params_test), dtype=np.float64)
         gradient_estimate = float(np.abs(np.sum(residuals_1 - residuals_0)))
+        if gradient_estimate < _grad_threshold:
+            # The first physical parameter alone can be insensitive at a legal
+            # start (e.g. a zero fraction); only a start where NO parameter moves
+            # the residuals is unfittable. Mirrors laminar's stratified_ls.
+            for idx in range(len(p0_full)):
+                params_test = np.array(p0_full, dtype=np.float64, copy=True)
+                params_test[idx] = params_test[idx] * 1.01 + 1e-6
+                gradient_estimate = float(
+                    np.abs(
+                        np.sum(np.asarray(residual_fn(params_test), dtype=np.float64) - residuals_0)
+                    )
+                )
+                if gradient_estimate >= _grad_threshold:
+                    phys_idx = idx
+                    break
         _grad_passed = gradient_estimate >= _grad_threshold
         _hlog.log_gradient_sanity_check(
             residuals_0=residuals_0,
