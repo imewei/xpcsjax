@@ -217,18 +217,33 @@ class HeterodyneModel:
             return self._factors.n_times
         return int(len(self._t))
 
-    def sync_time_axis(self, t: np.ndarray) -> None:
-        """Trim model time axis to match post-exclusion data length.
+    def sync_time_axis(self, t: np.ndarray, n_tail_clamped: int = 0) -> None:
+        """Trim model time axis to match the loaded data length.
 
-        The data pipeline may remove leading time points (e.g. t=0 singularity
-        exclusion), shrinking the data array.  This method trims the same
-        number of leading points from the model's own seconds-based time axis
-        (computed from start_frame and dt) so shapes align without discarding
-        the correct absolute-time values.
+        The data can be shorter than the configured window for two different
+        reasons, which must not be confused:
+
+        * the pipeline removed LEADING time points (e.g. t=0 singularity
+          exclusion) -- trim the same number of leading model points;
+        * the file holds fewer frames than ``end_frame`` asks for, so the loader
+          clamped the END of the window -- drop ``n_tail_clamped`` trailing model
+          points, keeping the leading absolute times.
+
+        Parameters
+        ----------
+        t : np.ndarray
+            Array whose length is the number of data time points.
+        n_tail_clamped : int, optional
+            Frames the loader clamped off the end of the requested window
+            (``data["frames_clamped_at_end"]``). Applied first; any remaining
+            shortfall is treated as leading-frame exclusion.
         """
         n_data = len(t)
         if self._t is None:
             raise ValueError("Model time axis not initialized; call from_config first")
+        n_tail = min(max(int(n_tail_clamped), 0), max(len(self._t) - n_data, 0))
+        if n_tail:
+            self._t = self._t[: len(self._t) - n_tail]
         n_model = len(self._t)
         if n_data < n_model:
             self._t = self._t[n_model - n_data :]

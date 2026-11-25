@@ -813,6 +813,7 @@ class XPCSDataLoader:
             non-monotonic time axis).
         """
         self.load_degradations = []  # per-load signal, not loader-lifetime history
+        self._applied_start_frame = self._applied_end_frame = None  # set by this load
         # Construct file paths
         data_folder = self.exp_config.get("data_folder_path", "./")
         data_file = self.exp_config.get("data_file_name", "")
@@ -1015,6 +1016,11 @@ class XPCSDataLoader:
         # preprocessing crashes); `_degraded` is the single boolean to branch on.
         if self.load_degradations:
             data["load_degradations"] = list(self.load_degradations)
+        # Tell time-axis consumers (HeterodyneModel.sync_time_axis) when the data
+        # is short because end_frame was clamped, not because leading frames
+        # were excluded.
+        if self._frames_clamped_at_end():
+            data["frames_clamped_at_end"] = self._frames_clamped_at_end()
         data["_degraded"] = (
             bool(self.load_degradations)
             or bool(data.get("_preprocessing_degraded", False))
@@ -1022,6 +1028,18 @@ class XPCSDataLoader:
         )
 
         return data
+
+    def _frames_clamped_at_end(self) -> int:
+        """Return how many frames the applied window fell short of ``end_frame``.
+
+        ``0`` when the request was satisfied, used the ``-1`` "all frames"
+        sentinel, or the applied window is unknown (e.g. a bare NPZ).
+        """
+        requested = self.analyzer_config.get("end_frame")
+        applied = getattr(self, "_applied_end_frame", None)
+        if isinstance(requested, int) and isinstance(applied, int) and requested > applied > 0:
+            return requested - applied
+        return 0
 
     @log_performance(threshold=0.2)
     def _load_from_cache(self, cache_path: str) -> dict[str, Any]:

@@ -682,7 +682,10 @@ def _evaluate_c2_per_angle(
         if hm is None:
             n_t = int(np.asarray(data["c2_exp"]).shape[1])
             hm = HeterodyneModel.from_config(config)
-            hm.sync_time_axis(np.arange(n_t, dtype=np.float64))
+            hm.sync_time_axis(
+                np.arange(n_t, dtype=np.float64),
+                n_tail_clamped=int(data.get("frames_clamped_at_end", 0) or 0),
+            )
         full = hm.param_manager.expand_varying_to_full(
             np.asarray(physical_params, dtype=np.float64)
         )

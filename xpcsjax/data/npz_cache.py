@@ -147,6 +147,14 @@ def load_from_cache(loader: XPCSDataLoader, cache_path: str) -> dict[str, Any]:
                     f"JSON object, got {type(metadata).__name__}"
                 )
             validate_cache_q_vector(loader, metadata)
+            # The cache records the APPLIED (clamped) window; restore it so a
+            # warm load reports frames_clamped_at_end exactly like a cold one.
+            for attr, key in (
+                ("_applied_start_frame", "start_frame"),
+                ("_applied_end_frame", "end_frame"),
+            ):
+                if isinstance(metadata.get(key), int):
+                    setattr(loader, attr, metadata[key])
             for reason in metadata.get("load_degradations") or []:
                 replayed = f"{reason} (replayed from cache metadata)"
                 if replayed not in getattr(loader, "load_degradations", []):

@@ -795,7 +795,12 @@ def _fit_nlsq_heterodyne(
     n_model = int(model.t.shape[0])
     if n_data != n_model:
         # Build a numpy view of the trimmed time axis and re-attach.
-        model.sync_time_axis(_np.arange(n_data, dtype=_np.float64))
+        # ``frames_clamped_at_end``: the loader clamped end_frame to the file's
+        # extent, so the shortfall is at the TAIL, not leading-frame exclusion.
+        model.sync_time_axis(
+            _np.arange(n_data, dtype=_np.float64),
+            n_tail_clamped=int(data.get("frames_clamped_at_end", 0) or 0),
+        )
 
     # Multi-start dispatch (mirrors homodyne core.py:374-392). Reads the nested
     # multi_start section; CMA-ES keeps precedence (it owns the enable_cmaes
