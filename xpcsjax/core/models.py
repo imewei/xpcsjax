@@ -453,6 +453,10 @@ class CombinedModel(PhysicsModelBase):
             constant — not derived per-call from whatever ``t1_batch`` the
             closure happens to receive.
 
+            ``NLSQAdapter`` (the only in-package caller without a grid) refuses
+            data that would clamp, so the truncation no longer reaches a fit
+            through it. Direct callers that omit ``time_grid`` still get the clamp.
+
         Returns
         -------
         jnp.ndarray

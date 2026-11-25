@@ -784,6 +784,9 @@ def build_hybrid_streaming_result(
         ssr = float(info.get("cost", 0.0)) * 2.0  # optimizer cost = 0.5 * SSR
     # Finding 3: dof = n_data - n_params.  n_data_points is threaded from the
     # wrapper via info so this is always correct when the hybrid path ran.
+    # In ``info`` it is the OBSERVATION count (zero-weight rows excluded), not the
+    # residual length: that is ``info["n_data_rows"]`` (set by the stratified-LS
+    # and hybrid-streaming drivers), or ``meta["n_data_points"]`` upstream.
     n_data = int(info.get("n_data_points", 0))
     # Codex review: for the compressed averaged layout popt is
     # [c_avg, o_avg, physics] (n_physics + 2), but the constrained model consumes

@@ -400,7 +400,7 @@ optimization:
     # 5-LAYER DEFENSE (all engaged by default for laminar_flow):
     #   L1: Per-angle reparameterization (averaged/constant/individual scaling layout)
     #   L2: Hierarchical alternating optimization (REQUIRED for L5)
-    #   L3: Adaptive CV-based regularization (off; enable if L2+L5 insufficient)
+    #   L3: Adaptive CV-based regularization (on; `enable: false` switches it off)
     #   L4: Gradient-collapse detection + auto-recovery
     #   L5: Shear-sensitivity weighting — weight residuals by |cos(phi0−phi)|
     #

@@ -171,20 +171,14 @@ def test_controller_callbacks_carry_no_l3_groups_when_l3_is_off():
     assert "group_variance_indices" not in callbacks({"enable": False, "mode": "relative"})
 
 
-def test_streaming_layer_builders_treat_mode_none_as_l3_off():
-    import inspect
-
-    from xpcsjax.optimization.nlsq.strategies import (
-        heterodyne_hybrid_streaming,
-        hybrid_streaming_layers,
-    )
+def test_l3_gate_reads_enable_and_mode():
+    # The builders that use this gate are exercised in test_pr81_six_pass.py
+    # (laminar) and below (heterodyne streaming).
     from xpcsjax.optimization.nlsq.strategies.hybrid_streaming_layers import l3_is_enabled
 
     assert l3_is_enabled({}) and l3_is_enabled({"mode": "relative"})
     assert not l3_is_enabled({"enable": False, "mode": "relative"})
     assert not l3_is_enabled({"mode": "none"})
-    for module in (heterodyne_hybrid_streaming, hybrid_streaming_layers):  # both gates share it
-        assert "l3_is_enabled(" in inspect.getsource(module)
 
 
 # ------------------------------------------------- Codex closing check, new F1

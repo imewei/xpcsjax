@@ -3450,7 +3450,7 @@ def _build_joint_problem(
         "scaling_tail_size": int(plan.n_scaling),
         "regularization_active": regularization_active,
         "n_penalty_rows": int(n_penalty_rows),
-        "n_data_rows": n_contributing_rows(weights_batch),
+        "n_contributing_rows": n_contributing_rows(weights_batch),
         "hierarchical_stage1_chi2": hierarchical_stage1_chi2,
         "varying_names": list(varying_names),
         # Keep-better floor fallback preserving Stage-1's per-angle scaling
@@ -3811,7 +3811,7 @@ def _build_joint_result(
     )
 
     # Zero-weight pixels keep a (always-zero) residual row but are not observations.
-    n_valid = int(prob.meta["n_data_rows"])
+    n_valid = int(prob.meta["n_contributing_rows"])
     reduced_chi2 = noise_normalized_reduced_chi2(
         ssr=ssr,
         c2_data=c2_data,

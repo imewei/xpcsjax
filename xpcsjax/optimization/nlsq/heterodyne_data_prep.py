@@ -346,8 +346,10 @@ def noise_normalized_reduced_chi2(
         Per-angle C2 matrix or batched ``(n_phi, n_time, n_time)``; used only
         to estimate ``sigma**2_noise``.
     n_data_valid
-        Number of residuals actually fit (off-diagonal, ``t=0`` boundary
-        excluded) — i.e. ``len(data_only_residual)``.
+        Number of residual rows that are observations (off-diagonal, ``t=0``
+        boundary and zero-weight rows excluded). Equals
+        ``len(data_only_residual)`` only when every weight is positive; pass
+        that full length as ``n_rows``.
     n_params
         Number of fitted parameters.
     n_rows

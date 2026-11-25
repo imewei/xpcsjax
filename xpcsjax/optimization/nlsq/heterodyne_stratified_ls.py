@@ -997,7 +997,7 @@ def fit_heterodyne_stratified_least_squares(
     # (byte-identical to the pre-Phase-3 path). When ``execute_layers`` is True
     # AND a layer is configured (``enable_hierarchical`` for L2, or
     # ``regularization_mode != "none"`` for L3 — ``regularization.enable: false``
-    # leaves it at "none"), the layer runs on the SEED (not the baseline) and its
+    # forces it to "none"), the layer runs on the SEED (not the baseline) and its
     # result is kept only if the data-only SSR is no worse than
     # the baseline by more than ``tol`` (keep-better). Penalty rows shape the
     # optimizer search only — the reported chi^2 is recomputed from the data-only

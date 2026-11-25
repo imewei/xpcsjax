@@ -165,6 +165,35 @@ confirmed that fix (`pr81_codex_final.md`, must-fix 0). A last gap found while v
 streaming returned its optimizer's finite covariance for a fit masked down to no data DOF — is
 closed the same way as on the stratified path (NaN, `covariance_is_placeholder`).
 
+## Six-pass review of PR #81
+
+Six independent passes over the final diff (correctness, silent failures, test coverage, comment
+accuracy, contract design, simplification).
+
+- **Correctness:** no bug found. It left the cache-hit clamp unverified; a cold-load-then-cache-hit
+  test now covers it and passes.
+- **Silent failures:** the dispatcher treated any `NotImplementedError` from the engine route as a
+  deliberate decline (logged at INFO), which would hide a real one raised inside the solve. The
+  route now raises `EngineRouteDeclined` for its deliberate declines and only that is routine;
+  anything else takes the warning branch.
+- **Test coverage:** several fixes were checked only through a helper or a diagnostic count. Added
+  `tests/review_r1/test_pr81_six_pass.py`: the masked-fit covariance that reaches the result on all
+  three joint modes and on stratified LS, weighted repeated phi through stratified LS, the exact
+  `unknown` quality flag, the tail clamp on a cold load and a cache hit, the laminar layer builder
+  with Layer 3 switched off, and the override warning. All passed against the existing code.
+- **Contract design:** `n_data_rows` meant observations in one module and all rows in the others;
+  the joint-problem key is renamed `n_contributing_rows`, and the result builder documents what
+  `info["n_data_points"]` counts.
+- **Comments:** ten stale or inaccurate comments and docs corrected (the `two_component` template's
+  claim that the shipped Layer 3 value "keeps the previous behaviour", two theory pages still
+  saying `regularization.enable` is not checked, the kernel and `compute_g1_batch` notes about the
+  adapter time grid, and others).
+- **Simplification:** nothing substantial. Not done: folding the repeated "no data DOF" check into
+  one helper (a pure tidy-up across four files).
+
+Not covered by a test: the cache-metadata fallback for an unset frame window, and the heterodyne
+gradient preflight probing every parameter (it changes only starts that previously raised).
+
 ## Verification status
 
 See the pull request for the test and golden-parity results on the final commit.

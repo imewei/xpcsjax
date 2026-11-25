@@ -362,8 +362,10 @@ def _compute_g1_diffusion_core(
         # P0-1: Use caller-provided time_grid instead of fixed 10001-point grid.
         # The old hardcoded MAX_GRID_SIZE=10001 truncated integrals for datasets
         # with t_max > 10000*dt, silently biasing g1 values.
-        # Element-wise callers always provide time_grid via model_kwargs.
-        # NLSQ callers use matrix mode (t1.ndim==2), so this branch is not reached.
+        # Element-wise callers on the default paths provide time_grid. NLSQAdapter
+        # reaches the fallback below with 1-D times and no time_grid; it rejects
+        # data beyond (FALLBACK_TIME_GRID_SIZE - 1) * dt up front
+        # (``_reject_times_outside_fallback_grid``).
         if time_grid is not None:
             time_grid_used = time_grid
         else:

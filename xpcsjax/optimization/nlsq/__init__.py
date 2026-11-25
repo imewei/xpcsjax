@@ -1153,6 +1153,8 @@ def _fit_nlsq_heterodyne(
     # through to fit_nlsq_multi_phi, which owns both escape branches. Pinned by
     # ``test_cmaes_precedence_over_hybrid`` and
     # ``test_flat_multistart_skips_engine_route_on_auto_budget``.
+    from xpcsjax.optimization.exceptions import EngineRouteDeclined
+
     het_result: OptimizationResult | None = None
     try:
         if not cmaes_on and not multistart_on:
@@ -1161,10 +1163,12 @@ def _fit_nlsq_heterodyne(
             )
 
             het_result = fit_two_component_via_engine(model, c2, phi, nlsq_cfg, weights)
-    except NotImplementedError as _engine_skip:
-        # By-design bail: the engine route raises NotImplementedError for the
-        # cases it intentionally does not handle (non-uniform weights or an
-        # out-of-scope ``per_angle_mode``). The "auto"/None max_nfev budget is
+    except EngineRouteDeclined as _engine_skip:
+        # By-design bail: the engine route raises EngineRouteDeclined for the
+        # cases it intentionally does not handle (masking or non-unit weights,
+        # duplicate phi, an out-of-scope ``per_angle_mode``). Any OTHER
+        # NotImplementedError comes from inside the solve and takes the
+        # warning branch below. The "auto"/None max_nfev budget is
         # now handled in-route (passed through so nlsq auto-resolves
         # 100*n_params), so it no longer bails here. This is the
         # documented best-effort fallback, NOT an error — log it at INFO so it

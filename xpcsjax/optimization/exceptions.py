@@ -170,3 +170,12 @@ class NLSQNumericalError(NLSQOptimizationError):
         super().__init__(message, context)
         self.detection_point = detection_point
         self.invalid_values = invalid_values or []
+
+
+class EngineRouteDeclined(NotImplementedError):  # noqa: N818 - a routing signal, not an error
+    """The two_component engine route deliberately does not handle this fit.
+
+    Raised before any solve starts (duplicate phi, masking or non-unit weights,
+    an out-of-scope per-angle mode). The dispatcher treats it as routine and uses
+    ``fit_nlsq_multi_phi``; any other ``NotImplementedError`` is a real failure.
+    """

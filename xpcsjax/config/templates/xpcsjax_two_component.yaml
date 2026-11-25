@@ -518,8 +518,8 @@ optimization:
     #   from a shear-rate γ̇·cos(phi−phi0). The angular pattern that L5
     #   weights against (gradient sign-flip from shear) does not appear
     #   in the same form in the heterodyne residual structure.
-    # If you need to deeply suppress per-angle scaling absorption beyond
-    # L1–L4, enable L3 adaptive regularization below.
+    # L3 adaptive regularization (below, on by default) is what suppresses
+    # per-angle scaling absorption beyond L1, L2 and L4.
     #
     # PER-ANGLE MODE — controls how (contrast, offset) varies with angle:
     #   "constant"    per-angle (β, o) FROZEN from quantile estimate  →  14
@@ -564,10 +564,11 @@ optimization:
         per_angle_max_iterations: 50
 
       # ---- L3 Adaptive Regularization ----
-      # On by default where the layer applies. (Until 2026-11 this flag was ignored
-      # and the layer ran even with `enable: false`; it is now honoured, and the
-      # shipped value keeps the previous behaviour.) Set `enable: false` to switch
-      # Layer 3 off.
+      # On by default where the layer applies. (Until 2026-11 the joint-fit paths
+      # ignored this flag and ran the layer even with `enable: false`; it is now
+      # honoured. The shipped `true` keeps the previous behaviour everywhere except
+      # hybrid streaming, which already honoured the flag: Layer 3 is now on there.)
+      # Set `enable: false` to switch Layer 3 off.
       # It counters per-angle scaling absorbing the cross-term oscillations.
       regularization:
         enable: true                       # false switches Layer 3 off
