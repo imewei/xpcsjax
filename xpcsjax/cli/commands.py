@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING
 from xpcsjax.cli.config_handling import load_and_merge_config, resolve_output_dir
 from xpcsjax.cli.data_pipeline import load_and_validate_data, resolve_phi_angles
 from xpcsjax.cli.optimization_runner import run_nlsq
-from xpcsjax.cli.plot_backend import resolve_plots_dir
 from xpcsjax.cli.plot_dispatch import dispatch_plots
 from xpcsjax.cli.result_saving import merge_fitted_c2, save_results
 from xpcsjax.utils.logging import configure_logging, get_logger, log_exception
@@ -185,11 +184,17 @@ def _dispatch_fit(
         # itself never gets them. Merge them in too, best-effort, so the
         # primary result artifact carries the data users actually need for
         # downstream re-analysis without digging into the plots directory.
-        if output_dir is not None:
-            plots_dir = resolve_plots_dir(args, cfg_manager)
+        # Only when this run wrote an NPZ (json-only saves leave none, and a
+        # stale NPZ from an earlier run must not be merged into). The plots dir
+        # is output_dir/"plots" (what resolve_plots_dir resolves) without the
+        # mkdir, which would raise outside the try if "plots" is a file.
+        if output_dir is not None and str(args.output_format).lower().strip() in (
+            "npz",
+            "both",
+        ):
             merge_fitted_c2(
                 output_dir / "nlsq_result.npz",
-                plots_dir / "simulated_data" / "c2_fitted_data.npz",
+                output_dir / "plots" / "simulated_data" / "c2_fitted_data.npz",
             )
 
     # Exit code: 0 on convergence, 2 otherwise

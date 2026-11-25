@@ -10,6 +10,7 @@ the public symbols as a facade so existing callers are unaffected.
 
 from __future__ import annotations
 
+import json
 import sys
 from importlib.resources import files
 from pathlib import Path
@@ -147,6 +148,10 @@ def generate_config(
         # template mid-line (audit C2). `width` must be effectively unbounded or
         # the emitter folds long space-containing scalars (e.g. a path with
         # spaces) onto continuation lines that the [0] slice would silently drop.
+        if isinstance(value, str) and "\n" in value:
+            # A JSON string is a valid single-line YAML double-quoted scalar;
+            # yaml.dump would emit a multi-line one that [0] truncates.
+            return json.dumps(value)
         return yaml.dump(value, default_flow_style=True, width=1 << 31).splitlines()[0].strip()
 
     if data_path is not None:
@@ -235,11 +240,20 @@ def validate_config_file(config_path: Path | str) -> ValidationReport:
 
     try:
         with open(config_path, encoding="utf-8") as f:
-            yaml.safe_load(f)
+            parsed = yaml.safe_load(f)
     except yaml.YAMLError as exc:
         return ValidationReport(ok=False, errors=[f"Failed to parse YAML: {exc}"])
     except OSError as exc:
         return ValidationReport(ok=False, errors=[f"Failed to read file: {exc}"])
+
+    if not isinstance(parsed, dict):
+        return ValidationReport(
+            ok=False,
+            errors=[
+                "Config must be a YAML mapping, got "
+                f"{'an empty file' if parsed is None else type(parsed).__name__}"
+            ],
+        )
 
     try:
         ConfigManager(str(config_path))

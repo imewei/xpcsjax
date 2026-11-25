@@ -176,7 +176,7 @@ class ParameterSpace:
             config_entry = config_bounds_lookup.get(param_name, {})
 
             # Extract bounds (with fallback to ParameterManager defaults)
-            if "min" in config_entry and "max" in config_entry:
+            if config_entry.get("min") is not None and config_entry.get("max") is not None:
                 min_val = coerce_finite_float(
                     config_entry["min"], context=f"parameter_space.bounds[{param_name!r}].min"
                 )

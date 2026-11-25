@@ -256,6 +256,8 @@ class ConfigManager:
         treated as a load failure and replaced with the default config, which
         is what keeps :attr:`config` a non-optional dict.
         """
+        # A reload replaces self.config; the cached manager belongs to the old one.
+        self._cached_param_manager = None
         try:
             if self.config_file is None:
                 raise ValueError("Configuration file path cannot be None")
@@ -1452,8 +1454,16 @@ class ConfigManager:
         if not isinstance(exp_data, dict):
             return
 
+        has_legacy_pair = "data_folder_path" in exp_data and "data_file_name" in exp_data
+        # An explicit file_path wins (the templates promise it): sync the legacy
+        # pair the loader reads to it instead of overwriting it with that pair.
+        explicit_path = exp_data.get("file_path")
+        if has_legacy_pair and isinstance(explicit_path, str) and explicit_path:
+            explicit = Path(explicit_path)
+            exp_data["data_folder_path"] = str(explicit.parent)
+            exp_data["data_file_name"] = explicit.name
         # Handle legacy composite format (data_folder_path + data_file_name)
-        if "data_folder_path" in exp_data and "data_file_name" in exp_data:
+        elif has_legacy_pair:
             folder_path = exp_data["data_folder_path"]
             filename = exp_data["data_file_name"]
 

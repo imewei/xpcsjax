@@ -114,9 +114,14 @@ def load_and_merge_config(
     if _yaml_path.suffix.lower() in (".yaml", ".yml"):
         try:
             with _yaml_path.open(encoding="utf-8") as _f:
-                _yaml.safe_load(_f)
+                _parsed = _yaml.safe_load(_f)
         except Exception as e:
             raise ValueError(f"Failed to load config from {yaml_path}: {e}") from e
+        if not isinstance(_parsed, dict):
+            raise ValueError(
+                f"Failed to load config from {yaml_path}: top level must be a YAML mapping, "
+                f"got {'an empty file' if _parsed is None else type(_parsed).__name__}"
+            )
     try:
         # Mode + output-directory overrides are owned by
         # xpcsjax.service.config.load_config -- the SAME function the GUI uses

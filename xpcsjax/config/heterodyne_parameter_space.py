@@ -54,6 +54,15 @@ def registry_info(name: str):
 _INBOUND_NAME_ALIAS: dict[str, str] = {"v_beta": "beta", "phi0_het": "phi0"}
 
 
+def _parse_vary(value: Any, context: str) -> bool:
+    """Parse a ``vary`` flag, rejecting strings such as ``"false"`` that ``bool()`` mis-reads."""
+    if isinstance(value, bool | np.bool_):
+        return bool(value)
+    if isinstance(value, int | float) and value in (0, 1):
+        return bool(value)
+    raise ValueError(f"{context}: expected a boolean, got {value!r}")
+
+
 def _canonical(name: str) -> str:
     """Map a user-facing parameter name to its canonical kernel name.
 
@@ -196,12 +205,12 @@ class HeterodyneParameterSpace:
         ValueError
             If a key does not match any known parameter.
         """
-        for name, value in params.items():
+        for name in params:
             if name not in self.values:
                 raise ValueError(
                     f"Unknown parameter '{name}'. Valid parameters: {list(ALL_PARAM_NAMES)}"
                 )
-            self.values[name] = value
+        self.values.update(params)
 
     def validate(self) -> list[str]:
         """Validate the parameter space configuration.
@@ -293,7 +302,7 @@ class HeterodyneParameterSpace:
         _apply_parameter_space_bounds(space, config)
 
         # --- Grouped format: parameters.{group}.{param} (primary) -----------
-        params_config = config.get("parameters", {})
+        params_config = config.get("parameters") or {}
 
         group_map = {
             "reference": ["D0_ref", "alpha_ref", "D_offset_ref"],
@@ -322,7 +331,7 @@ class HeterodyneParameterSpace:
             # config supplying both spellings of the same parameter was
             # structurally impossible -- don't let this fix silently start
             # dropping one of them.
-            raw_group_config = params_config.get(group_name, {})
+            raw_group_config = params_config.get(group_name) or {}
             group_config: dict[str, Any] = {}
             for k, v in raw_group_config.items():
                 canon = _INBOUND_NAME_ALIAS.get(k, k)
@@ -396,7 +405,9 @@ class HeterodyneParameterSpace:
                             )
                         space.bounds[param_name] = new_bounds
                     if "vary" in pconfig:
-                        new_vary = bool(pconfig["vary"])
+                        new_vary = _parse_vary(
+                            pconfig["vary"], f"parameters.{group_name}.{param_name}.vary"
+                        )
                         if new_vary != reg_info.vary_default:
                             logger.debug(
                                 "Config overrides %s vary: %s -> %s",
@@ -507,6 +518,12 @@ def _apply_initial_parameters(space: ParameterSpace, config: dict[str, Any]) -> 
     active_raw = initial.get("active_parameters")
     if active_raw is not None and isinstance(active_raw, list):
         active_names = {_canonical(n) for n in active_raw}
+        unknown_active = sorted(active_names - set(ALL_PARAM_NAMES_WITH_SCALING))
+        if unknown_active:
+            raise ValueError(
+                f"initial_parameters.active_parameters: unknown parameter(s) {unknown_active}. "
+                f"Valid names: {list(ALL_PARAM_NAMES_WITH_SCALING)}"
+            )
         for name in ALL_PARAM_NAMES_WITH_SCALING:
             if name in active_names:
                 space.vary[name] = True
@@ -545,8 +562,10 @@ def _apply_fixed_parameters(space: ParameterSpace, config: dict[str, Any]) -> No
         mapped = PARAMETER_NAME_MAPPING.get(str(name), str(name))
         canonical = _INBOUND_NAME_ALIAS.get(mapped, mapped)
         if canonical not in space.values:
-            logger.warning("fixed_parameters: unknown parameter '%s', skipping", name)
-            continue
+            raise ValueError(
+                f"initial_parameters.fixed_parameters: unknown parameter {str(name)!r}. "
+                f"Valid names: {list(ALL_PARAM_NAMES_WITH_SCALING)}"
+            )
         if canonical in seen_canonical:
             raise ValueError(
                 "fixed_parameters specifies both an alias and its canonical name "
@@ -884,4 +903,6 @@ def _apply_parameter_space_bounds(space: ParameterSpace, config: dict[str, Any])
                 val, context=f"parameter_space.bounds[{raw_name!r}].value"
             )
         if "vary" in entry:
-            space.vary[name] = bool(entry["vary"])
+            space.vary[name] = _parse_vary(
+                entry["vary"], f"parameter_space.bounds[{raw_name!r}].vary"
+            )
