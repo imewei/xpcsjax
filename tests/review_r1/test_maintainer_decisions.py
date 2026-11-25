@@ -129,6 +129,21 @@ def test_gui_b2_service_phi_subset_slices_per_row_q():
     np.testing.assert_allclose(data["wavevector_q_list"], [0.011])
 
 
+# ---------------------------------------------------------------------- core-B9
+def test_core_b9_reported_fraction_is_the_one_the_kernel_uses():
+    import jax.numpy as jnp
+
+    from xpcsjax.core.heterodyne_models import TwoComponentModel
+    from xpcsjax.core.heterodyne_physics_kernel import _fraction
+
+    params = np.zeros(14)  # f0 = f1 = f2 = f3 = 0: on the lower bound
+    t = jnp.arange(1.0, 5.0)
+    reported = np.asarray(TwoComponentModel().compute_fraction(params, t))
+    used = np.asarray(_fraction(t, 0.0, 0.0, 0.0, 0.0))
+    np.testing.assert_allclose(reported, used)
+    assert np.all(reported > 0)  # the smooth bound, not a hard 0.0
+
+
 # ------------------------------------------------------------------------ R3-A1
 def _duplicate_phi_fixture():
     from tests.optimization._heterodyne_fixtures import make_synthetic_two_component

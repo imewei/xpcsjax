@@ -289,11 +289,13 @@ class TwoComponentModel(HeterodyneModelBase):
         Returns
         -------
         jnp.ndarray
-            Sample fraction array clipped to ``[0, 1]``.
+            Sample fraction array, smoothly bounded to ``[0, 1]`` -- the same
+            function the correlation kernel evaluates, so the reported fraction
+            is the one the model actually used.
         """
-        f0, f1, f2, f3 = params[9], params[10], params[11], params[12]
-        exponent = jnp.clip(f1 * (t - f2), -100, 100)
-        return jnp.clip(f0 * jnp.exp(exponent) + f3, 0.0, 1.0)
+        from xpcsjax.core.heterodyne_physics_kernel import _fraction
+
+        return _fraction(jnp.asarray(t), params[9], params[10], params[11], params[12])
 
 
 # Default model instance
