@@ -65,7 +65,12 @@ def test_cli_b2(tmp_path, monkeypatch):
 
 def test_cli_b3():
     code = (
-        "import resource, sys; resource.setrlimit(resource.RLIMIT_CORE, (0, 0));"
+        "import sys\n"
+        "try:\n"
+        "    import resource\n"
+        "    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))\n"
+        "except ImportError:\n"  # Windows: no resource module
+        "    pass\n"
         "from xpcsjax.cli.main import _bootstrap_xla_env;"
         "_bootstrap_xla_env(sys.argv[1:]); import jax; assert jax.devices('cpu')"
     )
@@ -160,7 +165,7 @@ def test_cli_b8(tmp_path):
 
     path = "/data/run\n2026.h5"
     out = generate_config("static_isotropic", tmp_path / "cfg.yaml", data_path=path)
-    assert yaml.safe_load(out.read_text())["experimental_data"]["file_path"] == path
+    assert yaml.safe_load(out.read_text(encoding="utf-8"))["experimental_data"]["file_path"] == path
 
 
 # cli-B10 reclassified DESIGN by the lead (fix changes the public xpcsjax.cli __all__); test removed.

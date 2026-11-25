@@ -53,7 +53,7 @@ def test_core_b5():
 
 def test_core_b6():
     path = Path(xpcsjax.__file__).parent / "config/templates/xpcsjax_static_isotropic.yaml"
-    model = HomodyneModel(yaml.safe_load(path.read_text()))
+    model = HomodyneModel(yaml.safe_load(path.read_text(encoding="utf-8")))
     assert (model.analysis_mode, model.model.n_params) == ("static_isotropic", 3)
 
 

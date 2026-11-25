@@ -142,7 +142,7 @@ def test_ioviz_b4(tmp_path, homodyne_model, homodyne_result, multi_angle_data, h
     )
     path = tmp_path / "simulated_data" / "simulation_config_fitted.json"
     assert path.is_file()
-    json.loads(path.read_text())
+    json.loads(path.read_text(encoding="utf-8"))
 
 
 def _restore_xpcsjax_logger():

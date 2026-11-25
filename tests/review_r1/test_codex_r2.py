@@ -188,7 +188,7 @@ def test_r2_a13_newline_path_with_non_bmp_char_round_trips(tmp_path):
 
     path = "scan \U0001f600\n.h5"
     out = generate_config("static_isotropic", tmp_path / "cfg.yaml", data_path=path)
-    assert yaml.safe_load(out.read_text())["experimental_data"]["file_path"] == path
+    assert yaml.safe_load(out.read_text(encoding="utf-8"))["experimental_data"]["file_path"] == path
 
 
 def test_r2_c3_config_save_preserves_symlink(tmp_path):
@@ -311,7 +311,7 @@ def test_r3_a6_control_characters_in_newline_path_round_trip(tmp_path, path):
     from xpcsjax.cli.config_template import generate_config
 
     out = generate_config("static_isotropic", tmp_path / "cfg.yaml", data_path=path)
-    assert yaml.safe_load(out.read_text())["experimental_data"]["file_path"] == path
+    assert yaml.safe_load(out.read_text(encoding="utf-8"))["experimental_data"]["file_path"] == path
 
 
 def test_r3_a8_zero_data_dof_reports_placeholder_covariance():
