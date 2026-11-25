@@ -127,6 +127,36 @@ plan, two position files per reviewer).
   enhancement; both reviewers judged it disproportionate (a non-uniform time axis would integrate
   wrongly).
 
+## Review of PR #81 (Codex + Antigravity)
+
+Both reviewed the whole diff independently (`2026-11-25-evidence/pr81_codex.md`,
+`pr81_agy.md`). Codex reported 6 must-fix findings, Antigravity 5; merged, eight distinct issues.
+Each was reproduced with a failing test first (`tests/review_r1/test_pr81_review.py`). Neither
+disputed any item closed as intended.
+
+| Finding (reviewer IDs) | Outcome |
+|---|---|
+| Engine route accepted all-zero or mask-like weights under `loss="linear"` and fitted unweighted (c-F1, a-F4) | Fixed: any non-positive or non-finite weight goes to the weighted solver |
+| A fully masked in-memory fit crashed building its result (a-F1) | Fixed: reduced chi-squared NaN, `quality_flag="unknown"` |
+| Stratified LS and the shared builder reported a finite reduced chi-squared at zero data DOF; NaN adapter covariance was not flagged as a placeholder (c-F2, a-F2) | Fixed |
+| Duplicate phi rows picked up each other's mask on the stratified and streaming paths (c-F3) | Fixed: sigma is taken per measurement when angles repeat |
+| Hybrid streaming's SSR still summed masked pixels (c-F4, a-F3) | Fixed: masked pixels are excluded from the SSR as well as the DOF |
+| Layer 3 off switch: a flat `regularization_mode` overrode nested `enable: false`; controller callbacks still carried L3 groups; streaming builders ran a penalty for `mode: "none"` (c-F5, a-F5) | Fixed. Explicit nested `enable: false` now wins, with a warning |
+| NumPy integer `end_frame` lost the tail-clamp metadata (c-F6) | Fixed |
+| The unsupported-streaming test only searched source text; `config=None` skipped the guard (c-F7, a-F7); cache metadata fallback ignored a `None` window (a-F6) | Fixed |
+
+Not changed, with the reason:
+
+- **Laminar streaming's flat `enable_group_variance_regularization: true` with nested
+  `regularization.enable: false`** (part of c-F5). That flat flag switches on a different, simpler
+  mechanism inside the streaming optimizer, set explicitly by the user; the nested switch governs
+  the adaptive Layer 3 regularizer only.
+
+Two of these fixes change behaviour for non-default configs: `regularization.mode: "none"` now
+means Layer 3 off on both hybrid-streaming paths (it used to apply an absolute-variance penalty),
+and a weighted fit with repeated phi angles on the large-data paths now uses each measurement's own
+weights.
+
 ## Verification status
 
 See the pull request for the test and golden-parity results on the final commit.

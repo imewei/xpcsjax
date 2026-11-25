@@ -1713,6 +1713,8 @@ def _fit_joint_averaged_multi_phi(
         solve_success = bool(escape_kept_success)
     convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
     quality_flag: QualityFlag = "good" if solve_success else "marginal"
+    if np.isnan(reduced_chi2) and n_valid != int(data_only_residual.size):
+        quality_flag = "unknown"  # masked down to no data dof: nothing to grade
 
     # ------------------------------------------------------------------
     # L2 anti-degeneracy: hierarchical two-stage solve.
@@ -3857,6 +3859,8 @@ def _build_joint_result(
     )
     convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
     quality_flag: QualityFlag = "good" if solve_success else "marginal"
+    if np.isnan(reduced_chi2) and n_valid != int(data_only_residual.size):
+        quality_flag = "unknown"  # masked down to no data dof: nothing to grade
 
     # ------------------------------------------------------------------
     # L2 anti-degeneracy: hierarchical two-stage solve.

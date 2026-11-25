@@ -1272,6 +1272,7 @@ def fit_heterodyne_stratified_least_squares(
             n_valid=_n_obs,
             n_params=int(popt.size),
         )[0]
+        _cov_placeholder = _cov_placeholder or not bool(np.all(np.isfinite(pcov)))
     else:
         n_params = int(popt.size)
         n_data = int(meta["n_data_points"])
@@ -1280,6 +1281,10 @@ def fit_heterodyne_stratified_least_squares(
             from xpcsjax.utils.logging import get_logger as _get_logger
 
             _cov_log = _get_logger(__name__)
+            if _n_obs != n_data and _n_obs <= n_params:
+                raise ValueError(
+                    f"{_n_obs} unmasked observations for {n_params} parameters: no data dof"
+                )
             if _dense_j_gb > float(_mem_decision.threshold_gb):
                 raise MemoryError(
                     f"dense Jacobian {_dense_j_gb:.1f} GB exceeds the "
@@ -1360,6 +1365,8 @@ def fit_heterodyne_stratified_least_squares(
     _n_params_dof = _n_phys_meta if int(meta["n_scaling"]) == 0 else 2 * n_phi_meta + _n_phys_meta
     _n_dof = max(1, _n_obs - _n_params_dof)
     _reduced_chi2 = ssr / (_sigma2_noise * _n_dof) if _sigma2_noise > 1e-12 else ssr / _n_dof
+    if _n_obs != int(meta["n_data_points"]) and _n_obs <= _n_params_dof:
+        _reduced_chi2 = float("nan")  # masked down to no data dof (matches the result)
     _hlog.log_optimization_results(
         success=_eff_success,
         message=_eff_message,
@@ -1420,6 +1427,7 @@ def fit_heterodyne_stratified_least_squares(
         "nit": _eff_nit,
         "wall_time": _eff_wall,
         "n_data_points": _n_obs,  # the reduced-chi2 dof count in the result builder
+        "n_data_rows": int(meta["n_data_points"]),  # masked rows included
         "sigma2_noise": float(_sigma2_noise),
         "stratification_memory": mem_estimate,
     }

@@ -1035,7 +1035,7 @@ class AntiDegeneracyController:
 
         # Group variance indices for NLSQ's internal regularization
         group_indices = self.get_group_variance_indices()
-        if group_indices:
+        if group_indices and self.regularizer:  # no L3 -> no L3 groups
             callbacks["group_variance_indices"] = group_indices
 
         # Regularization lambda value from adaptive regularizer

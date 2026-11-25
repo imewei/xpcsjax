@@ -1044,9 +1044,12 @@ class XPCSDataLoader:
         """
         requested = self.analyzer_config.get("end_frame")
         applied = getattr(self, "_applied_end_frame", None)
-        if isinstance(requested, int) and isinstance(applied, int) and requested > applied > 0:
-            return requested - applied
-        return 0
+        # Programmatic configs may carry NumPy integers; a bool is not a frame count.
+        for v in (requested, applied):
+            if isinstance(v, bool) or not isinstance(v, (int, np.integer)):
+                return 0
+        req, app = int(requested), int(applied)  # type: ignore[arg-type]
+        return req - app if req > app > 0 else 0
 
     @log_performance(threshold=0.2)
     def _load_from_cache(self, cache_path: str) -> dict[str, Any]:

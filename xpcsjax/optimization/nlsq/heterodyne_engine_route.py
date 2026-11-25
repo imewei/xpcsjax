@@ -454,9 +454,18 @@ def fit_two_component_via_engine(
     # to proceed with (see the loss check below). Non-uniform weights change the optimum and
     # must not be silently dropped — route those fits to fit_nlsq_multi_phi (which
     # applies weights in its solve) via the caller's best-effort fallback.
-    if weights is not None and weights.size and not np.allclose(weights, weights.flat[0]):
+    # A non-positive or non-finite weight is a mask, never a uniform rescale; and
+    # ``atol=0`` so a 0 / 1e-9 mask is not mistaken for uniform weights.
+    if (
+        weights is not None
+        and weights.size
+        and not (
+            bool(np.all(np.isfinite(weights) & (weights > 0)))
+            and np.allclose(weights, weights.flat[0], atol=0.0)
+        )
+    ):
         raise NotImplementedError(
-            "fit_two_component_via_engine does not honour non-uniform weights "
+            "fit_two_component_via_engine does not honour non-uniform or masking weights "
             "(the engine solve is unweighted); falling back to fit_nlsq_multi_phi, "
             "which applies them in the solve."
         )

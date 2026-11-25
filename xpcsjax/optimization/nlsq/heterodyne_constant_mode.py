@@ -426,6 +426,8 @@ def _fit_joint_constant_multi_phi(
         solve_success = bool(escape_kept_success)
     convergence_status: ConvergenceStatus = "converged" if solve_success else "failed"
     quality_flag: QualityFlag = "good" if solve_success else "marginal"
+    if np.isnan(reduced_chi2) and n_valid != int(final_residual.size):
+        quality_flag = "unknown"  # masked down to no data dof: nothing to grade
 
     # L2 hierarchical: no-op for constant mode. The whole solve IS the
     # "stage 1" of the two-stage pattern (physics-only with quantile-fixed

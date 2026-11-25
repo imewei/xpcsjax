@@ -325,7 +325,7 @@ def execute_optimization_with_fallback(
             log.info(f"Attempting optimization with {current_strategy.value} strategy...")
 
             if current_strategy == OptimizationStrategy.STREAMING and streaming_available:
-                if config is not None and not hasattr(config, "hybrid_normalize"):
+                if not hasattr(config, "hybrid_normalize"):
                     # fit_with_hybrid_streaming_optimizer reads NLSQConfig.hybrid_*
                     # fields, but the wrapper hands this chain its ConfigManager.
                     # That call has always died with an AttributeError and fallen

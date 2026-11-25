@@ -824,7 +824,12 @@ def build_hybrid_streaming_result(
     # Falls back to plain MSE when the noise estimate is absent/degenerate,
     # matching ``noise_normalized_reduced_chi2``.
     sigma2_noise = float(info.get("sigma2_noise", 0.0))
-    if ssr <= 0:
+    # Masked down to no data dof (``n_data_rows`` counts the masked rows too):
+    # the statistic is undefined, not 0 and not SSR / 1.
+    _n_rows = info.get("n_data_rows")
+    if _n_rows is not None and int(_n_rows) != n_data and n_data <= _n_params_for_dof:
+        reduced_chi2 = float("nan")
+    elif ssr <= 0:
         reduced_chi2 = 0.0
     elif sigma2_noise > 1e-12:
         reduced_chi2 = ssr / (sigma2_noise * n_dof)

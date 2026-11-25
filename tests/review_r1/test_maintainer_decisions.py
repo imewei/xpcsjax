@@ -447,14 +447,49 @@ def test_streaming_refinement_is_skipped_explicitly(caplog):
     assert "not supported" in result["mesg"] and "not supported" in caplog.text
 
 
-def test_fallback_chain_names_the_unsupported_streaming_tier():
-    import inspect
+@pytest.mark.parametrize("config", [object(), None])
+def test_fallback_chain_skips_the_unsupported_streaming_tier(config, caplog):
+    import logging
+    import time
 
-    from xpcsjax.optimization.nlsq import fallback_chain
+    from xpcsjax.optimization.nlsq.fallback_chain import (
+        OptimizationStrategy,
+        execute_optimization_with_fallback,
+    )
 
-    src = inspect.getsource(fallback_chain)
-    # The tier used to die with an AttributeError on ConfigManager.hybrid_normalize.
-    assert "generic hybrid-streaming tier is not supported" in src
+    attempted = []
+
+    def streaming(**kwargs):
+        attempted.append("streaming")
+        return np.zeros(2), np.eye(2), {"success": True}
+
+    def chunked(_resid, _x, _y, p0, **_kw):
+        attempted.append("chunked")
+        return np.asarray(p0, dtype=float) + 1.0, np.eye(2), {}
+
+    with caplog.at_level(logging.WARNING):
+        execute_optimization_with_fallback(
+            strategy=OptimizationStrategy.STREAMING,
+            wrapped_residual_fn=lambda p, x: np.zeros_like(x),
+            xdata=np.arange(5.0),
+            ydata=np.zeros(5),
+            validated_params=np.array([1.0, 2.0]),
+            nlsq_bounds=None,
+            loss_name="linear",
+            x_scale_value=1.0,
+            config=config,  # no NLSQConfig hybrid_* fields
+            start_time=time.time(),
+            log=logging.getLogger("test_unsupported_streaming"),
+            enable_recovery=False,
+            execute_with_recovery_fn=lambda **_k: None,
+            fit_with_hybrid_streaming_fn=streaming,
+            streaming_available=True,
+            curve_fit_fn=lambda *a, **k: (np.zeros(2), np.eye(2), {}),
+            curve_fit_large_fn=chunked,
+        )
+    # The streaming solver is never called; the chain names why and moves on.
+    assert attempted == ["chunked"]
+    assert "generic hybrid-streaming tier is not supported" in caplog.text
 
 
 # ------------------------------------------------- opthet-B10 / optstrat-B9 (L3 enable)

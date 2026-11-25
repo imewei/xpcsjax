@@ -307,13 +307,14 @@ def save_to_cache(loader: XPCSDataLoader, data: dict[str, Any], cache_path: str)
         # Report the actually-applied (clamped) frame window recorded by
         # _apply_frame_slicing_to_selected_q. Fall back to the raw config /
         # sliced width only if slicing was never run on this instance.
-        "start_frame": getattr(
-            loader, "_applied_start_frame", loader.analyzer_config.get("start_frame", 1)
+        # ``None`` (set at the start of each load) counts as "never run" too.
+        "start_frame": (
+            getattr(loader, "_applied_start_frame", None)
+            or loader.analyzer_config.get("start_frame", 1)
         ),
-        "end_frame": getattr(
-            loader,
-            "_applied_end_frame",
-            cache_data["c2_exp"].shape[-1] + loader.analyzer_config.get("start_frame", 1) - 1,
+        "end_frame": (
+            getattr(loader, "_applied_end_frame", None)
+            or cache_data["c2_exp"].shape[-1] + loader.analyzer_config.get("start_frame", 1) - 1
         ),
         # The frame window as REQUESTED (pre-clamp), so validation can tell a
         # cache built for another window apart from one whose window was merely
