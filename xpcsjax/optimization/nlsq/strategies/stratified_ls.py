@@ -163,19 +163,23 @@ def create_stratified_chunks(
 
 
 def _n_contributing_rows(stratified_data: Any) -> int:
-    """Count the rows that carry a residual: off-diagonal cells with sigma > 0.
+    """Count the rows that carry a residual.
 
-    The residual engine zero-masks the ``t1 == t2`` rows and every cell whose
-    sigma is not positive, so neither is an observation for the covariance dof.
+    The residual engine zero-masks every row with ``|t1 - t2| <= 1e-15`` and every
+    cell whose sigma is ``<= 1e-10`` (residual_jit.py), so neither is an
+    observation for the covariance dof. The two masks are intersected on the
+    ``(t1, t2)`` grid, which is exact for separate t1 / t2 axes as well.
     """
-    # Thresholds match the residual engine's own masks (residual_jit.py).
-    dt_abs = np.abs(np.asarray(stratified_data.t1_flat) - np.asarray(stratified_data.t2_flat))
-    n_valid = int(np.count_nonzero(dt_abs > 1e-15))
+    t1 = np.asarray(stratified_data.t1_flat)
+    t2 = np.asarray(stratified_data.t2_flat)
+    n_valid = int(np.count_nonzero(np.abs(t1 - t2) > 1e-15))
     sigma = getattr(stratified_data, "sigma", None)
     if sigma is not None:
+        t1_axis, t2_axis = np.unique(t1), np.unique(t2)
+        off_diag = np.abs(t1_axis[:, None] - t2_axis[None, :]) > 1e-15
         bad = ~(np.asarray(sigma) > 1e-10)
-        if bad.ndim == 3 and bad.shape[1] == bad.shape[2]:
-            n_valid -= int(bad.sum()) - int(np.trace(bad, axis1=1, axis2=2).sum())
+        if bad.ndim == 3 and bad.shape[1:] == off_diag.shape:
+            n_valid -= int(np.count_nonzero(bad & off_diag[None]))
     return n_valid
 
 

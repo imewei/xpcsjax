@@ -272,6 +272,9 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
         if "phi_angles_list" in data:
             _phi = np.atleast_1d(np.asarray(data["phi_angles_list"]))
             n_phi = int(_phi.size)
+            if n_phi == int(c2.shape[0]) and _phi.ndim > 1 and int(_phi.shape[0]) == n_phi:
+                # An (n, 1) column: canonicalize to the flat vector consumers iterate.
+                data["phi_angles_list"] = _phi = _phi.reshape(-1)
             if n_phi != int(c2.shape[0]) or int(_phi.shape[0]) != n_phi:
                 raise XPCSDataFormatError(
                     f"phi_angles_list from {source!r} has {n_phi} entries but c2_exp "

@@ -978,6 +978,14 @@ def fit_nlsq_multi_phi(
             f"Number of c2 matrices ({len(c2_data)}) doesn't match "
             f"number of phi angles ({len(phi_angles)})"
         )
+    if (
+        weights is not None
+        and np.ndim(weights) == 3
+        and np.shape(weights)[0] == 1
+        and len(phi_angles) > 1
+    ):
+        # Shared slab: the per-angle builders index one weight matrix per angle.
+        weights = np.broadcast_to(np.asarray(weights), np.shape(c2_data)).copy()
 
     # ------------------------------------------------------------------
     # Determine whether to use homodyne-style joint multi-angle fitting.

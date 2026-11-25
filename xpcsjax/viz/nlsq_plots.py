@@ -555,6 +555,7 @@ def _stateful_model_at_fit_q(model: Any, data: dict[str, Any]) -> Any:
         from xpcsjax.core.physics_factors import PhysicsFactors
 
         twin = copy.copy(model)
+        twin._fit_q_twin = None  # do not chain the previous twin
         twin.wavevector_q = fit_q
         twin.physics_factors = PhysicsFactors.from_config(
             float(fit_q), float(model.stator_rotor_gap), float(model.dt)

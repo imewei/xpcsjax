@@ -402,3 +402,74 @@ def test_r3_c2_standard_executor_reports_backend_verdict():
             logging.getLogger(),
         )
     assert r.info["success"] is False
+    assert r.convergence_status != "converged"  # R4-A4
+
+
+# ----------------------------------------------------------------- round 4 (R4-*)
+def test_r4_a1_row_count_intersects_masks_on_separate_axes():
+    from types import SimpleNamespace
+
+    from xpcsjax.optimization.nlsq.strategies.stratified_ls import _n_contributing_rows
+
+    t1, t2 = (a.ravel() for a in np.meshgrid(np.arange(4.0), np.arange(1.0, 5.0), indexing="ij"))
+    sigma = np.ones((1, 4, 4))
+    sigma[0, 0, 0] = 1e-12  # array diagonal, but t1=0 != t2=1: a real, masked observation
+    expected = np.count_nonzero((np.abs(t1 - t2) > 1e-15) & (sigma.ravel() > 1e-10))
+    data = SimpleNamespace(t1_flat=t1, t2_flat=t2, sigma=sigma)
+    assert _n_contributing_rows(data) == expected
+
+
+def test_r4_a2_phi_column_is_flattened_at_the_boundary():
+    import io
+
+    from tests.review_r1.test_codex_data import _bare_loader, _qc_data
+    from xpcsjax.data.npz_cache import load_from_cache
+
+    data = _qc_data()
+    data.update(
+        c2_exp=np.repeat(data["c2_exp"], 2, axis=0),
+        wavevector_q_list=np.array([0.01, 0.01]),
+        phi_angles_list=np.array([[0.0], [45.0]]),
+    )
+    buf = io.BytesIO()
+    np.savez(buf, **data)
+    buf.seek(0)
+    loaded = load_from_cache(_bare_loader(), buf)
+    np.testing.assert_array_equal(loaded["phi_angles_list"], [0.0, 45.0])
+
+
+def test_r4_c1_fit_q_twin_does_not_chain_previous_twins():
+    import gc
+    import weakref
+
+    from xpcsjax.core.homodyne_model import HomodyneModel
+    from xpcsjax.viz.nlsq_plots import _stateful_model_at_fit_q
+
+    cfg = {
+        "analysis_mode": "static_isotropic",
+        "analyzer_parameters": {
+            "dt": 0.1,
+            "start_frame": 1,
+            "end_frame": 4,
+            "scattering": {"wavevector_q": 0.0054},
+            "geometry": {"stator_rotor_gap": 1.0},
+        },
+    }
+    m = HomodyneModel(cfg)
+    old = weakref.ref(_stateful_model_at_fit_q(m, {"wavevector_q_list": [0.006]}))
+    _stateful_model_at_fit_q(m, {"wavevector_q_list": [0.007]})
+    gc.collect()
+    assert old() is None
+
+
+def test_r4_c3_nonuniform_singleton_weight_slab_matches_2d_mask():
+    from tests.optimization._heterodyne_fixtures import make_cfgmgr_and_data
+    from xpcsjax import fit_nlsq
+
+    cfg, d = make_cfgmgr_and_data(2, 8)
+    w = np.ones_like(d["c2_exp"][0])
+    w[1, 2] = w[2, 1] = 0.25
+    a = fit_nlsq(dict(d, weights=w), cfg)
+    assert np.isfinite(a.chi_squared)
+    b = fit_nlsq(dict(d, weights=w[None]), cfg)
+    np.testing.assert_allclose(a.chi_squared, b.chi_squared)

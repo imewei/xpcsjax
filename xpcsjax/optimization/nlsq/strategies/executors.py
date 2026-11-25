@@ -207,7 +207,7 @@ class StandardExecutor(OptimizationExecutor):
                 pcov=np.asarray(pcov),
                 info=info,
                 recovery_actions=[],
-                convergence_status="converged",
+                convergence_status="converged" if info["success"] else "failed",
             )
 
         except (ValueError, RuntimeError, TypeError, OSError, MemoryError) as e:
