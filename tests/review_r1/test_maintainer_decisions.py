@@ -40,6 +40,38 @@ def test_core_b1_clamp_and_leading_exclusion_combine():
     np.testing.assert_allclose(np.asarray(model.t), np.arange(2, 81) * 0.1)
 
 
+# ------------------------------------------------------------------- opthet-B11
+@pytest.mark.parametrize(
+    "weight, loss, engine_runs",
+    [
+        (1.0, "soft_l1", True),  # unit weights: dropping them is exact
+        (4.0, "linear", True),  # uniform + linear loss: a pure rescale, same argmin
+        (4.0, "soft_l1", False),  # uniform + robust loss: the residual scale matters
+    ],
+)
+def test_opthet_b11_engine_only_drops_weights_when_that_is_exact(
+    monkeypatch, weight, loss, engine_runs
+):
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_engine_route import fit_two_component_via_engine
+    from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
+
+    def solve(self, *, initial_params, **kwargs):
+        return NLSQResult(np.asarray(initial_params), self._parameter_names, True, "ok")
+
+    monkeypatch.setattr(NLSQAdapter, "fit", solve)
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=12)
+    cfg = NLSQConfig(loss=loss)
+    weights = np.full_like(c2, weight)
+    if engine_runs:
+        assert fit_two_component_via_engine(model, c2, phi, cfg, weights=weights) is not None
+    else:
+        with pytest.raises(NotImplementedError, match="weights"):
+            fit_two_component_via_engine(model, c2, phi, cfg, weights=weights)
+
+
 def test_core_b1_loader_reports_frames_clamped_at_end():
     from xpcsjax.data.xpcs_loader import XPCSDataLoader
 
