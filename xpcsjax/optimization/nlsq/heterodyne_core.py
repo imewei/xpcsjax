@@ -713,11 +713,15 @@ def _aggregate_individual_results(
         noise_normalized_reduced_chi2,
     )
 
+    # DOF = what the per-angle solves actually fitted: each angle fits its own
+    # copy of the varying physics with BOTH scaling terms held fixed. The
+    # reporting vector ([mean physics | contrasts | offsets], ``total_dim``) is a
+    # summary, not the fitted parameter set.
     reduced_chi2 = noise_normalized_reduced_chi2(
         ssr=ssr,
         c2_data=c2_arr,
         n_data_valid=n_data_total,
-        n_params=total_dim,
+        n_params=n_phi * n_physics,
     )
 
     # ------------------------------------------------------------------
