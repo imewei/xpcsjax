@@ -39,9 +39,13 @@ def restore_input_angle_order(result: Any, order: np.ndarray) -> Any:
     params = np.asarray(result.parameters)
     perm = np.concatenate([inv, n_phi + inv, np.arange(2 * n_phi, params.size)])
 
-    def _per_angle(value: Any) -> Any:
+    def _per_angle(value: Any, key: str = "") -> Any:
         if isinstance(value, dict):
-            return {k: _per_angle(v) for k, v in value.items()}
+            return {k: _per_angle(v, str(k)) for k, v in value.items()}
+        # Only keys that name a per-angle quantity: with few angles an unrelated
+        # array can also have length n_phi.
+        if key != "phi_angles" and "per_angle" not in key:
+            return value
         arr = np.asarray(value) if isinstance(value, (list, np.ndarray)) else None
         if arr is not None and arr.ndim == 1 and arr.size == n_phi and arr.dtype.kind in "fiu":
             return arr[inv] if isinstance(value, np.ndarray) else arr[inv].tolist()

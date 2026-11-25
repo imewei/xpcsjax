@@ -359,5 +359,3 @@ def test_optstrat_b15(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert "x_scale" in seen
     np.testing.assert_allclose(seen["x_scale"], [2.0])
-
-

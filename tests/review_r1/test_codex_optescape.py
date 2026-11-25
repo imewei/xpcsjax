@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 
-
 # optescape-B1 reclassified DESIGN by the lead (fix adds L2 sweeps -> numerics change); test removed.
 
 

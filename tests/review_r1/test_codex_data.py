@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from xpcsjax.data import load_xpcs_data
-from xpcsjax.data.angle_filtering import apply_angle_filtering_for_optimization
 from xpcsjax.data.memory_manager import AdvancedMemoryManager
 from xpcsjax.data.phi_filtering import filter_phi_angles
 from xpcsjax.data.quality_controller import DataQualityController, QualityControlStage

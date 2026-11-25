@@ -16,8 +16,23 @@ adversarially re-reviewed each fix round. The loop ended with Codex's closing ve
 | Closing check | 0 | — | — | — |
 
 Round-1 counts are by claim ID after all later reclassifications (two pairs of claims shared a root
-cause; data-B9 is counted as fixed for its `use_caching` half). Regression tests for every fix are
-in `tests/review_r1/` (127 tests).
+cause; data-B9 is counted as fixed for its `use_caching` half). The four round-1 items Codex
+countered in round 2 and Claude then fixed (config-B5, ioviz-B10, data-B17, optstrat-B16) appear in
+both the round-1 and round-2 "Fixed" columns.
+
+Evidence — Codex's reports for every round and Claude's verification ledger, which define every
+claim ID used below — is in `docs/reviews/2026-11-24-evidence/`.
+
+Regression tests are in `tests/review_r1/` (127 tests):
+
+- Every round-1 fix has a test that was observed failing before its fix.
+- Round 2-4 tests were added together with the fixes; that they fail on the earlier commit was
+  reported by Codex, not re-observed by Claude.
+- No dedicated test: R2-A9 and R3-A4 (pre-fingerprint cache window), R2-C2 and R3-A10 (allocation
+  guard budget), R3-A7 (per-load degradation reset), R3-A11 (float bins keep source arithmetic).
+  Codex's recipes for them are in the evidence reports.
+- The homodyne end-to-end unsorted-phi tests were mutation-checked: disabling the grid-theory row
+  mapping turns them red. The sigma reorder is covered by unit-level tests only.
 
 Classification rule used throughout: a claim was fixed only if it is reachable from an in-package
 caller or the documented public surface **and** its fix does not change fitted parameters or
@@ -67,6 +82,10 @@ reduced chi-squared change:
   rejected; empty or non-mapping config files are rejected.
 - `use_caching: false` disables the NPZ cache; a cache built for a different frame window is
   regenerated; malformed HDF5 bins (shape/dtype mismatch) raise instead of broadcasting/truncating.
+- A `.npz` loaded DIRECTLY (as the data file) whose recorded frame window differs from the config
+  now raises `CacheStaleError` instead of silently serving the differently-windowed stack; there is
+  no raw file to regenerate from on that path.
+- `load_degradations` on a reused loader now describes the current load only.
 - Saved parameter names follow the solver's canonical order; `diagnostic_covariance` moved from
   the result JSON to the NPZ.
 - Data whose phi angles are not ascending: per-angle scaling, sigma and theory are now paired with
@@ -115,6 +134,12 @@ bins in the allocation guard).
 
 Rejected by both agents: config-B11, core-B4, optescape-B7, gui-B14, optwrap-B6, ioviz-B9,
 data-B14, data-B15.
+
+## Not done
+
+- `graphify-out/` was not regenerated and no `.context` branch `session.log` was written; this
+  document and the evidence folder stand in for the decision log.
+- No pull request was opened.
 
 ## How it was run
 

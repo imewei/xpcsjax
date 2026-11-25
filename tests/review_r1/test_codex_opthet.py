@@ -1,13 +1,11 @@
 """Red tests for Codex review round 1, shard opthet (claims opthet-B1..B13)."""
 
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-import yaml
 
 import xpcsjax.optimization.nlsq.heterodyne_core as heterodyne_core
 from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
@@ -157,7 +155,6 @@ def test_opthet_b9():
 # opthet-B10 reclassified DESIGN by the lead (with optstrat-B9): regularization.enable is ignored by
 # design in both models (pinned by test_l3_banner_always_on_even_when_regularization_disabled); the
 # shipped template has enable: false + mode: relative, so honouring it changes default behaviour.
-
 
 
 def test_opthet_b12():
