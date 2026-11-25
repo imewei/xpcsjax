@@ -718,6 +718,10 @@ class AdvancedMemoryManager:
         except Exception:
             self._default_gc_thresholds = (700, 10, 10)
 
+        # True only while this manager has lowered the process GC thresholds, so
+        # shutdown never overwrites thresholds a host application set itself.
+        self._gc_thresholds_altered = False
+
         # GC rate limiting (owned by this class, not by pressure_monitor).
         # Guarded by `_gc_state_lock`: `_emergency_memory_cleanup` /
         # `_optimize_garbage_collection` can run on a foreground allocation
@@ -825,6 +829,7 @@ class AdvancedMemoryManager:
                     for t in self._default_gc_thresholds
                 )
                 gc.set_threshold(*new_thresholds)
+                self._gc_thresholds_altered = True
 
     def _handle_memory_critical(self, stats: MemoryStats) -> None:
         """Handle critical memory pressure."""
@@ -850,6 +855,7 @@ class AdvancedMemoryManager:
                     for t in self._default_gc_thresholds
                 )
                 gc.set_threshold(*new_thresholds)
+                self._gc_thresholds_altered = True
 
     def _handle_memory_recovery(self, stats: MemoryStats) -> None:
         """Handle memory pressure recovery."""
@@ -863,6 +869,7 @@ class AdvancedMemoryManager:
                 logger, "recovery_gc_threshold", policy="suppress", level=logging.DEBUG
             ):
                 gc.set_threshold(*self._default_gc_thresholds)
+                self._gc_thresholds_altered = False
 
     def _emergency_memory_cleanup(self) -> None:
         """Perform emergency memory cleanup.
@@ -992,8 +999,12 @@ class AdvancedMemoryManager:
         # happens while thresholds are still degraded (no intervening
         # recovery event) left gc.get_threshold() permanently changed for the
         # rest of the process.
-        with logged_errors(logger, "shutdown_restore_gc", policy="suppress", level=logging.DEBUG):
-            gc.set_threshold(*self._default_gc_thresholds)
+        if self._gc_thresholds_altered:
+            with logged_errors(
+                logger, "shutdown_restore_gc", policy="suppress", level=logging.DEBUG
+            ):
+                gc.set_threshold(*self._default_gc_thresholds)
+                self._gc_thresholds_altered = False
 
         # Final garbage collection
         with logged_errors(logger, "shutdown_gc", policy="suppress", level=logging.DEBUG):

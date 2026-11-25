@@ -45,6 +45,56 @@ _HDF5_RDCC_NSLOTS: int = 6257  # prime; ≥ 100 × _HDF5_RDCC_N_MATRICES
 _HDF5_RDCC_W0: float = 0.75  # prefer evicting chunks not likely to be re-read
 
 
+def _quality_filtering_requested(filtering_config: dict[str, Any]) -> bool:
+    """Return True when matrices must be loaded for quality filtering.
+
+    The filter itself (``DataFilteringUtils._apply_quality_filtering``) keys on the
+    flat ``quality_threshold``; the nested ``quality_filtering.enabled`` flag is the
+    documented opt-in. Honour either so a threshold alone is never silently ignored.
+    """
+    if not filtering_config.get("enabled", False):
+        return False
+    nested = (filtering_config.get("quality_filtering") or {}).get("enabled", False)
+    return bool(nested) or filtering_config.get("quality_threshold") is not None
+
+
+def _or_combines_criteria(filtering_config: dict[str, Any]) -> bool:
+    """Return True when filter masks are OR-combined (metadata pre-filter is then unsafe)."""
+    return str(filtering_config.get("combine_criteria", "AND")).upper() == "OR"
+
+
+def _c2_out_dtype(dtype: Any) -> np.dtype[Any]:
+    """Return the buffer dtype for a reconstructed c2 matrix.
+
+    Float (and complex) source dtypes are preserved bit-exactly; integer/bool
+    sources are promoted so the in-place ``diag /= 2`` correction is defined.
+    """
+    dt = np.dtype(dtype)
+    return dt if dt.kind in "fc" else np.result_type(dt, np.float32)
+
+
+def _store_symmetrized(
+    out: NDArray, i: int, half: NDArray, diag_idx: tuple[NDArray, NDArray], source: str
+) -> None:
+    """Write ``half + half.T`` (diag halved) into ``out[i]`` after shape/dtype checks."""
+    from xpcsjax.data.xpcs_loader import XPCSDataFormatError
+
+    if half.shape != out.shape[1:]:
+        # A (1, 1) bin would otherwise broadcast across the whole (n_t, n_t) slot.
+        raise XPCSDataFormatError(
+            f"{source}: matrix {i} has shape {half.shape}, expected {out.shape[1:]} "
+            "(all selected bins must share one shape)"
+        )
+    if not np.can_cast(half.dtype, out.dtype, "safe"):
+        # Assigning into a narrower buffer would silently lose precision.
+        raise XPCSDataFormatError(
+            f"{source}: matrix {i} has dtype {half.dtype}, which cannot be stored "
+            f"losslessly in the {out.dtype} buffer set by the first bin"
+        )
+    out[i] = half + half.T
+    out[i][diag_idx] /= 2
+
+
 def guard_aps_u_intermediate_allocation(
     corr_group: Any, c2_keys: list[str], valid_bin_indices: Any, *, source: str
 ) -> None:
@@ -169,9 +219,7 @@ def load_aps_old_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]
 
         # Check if quality-based filtering is enabled (requires loading all matrices)
         filtering_config = loader.config.get("data_filtering", {})
-        quality_filtering_enabled = filtering_config.get("enabled", False) and filtering_config.get(
-            "quality_filtering", {}
-        ).get("enabled", False)
+        quality_filtering_enabled = _quality_filtering_requested(filtering_config)
 
         # Select optimal q-vector first (doesn't require matrices)
         logger.debug("Selecting optimal q-vector for caching")
@@ -209,11 +257,17 @@ def load_aps_old_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]
             # fallback here would double-record the DATA-1 degradation
             # signal for one logical fallback -- only the final decision
             # (the quality pass) records it.
-            metadata_indices = loader._get_selected_indices(
-                dqlist,
-                dphilist,
-                None,  # No matrices needed for phi-only filtering
-                record_degradation=False,
+            # Under OR combination the pre-filter would drop rows the quality
+            # criterion can still select, so skip it and let pass 2 decide.
+            metadata_indices = (
+                None
+                if _or_combines_criteria(filtering_config)
+                else loader._get_selected_indices(
+                    dqlist,
+                    dphilist,
+                    None,  # No matrices needed for phi-only filtering
+                    record_degradation=False,
+                )
             )
 
             # Narrow to candidates via q + phi intersection
@@ -312,19 +366,26 @@ def load_aps_old_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]
                 _probe_half.dtype.itemsize,
                 source="HDF5 correlation dataset",
             )
-            c2_matrices_array = np.empty((n_sel, _n_t, _n_t), dtype=_probe_half.dtype, order="C")
+            c2_matrices_array = np.empty(
+                (n_sel, _n_t, _n_t), dtype=_c2_out_dtype(_probe_half.dtype), order="C"
+            )
             # Write the already-read probe matrix into slot 0 (exact same arithmetic
             # as _reconstruct_full_matrix: c2_half + c2_half.T, diagonal /= 2).
-            c2_matrices_array[0] = _probe_half + _probe_half.T
             _diag_idx = np.diag_indices(_n_t)
-            c2_matrices_array[0][_diag_idx] /= 2
+            _store_symmetrized(
+                c2_matrices_array, 0, _probe_half, _diag_idx, "HDF5 correlation dataset"
+            )
             del _probe_half
             # Load remaining matrices directly into pre-allocated slots.
             for _out_i, idx in enumerate(final_indices[1:], start=1):
                 key = c2_keys[int(idx)]
-                _c2_half = c2t_group[key][()]
-                c2_matrices_array[_out_i] = _c2_half + _c2_half.T
-                c2_matrices_array[_out_i][_diag_idx] /= 2
+                _store_symmetrized(
+                    c2_matrices_array,
+                    _out_i,
+                    c2t_group[key][()],
+                    _diag_idx,
+                    "HDF5 correlation dataset",
+                )
 
         # Shared zero-selection guard. BOTH the quality-filtering and the
         # phi-only branches resolve ``final_indices`` above. The phi-only
@@ -505,9 +566,7 @@ def load_aps_u_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]:
         # valid-bin set. The far more common phi/q-only path never reads
         # a matrix it won't end up using.
         filtering_config = loader.config.get("data_filtering", {})
-        quality_filtering_enabled = filtering_config.get("enabled", False) and filtering_config.get(
-            "quality_filtering", {}
-        ).get("enabled", False)
+        quality_filtering_enabled = _quality_filtering_requested(filtering_config)
 
         selected_c2_matrices: list[NDArray] | None
         if quality_filtering_enabled:
@@ -516,11 +575,17 @@ def load_aps_u_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]:
             # would otherwise double-record the DATA-1 degradation signal
             # for one logical fallback -- only pass 2 (the final decision)
             # records it.
-            metadata_indices = loader._get_selected_indices(
-                filtered_dqlist,
-                filtered_dphilist,
-                None,  # No matrices needed for phi-only filtering
-                record_degradation=False,
+            # Under OR combination the pre-filter would drop rows the quality
+            # criterion can still select, so skip it and let pass 2 decide.
+            metadata_indices = (
+                None
+                if _or_combines_criteria(filtering_config)
+                else loader._get_selected_indices(
+                    filtered_dqlist,
+                    filtered_dphilist,
+                    None,  # No matrices needed for phi-only filtering
+                    record_degradation=False,
+                )
             )
             candidate_indices = (
                 np.intersect1d(q_matching_indices, metadata_indices)
@@ -630,13 +695,16 @@ def load_aps_u_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]:
                 source="HDF5 correlation dataset",
             )
             c2_matrices_array = np.empty(
-                (len(bin_indices), _n_t_u, _n_t_u), dtype=_first_half.dtype, order="C"
+                (len(bin_indices), _n_t_u, _n_t_u),
+                dtype=_c2_out_dtype(_first_half.dtype),
+                order="C",
             )
             # Same arithmetic as _reconstruct_full_matrix: c2_half + c2_half.T,
             # diagonal /= 2.
-            c2_matrices_array[0] = _first_half + _first_half.T
             _diag_idx_u = np.diag_indices(_n_t_u)
-            c2_matrices_array[0][_diag_idx_u] /= 2
+            _store_symmetrized(
+                c2_matrices_array, 0, _first_half, _diag_idx_u, "HDF5 correlation dataset"
+            )
             del _first_half
             for _out_j, bin_idx in enumerate(bin_indices[1:], start=1):
                 if bin_idx >= len(c2_keys):
@@ -645,9 +713,13 @@ def load_aps_u_format(loader: XPCSDataLoader, hdf_path: str) -> dict[str, Any]:
                         f"({len(c2_keys)}) - APS-U file is inconsistent between "
                         "processed_bins mapping and the correlation_map group",
                     )
-                _c2_half = corr_group[c2_keys[bin_idx]][()]
-                c2_matrices_array[_out_j] = _c2_half + _c2_half.T
-                c2_matrices_array[_out_j][_diag_idx_u] /= 2
+                _store_symmetrized(
+                    c2_matrices_array,
+                    _out_j,
+                    corr_group[c2_keys[bin_idx]][()],
+                    _diag_idx_u,
+                    "HDF5 correlation dataset",
+                )
 
         # Apply frame slicing to the selected q-vector data
         c2_exp = loader._apply_frame_slicing_to_selected_q(c2_matrices_array)

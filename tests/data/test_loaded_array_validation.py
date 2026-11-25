@@ -33,7 +33,7 @@ def _good_data(n_mat: int = 2, n_t: int = 4) -> dict:
         "t1": np.arange(n_t, dtype=np.float64),
         "t2": np.arange(n_t, dtype=np.float64),
         "wavevector_q_list": np.array([0.01, 0.01, 0.02]),  # non-monotonic OK
-        "phi_angles_list": np.array([0.0, 45.0, 90.0]),
+        "phi_angles_list": np.linspace(0.0, 90.0, n_mat),
     }
 
 
