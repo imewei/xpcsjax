@@ -65,6 +65,10 @@ class HeterodyneStratifiedData:
     angle_indices : list of int
         Per-angle mapping ``chunk index -> angle index`` (identity with the phi
         index here).
+    phi_raw : np.ndarray or None
+        Input-order phi, one value per ``sigma`` row. Consumers that gather sigma
+        by a sorted-phi index use it to reorder (see
+        ``data_prep.sigma_in_sorted_phi_order``); ``None`` means identity order.
     """
 
     phi_flat: np.ndarray

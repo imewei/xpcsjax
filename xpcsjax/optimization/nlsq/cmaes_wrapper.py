@@ -636,8 +636,9 @@ class CMAESWrapper:
     ) -> dict[str, Any]:
         """Run NLSQ TRF refinement on CMA-ES solution.
 
-        Uses NLSQ's curve_fit with workflow="auto" for memory-aware strategy
-        selection, similar to NLSQ's "auto_global" workflow.
+        Calls NLSQ's ``curve_fit`` with ``method`` mapped from
+        ``config.refinement_workflow`` (``auto`` -> NLSQ's default,
+        ``standard`` -> ``trf``, ``streaming`` -> ``hybrid_streaming``).
 
         Parameters
         ----------
@@ -657,7 +658,13 @@ class CMAESWrapper:
         Returns
         -------
         dict[str, Any]
-            Refinement result with keys: popt, pcov, infodict, mesg, ier.
+            Refinement result with keys ``popt``, ``pcov``, ``chi_squared``,
+            ``infodict``, ``mesg``, ``ier``, ``success``, ``adoptable`` and (when
+            the solve ran) ``duration_s``. ``success`` is the solver's own
+            convergence verdict (``False`` e.g. when ``max_nfev`` is exhausted);
+            ``adoptable`` is ``True`` whenever the solve ran and returned a point,
+            which is what the keep-better gates test. On an exception both are
+            ``False``, ``popt`` is ``p0`` and ``chi_squared`` is ``None``.
         """
         from nlsq import curve_fit
 
@@ -671,7 +678,6 @@ class CMAESWrapper:
         try:
             with log_phase("CMA-ES refinement", logger, track_memory=True) as phase:
                 # Build refinement kwargs for NLSQ curve_fit
-                # Note: NLSQ curve_fit uses 'workflow' instead of full scipy interface
                 refinement_kwargs: dict[str, Any] = {
                     "ftol": self.config.refinement_ftol,
                     "xtol": self.config.refinement_xtol,

@@ -23,6 +23,31 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def sorted_angle_inputs(
+    c2: Any, phi: Any, weights: Any
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, Any] | None:
+    """Return ``(order, c2, phi, weights)`` sorted by phi, or ``None`` if not needed.
+
+    ``None`` when the angles are already ascending, when ``c2`` is not a
+    per-angle stack, or when phi has duplicates (duplicate angles share one
+    scaling slot, so :func:`restore_input_angle_order` does not apply). Only a
+    per-angle weight stack is reordered; a shared ``(1, N, N)`` slab or a 2-D
+    matrix broadcasts across angles and is passed through unchanged.
+    """
+    phi_arr = np.asarray(phi, dtype=np.float64)
+    order = np.argsort(phi_arr, kind="stable")
+    if (
+        np.ndim(c2) != 3
+        or np.array_equal(order, np.arange(len(phi_arr)))
+        or len(np.unique(phi_arr)) != len(phi_arr)
+    ):
+        return None
+    w = None if weights is None else np.asarray(weights)
+    if w is not None and w.ndim == 3 and w.shape[0] == len(phi_arr):
+        weights = w[order]
+    return order, np.asarray(c2)[order], phi_arr[order], weights
+
+
 def restore_input_angle_order(result: Any, order: np.ndarray) -> Any:
     """Un-permute an ``individual``-mode result solved on phi-sorted data.
 
@@ -37,6 +62,11 @@ def restore_input_angle_order(result: Any, order: np.ndarray) -> Any:
     inv = np.argsort(order)
     n_phi = len(inv)
     params = np.asarray(result.parameters)
+    if params.size < 2 * n_phi:
+        raise ValueError(
+            f"restore_input_angle_order expects a scaling-first individual-mode vector "
+            f"(>= {2 * n_phi} entries for {n_phi} angles), got {params.size}"
+        )
     perm = np.concatenate([inv, n_phi + inv, np.arange(2 * n_phi, params.size)])
 
     def _per_angle(value: Any, key: str = "") -> Any:
@@ -52,6 +82,17 @@ def restore_input_angle_order(result: Any, order: np.ndarray) -> Any:
         return value
 
     unc, cov = result.uncertainties, result.covariance
+    if (unc is not None and np.shape(unc) != params.shape) or (
+        cov is not None and np.shape(cov) != (params.size, params.size)
+    ):
+        # Left as returned: reordering a mis-shaped array would be a guess.
+        logger.warning(
+            "restore_input_angle_order: uncertainties %s / covariance %s do not match "
+            "%d parameters; they are NOT reordered to the input angle order.",
+            np.shape(unc),
+            np.shape(cov),
+            params.size,
+        )
     return replace(
         result,
         parameters=params[perm],

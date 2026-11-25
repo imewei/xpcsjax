@@ -582,8 +582,14 @@ def fit_heterodyne_stratified_least_squares(
     from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
     from xpcsjax.optimization.nlsq.heterodyne_core import _resolve_effective_mode
     from xpcsjax.optimization.nlsq.heterodyne_data_prep import far_lag_noise_variance
+
+    # The stratified engine indexes per-angle scaling by SORTED phi. For
+    # ``individual`` mode with non-ascending phi, solve on sorted data and restore
+    # the caller's angle order afterwards (see restore_input_angle_order).
     from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
         build_hybrid_streaming_result,
+        restore_input_angle_order,
+        sorted_angle_inputs,
     )
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
@@ -592,35 +598,20 @@ def fit_heterodyne_stratified_least_squares(
         compute_quantile_per_angle_scaling,
     )
 
-    # The stratified engine indexes per-angle scaling by SORTED phi. For
-    # ``individual`` mode with non-ascending phi, solve on sorted data and restore
-    # the caller's angle order afterwards (see restore_input_angle_order).
-    _phi_in = np.asarray(phi, dtype=np.float64)
-    _order = np.argsort(_phi_in, kind="stable")
-    if (
-        np.ndim(c2) == 3
-        and not np.array_equal(_order, np.arange(len(_phi_in)))
-        # Duplicate angles share one scaling slot, so the per-row un-permute
-        # does not apply; that layout keeps the unsorted behaviour.
-        and len(np.unique(_phi_in)) == len(_phi_in)
-        and _resolve_effective_mode(config, len(_phi_in)) == "individual"
-    ):
-        from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
-            restore_input_angle_order,
-        )
-
-        _w = None if weights is None else np.asarray(weights)
+    _sorted = (
+        sorted_angle_inputs(c2, phi, weights)
+        if _resolve_effective_mode(config, len(np.unique(phi))) == "individual"
+        else None
+    )
+    if _sorted is not None:
+        _order, _c2_s, _phi_s, _w_s = _sorted
         return restore_input_angle_order(
             fit_heterodyne_stratified_least_squares(
                 model=model,
-                c2=np.asarray(c2)[_order],
-                phi=_phi_in[_order],
+                c2=_c2_s,
+                phi=_phi_s,
                 config=config,
-                weights=(
-                    _w[_order]
-                    if _w is not None and _w.ndim == 3 and _w.shape[0] == len(_phi_in)
-                    else weights
-                ),
+                weights=_w_s,
                 target_chunk_size=target_chunk_size,
                 shuffle=shuffle,
                 use_index_based=use_index_based,

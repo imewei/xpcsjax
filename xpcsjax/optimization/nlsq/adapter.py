@@ -115,7 +115,7 @@ logger = get_logger(__name__)
 class ModelCacheKey:
     """Immutable key for model cache lookup.
 
-    A hashable tuple of ``(analysis_mode, phi_angles, q, per_angle_scaling)``.
+    A hashable tuple of ``(analysis_mode, phi_angles, q, per_angle_scaling, dt, L)``.
     NumPy arrays are converted to tuples for hashability.
 
     Attributes
@@ -132,6 +132,9 @@ class ModelCacheKey:
         Time step baked into the closure's ``compute_g1_batch`` call. Must be
         part of the key: two calls with the same mode/phi/q but different
         ``dt`` must NOT hit each other's cached (dt-specific) closure.
+    L : float
+        Stator-rotor gap baked into the closure (it multiplies the shear
+        prefactor); closures built for different gaps must not be shared.
     """
 
     analysis_mode: AnalysisMode
@@ -214,6 +217,9 @@ def _make_cache_key(
     dt : float or None, optional
         Time step baked into the cached closure; must be part of the key
         (see :class:`ModelCacheKey`).
+    L : float, optional
+        Stator-rotor gap baked into the cached closure (it multiplies the shear
+        prefactor), so it is part of the key as well.
 
     Returns
     -------
@@ -394,6 +400,9 @@ def get_or_create_model(
         fit time.
     dt : float | None, optional
         Time step. Required when ``analysis_mode='two_component'``.
+    L : float, optional
+        Stator-rotor gap for the homodyne modes; it multiplies the shear
+        prefactor and is part of the cache key. Ignored for ``two_component``.
 
     Returns
     -------

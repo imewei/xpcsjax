@@ -541,8 +541,9 @@ def _stateful_model_at_fit_q(model: Any, data: dict[str, Any]) -> Any:
 
     ``HomodyneModel`` bakes the config q into its physics factors at construction,
     while the fit uses the loader's selected bin (see :func:`_fit_q`). When they
-    differ, return a shallow copy with only the q-dependent factors recomputed
-    (cached on the model); time grid, gap and dt stay exactly the model's own.
+    differ, return a shallow copy with only the q-dependent factors recomputed;
+    time grid, gap and dt stay exactly the model's own. The caller's model is
+    never modified.
     """
     model_q = getattr(model, "wavevector_q", None)
     fit_q = _fit_q(data, model_q)
@@ -550,19 +551,14 @@ def _stateful_model_at_fit_q(model: Any, data: dict[str, Any]) -> Any:
         return model
     if np.isclose(float(fit_q), float(model_q), rtol=1e-12, atol=0.0):
         return model
-    cached = getattr(model, "_fit_q_twin", None)
-    if cached is None or cached[0] != fit_q:
-        from xpcsjax.core.physics_factors import PhysicsFactors
+    from xpcsjax.core.physics_factors import PhysicsFactors
 
-        twin = copy.copy(model)
-        twin._fit_q_twin = None  # do not chain the previous twin
-        twin.wavevector_q = fit_q
-        twin.physics_factors = PhysicsFactors.from_config(
-            float(fit_q), float(model.stator_rotor_gap), float(model.dt)
-        )
-        cached = (fit_q, twin)
-        model._fit_q_twin = cached
-    return cached[1]
+    twin = copy.copy(model)
+    twin.wavevector_q = fit_q
+    twin.physics_factors = PhysicsFactors.from_config(
+        float(fit_q), float(model.stator_rotor_gap), float(model.dt)
+    )
+    return twin
 
 
 def _evaluate_c2_per_angle(

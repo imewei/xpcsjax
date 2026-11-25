@@ -399,35 +399,20 @@ def fit_two_component_via_engine(
     # The engine indexes per-angle scaling by SORTED phi. For ``individual`` mode
     # with non-ascending phi, solve on sorted data and restore the caller's angle
     # order afterwards (other modes carry no per-angle optimizer slots).
-    _order = np.argsort(phi_arr, kind="stable")
-    if (
-        np.ndim(c2) == 3
-        and not np.array_equal(_order, np.arange(n_phi))
-        # Duplicate angles share one scaling slot, so the per-row un-permute
-        # below does not apply; that layout keeps the unsorted behaviour.
-        and len(np.unique(phi_arr)) == n_phi
-        and _resolve_effective_mode(config, n_phi) == "individual"
-    ):
-        from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
-            restore_input_angle_order,
-        )
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        restore_input_angle_order,
+        sorted_angle_inputs,
+    )
 
-        _w = None if weights is None else np.asarray(weights)
+    _sorted = (
+        sorted_angle_inputs(c2, phi_arr, weights)
+        if _resolve_effective_mode(config, n_phi) == "individual"
+        else None
+    )
+    if _sorted is not None:
+        _order, _c2_s, _phi_s, _w_s = _sorted
         return restore_input_angle_order(
-            fit_two_component_via_engine(
-                model,
-                np.asarray(c2)[_order],
-                phi_arr[_order],
-                config,
-                # Only a per-angle stack is reordered; a shared (1, N, N) slab
-                # or a 2-D matrix broadcasts across angles as-is.
-                weights=(
-                    _w[_order]
-                    if _w is not None and _w.ndim == 3 and _w.shape[0] == n_phi
-                    else weights
-                ),
-            ),
-            _order,
+            fit_two_component_via_engine(model, _c2_s, _phi_s, config, weights=_w_s), _order
         )
 
     phys_names = list(model.param_manager.varying_names)

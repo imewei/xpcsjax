@@ -1684,19 +1684,13 @@ def _fit_joint_averaged_multi_phi(
             if joint_result.covariance is not None
             else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
         )
-        if n_penalty_rows:
-            # The solver's s² counted the L3 penalty rows as observations; put the
-            # covariance back on the data-row dof (no-op without regularization).
-            _n_valid = int(data_only_residual.size)
-            _dof_valid = _n_valid - int(n_total_params)
-            if _dof_valid > 0:
-                _dof_scale = (_dof_valid + int(n_penalty_rows)) / _dof_valid
-                covariance = covariance * _dof_scale
-                uncertainties = uncertainties * np.sqrt(_dof_scale)
-            else:
-                # Only the penalty rows gave the solver a positive dof.
-                covariance = np.full_like(covariance, np.nan)
-                uncertainties = np.full_like(uncertainties, np.nan)
+        covariance, uncertainties = _drop_penalty_rows_from_dof(
+            covariance,
+            uncertainties,
+            n_valid=int(data_only_residual.size),
+            n_params=int(n_total_params),
+            n_penalty_rows=int(n_penalty_rows),
+        )
 
     solve_success = bool(joint_result.success) and not floor_reverted
     # A kept global escape (or a warm-start kept over a failed search) has its
@@ -1923,6 +1917,30 @@ _JOINT_CMAES_SEED = 42
 # per-angle ``_fit_cmaes`` path left ``CMAESWrapperConfig.seed=None`` →
 # non-reproducible, unlike the seed-pinned joint escapes.
 _PER_ANGLE_CMAES_SEED = 42
+
+
+def _drop_penalty_rows_from_dof(
+    covariance: np.ndarray,
+    uncertainties: np.ndarray,
+    *,
+    n_valid: int,
+    n_params: int,
+    n_penalty_rows: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Put a solver covariance back on the data-row degrees of freedom.
+
+    The solver scaled its covariance by ``cost / (n_valid + n_penalty_rows - p)``,
+    counting the L3 penalty rows as observations. No-op without penalty rows; with
+    no data dof left (only the penalty rows made it positive) there is no
+    covariance, so both arrays become NaN.
+    """
+    if not n_penalty_rows:
+        return covariance, uncertainties
+    dof_valid = n_valid - n_params
+    if dof_valid <= 0:
+        return np.full_like(covariance, np.nan), np.full_like(uncertainties, np.nan)
+    scale = (dof_valid + n_penalty_rows) / dof_valid
+    return covariance * scale, uncertainties * np.sqrt(scale)
 
 
 def _public_to_optimizer_coords(
@@ -3821,18 +3839,14 @@ def _build_joint_result(
         if joint_result is not None and joint_result.covariance is not None
         else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
     )
-    if n_penalty_rows and joint_result is not None:
-        # The solver's s² counted the L3 penalty rows as observations; put the
-        # covariance back on the data-row dof (same rule as the averaged path).
-        _dof_valid = int(data_only_residual.size) - int(prob.x0.size)
-        if _dof_valid > 0:
-            _dof_scale = (_dof_valid + int(n_penalty_rows)) / _dof_valid
-            covariance = covariance * _dof_scale
-            uncertainties = uncertainties * np.sqrt(_dof_scale)
-        else:
-            # Only the penalty rows gave the solver a positive dof.
-            covariance = np.full_like(covariance, np.nan)
-            uncertainties = np.full_like(uncertainties, np.nan)
+    if joint_result is not None:
+        covariance, uncertainties = _drop_penalty_rows_from_dof(
+            covariance,
+            uncertainties,
+            n_valid=int(data_only_residual.size),
+            n_params=int(prob.x0.size),
+            n_penalty_rows=int(n_penalty_rows),
+        )
 
     # When no NLSQ result backs this assembly, the verdict depends on WHY
     # ``joint_result`` is None. A kept GLOBAL ESCAPE returns a pre-accepted

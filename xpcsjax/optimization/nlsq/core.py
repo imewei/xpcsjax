@@ -2443,7 +2443,9 @@ def fit_nlsq_cmaes(
             # The quantile estimator returns scaling in SORTED-unique phi order, but
             # phi_indices index data rows: gather into row order (identity for
             # ascending phi). The result still reports the sorted-order arrays.
-            _row_to_sorted = np.searchsorted(np.unique(phi_angles), np.asarray(phi_angles))
+            from xpcsjax.optimization.nlsq.data_prep import rows_to_sorted_phi_index
+
+            _row_to_sorted = rows_to_sorted_phi_index(phi_angles)
             fixed_contrast_jax = jnp.asarray(np.asarray(fixed_contrast_per_angle)[_row_to_sorted])
             fixed_offset_jax = jnp.asarray(np.asarray(fixed_offset_per_angle)[_row_to_sorted])
 

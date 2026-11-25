@@ -193,7 +193,10 @@ from xpcsjax.optimization.nlsq.transforms import (
 # Anti-Degeneracy Defense System
 
 # Memory management utilities (extracted to memory.py for reduced complexity)
-from xpcsjax.optimization.nlsq.data_prep import sigma_in_sorted_phi_order
+from xpcsjax.optimization.nlsq.data_prep import (
+    rows_to_sorted_phi_index,
+    sigma_in_sorted_phi_order,
+)
 from xpcsjax.optimization.nlsq.memory import (
     NLSQStrategy,
     config_memory_fraction,
@@ -3616,9 +3619,7 @@ class NLSQWrapper(NLSQAdapterBase):
         # Invariant: per-angle parameters and grid theory are in SORTED-unique phi
         # order; data rows are in the caller's order. Map data row -> sorted slot
         # (identity for ascending phi).
-        phi_row_to_unique = jnp.asarray(
-            np.searchsorted(np.unique(np.asarray(phi)), np.atleast_1d(np.asarray(phi)))
-        )
+        phi_row_to_unique = jnp.asarray(rows_to_sorted_phi_index(phi))
 
         # Phase 5: mode-aware scaling slice. None -> legacy individual (static + the
         # pre-Phase-5 default). "constant" closes over frozen per-angle arrays and the
