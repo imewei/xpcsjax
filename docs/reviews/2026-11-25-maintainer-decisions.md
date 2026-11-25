@@ -157,6 +157,11 @@ means Layer 3 off on both hybrid-streaming paths (it used to apply an absolute-v
 and a weighted fit with repeated phi angles on the large-data paths now uses each measurement's own
 weights.
 
+Closing check (`2026-11-25-evidence/pr81_codex_closing.md`, `pr81_agy_closing.md`): both reviewers
+confirmed every finding fixed and accepted the one sub-point left unchanged. Codex found one
+regression from the fixes — on heterodyne hybrid streaming an explicit `regularization.enable:
+null` had always meant off and was turned on by the shared gate — which is fixed with a test.
+
 ## Verification status
 
 See the pull request for the test and golden-parity results on the final commit.

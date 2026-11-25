@@ -185,3 +185,43 @@ def test_streaming_layer_builders_treat_mode_none_as_l3_off():
     assert not l3_is_enabled({"mode": "none"})
     for module in (heterodyne_hybrid_streaming, hybrid_streaming_layers):  # both gates share it
         assert "l3_is_enabled(" in inspect.getsource(module)
+
+
+# ------------------------------------------------- Codex closing check, new F1
+@pytest.mark.parametrize(("enable", "expected"), [(False, False), (None, False), (True, True)])
+def test_heterodyne_streaming_keeps_treating_a_null_l3_enable_as_off(enable, expected):
+    from unittest.mock import patch
+
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
+        build_heterodyne_stratified_data,
+    )
+    from xpcsjax.optimization.nlsq.strategies import heterodyne_hybrid_streaming as stream
+
+    model, c2, phi = make_synthetic_two_component(n_phi=3, n_t=8)
+    pm = model.param_manager
+    seen = {}
+
+    class Capture:
+        def __init__(self, cfg):
+            seen["l3"] = bool(cfg.enable_group_variance_regularization)
+
+        def fit(self, **kwargs):
+            p = kwargs["p0"]
+            return {"x": p, "pcov": np.eye(len(p)), "success": True}
+
+    ad = {
+        "per_angle_mode": "individual",
+        "hierarchical": {"enable": False},
+        "gradient_monitoring": {"enable": False},
+        "regularization": {"enable": enable, "mode": "relative"},
+    }
+    with patch.object(stream, "AdaptiveHybridStreamingOptimizer", Capture):
+        stream.fit_with_stratified_hybrid_streaming_heterodyne(
+            stratified_data=build_heterodyne_stratified_data(model, c2, phi, None),
+            model=model,
+            physical_param_names=list(pm.varying_names),
+            initial_params=pm.get_initial_values(),
+            bounds=pm.get_bounds(),
+            anti_degeneracy_config=ad,
+        )
+    assert seen["l3"] is expected

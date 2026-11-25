@@ -653,8 +653,13 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
 
     from xpcsjax.optimization.nlsq.strategies.hybrid_streaming_layers import l3_is_enabled
 
+    # This path has always read ``enable`` by truthiness, so an explicit null is off
+    # here; ``mode: "none"`` is off too.
     regularization_active = (
-        (n_scaling > 0) and (_group_indices is not None) and l3_is_enabled(reg_cfg_dict)
+        (n_scaling > 0)
+        and (_group_indices is not None)
+        and bool(reg_cfg_dict.get("enable", True))
+        and l3_is_enabled(reg_cfg_dict)
     )
 
     adaptive_regularizer: AdaptiveRegularizer | None = None
