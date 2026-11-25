@@ -523,6 +523,18 @@ def _resolve_phi_index(data: dict[str, Any], phi_deg: float, phi_index: int | No
     return int(matches[0])
 
 
+def _fit_q(data: dict[str, Any], config_q: Any) -> Any:
+    """Return the q the homodyne fit used: the loader's selected bin, else config q.
+
+    The fit reads ``wavevector_q_list[0]`` (the closest measured bin), which can
+    differ from the requested ``analyzer_parameters.scattering.wavevector_q``.
+    """
+    q_list = np.atleast_1d(np.asarray(data.get("wavevector_q_list", []), dtype=float))
+    if q_list.size and np.isfinite(q_list[0]):
+        return float(q_list[0])
+    return config_q
+
+
 def _evaluate_c2_per_angle(
     model: Any,
     result: Any,
@@ -559,6 +571,12 @@ def _evaluate_c2_per_angle(
             offset = float(offsets[0]) if offsets.size else 1.0
         else:
             i = _resolve_phi_index(data, phi_deg, phi_index)
+            # The homodyne fit stores per-angle scaling in SORTED-unique phi
+            # order; ``i`` is a data row. Map row -> sorted slot (identity for
+            # ascending phi).
+            phi_rows = np.asarray(data.get("phi_angles_list", []), dtype=float)
+            if i < phi_rows.size:
+                i = int(np.searchsorted(np.unique(phi_rows), phi_rows[i]))
             contrast = float(contrasts[i])
             offset = float(offsets[i])
         # HomodyneModel (the stateful wrapper) carries pre-computed grids /
@@ -573,7 +591,7 @@ def _evaluate_c2_per_angle(
             c2 = model.compute_c2_single_angle(physical_params, phi_deg, contrast, offset)
             return np.asarray(c2)
         ap = config.get("analyzer_parameters") or {}
-        q_raw = (ap.get("scattering") or {}).get("wavevector_q")
+        q_raw = _fit_q(data, (ap.get("scattering") or {}).get("wavevector_q"))
         if q_raw is None:
             raise ValueError("Missing analyzer_parameters.scattering.wavevector_q")
         L_raw = (ap.get("geometry") or {}).get("stator_rotor_gap")
@@ -1683,6 +1701,8 @@ def generate_nlsq_plots(
 
     ap = config_dict.get("analyzer_parameters") or {}
     q = (ap.get("scattering") or {}).get("wavevector_q")
+    if _is_homodyne_family(model):
+        q = _fit_q(data, q)
     L = (ap.get("geometry") or {}).get("stator_rotor_gap")
     dt = ap.get("dt")
     if dt is None:
@@ -1882,7 +1902,11 @@ def generate_nlsq_plots(
     # Heterodyne honours _heterodyne_physics_is_head: physics-first averaged
     # (scaling_first=False) and constant put physics at the HEAD; scaling-first
     # averaged / individual put it at the TAIL.
-    all_unc = np.asarray(result.uncertainties, dtype=float)
+    all_unc = np.asarray(result.uncertainties, dtype=float).ravel()
+    if all_unc.size != np.asarray(result.parameters).size:
+        # 0-D / off-length placeholder (a legal OptimizationResult): no usable
+        # per-parameter uncertainties, so report NaN instead of mis-slicing.
+        all_unc = np.full(np.asarray(result.parameters).size, np.nan)
     if _is_heterodyne_family(model):
         n_physical_het = len(model.parameter_names)
         diagnostics = getattr(result, "nlsq_diagnostics", None) or {}

@@ -13,6 +13,9 @@ actual generation via a deferred import, keeping the GUI process JAX-free.
 from __future__ import annotations
 
 import math
+import os
+import shutil
+import uuid
 from pathlib import Path
 
 import yaml
@@ -292,7 +295,18 @@ class ConfigTextEditorDialog(QDialog):
         if self._load_error is not None:
             return
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(self._editor.toPlainText(), encoding="utf-8")
+        # Atomic: write a sibling temp then os.replace, so a failed write never
+        # truncates the existing config.
+        # (Not mkstemp: that would leave the config owner-only, 0600.)
+        tmp = self._path.with_name(f"{self._path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        try:
+            tmp.write_text(self._editor.toPlainText(), encoding="utf-8")
+            if self._path.exists():
+                shutil.copymode(self._path, tmp)
+            os.replace(tmp, self._path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     # --- slot ------------------------------------------------------------------
     def _on_save(self) -> None:

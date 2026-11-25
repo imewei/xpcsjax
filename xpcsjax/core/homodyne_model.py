@@ -349,7 +349,9 @@ class HomodyneModel:
     def _determine_analysis_mode(self, config: dict) -> str:
         """Determine analysis mode from configuration."""
         analysis_settings = config.get("analysis_settings", {})
-        if analysis_settings:
+        if analysis_settings and (
+            "static_mode" in analysis_settings or "isotropic_mode" in analysis_settings
+        ):
             is_static = _coerce_bool_flag(analysis_settings.get("static_mode", False))
             is_isotropic = _coerce_bool_flag(analysis_settings.get("isotropic_mode", False))
 

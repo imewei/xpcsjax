@@ -26,7 +26,7 @@ def read_hdf5_metadata(path: str | Path) -> list[DatasetInfo]:
 
     def _visit(name: str, obj: object) -> None:
         if isinstance(obj, h5py.Dataset):
-            infos.append(DatasetInfo(name=name, shape=tuple(obj.shape), dtype=str(obj.dtype)))
+            infos.append(DatasetInfo(name=name, shape=tuple(obj.shape or ()), dtype=str(obj.dtype)))
 
     with h5py.File(path, "r") as f:
         f.visititems(_visit)

@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 
 from xpcsjax.gui.controllers.fit_queue import FitQueueController
 from xpcsjax.gui.error_presenter import present_failure
-from xpcsjax.gui.project.model import Project
+from xpcsjax.gui.project.model import DONE, Project
 from xpcsjax.gui.project.persist import load_project, save_project
 from xpcsjax.gui.result_loader import load_result_summary
 from xpcsjax.gui.theme import repolish
@@ -617,6 +617,8 @@ class MainWindow(QMainWindow):
                         continue
                     try:
                         run.summary = load_result_summary(str(_expand_path(run.result_dir)))
+                        # Dir exists but holds no loadable summary: flag it (spec §8).
+                        run.result_missing = run.summary is None and run.status == DONE
                     except Exception:
                         run.summary = None
                         run.result_missing = True
@@ -661,6 +663,7 @@ class MainWindow(QMainWindow):
         self._queue.cancel_all()
         self._active_run_id = None
         self._viewing_run_id = None
+        self._result_presenter.invalidate_pending()  # a late bundle load must not repopulate
         self._comparison.show_runs([])
         self._inspector.show_summary(None)
         self._result_grid.set_bundle(None)

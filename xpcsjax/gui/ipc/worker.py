@@ -68,7 +68,12 @@ def run_worker(job: FitJob, event_queue: Any) -> None:
                 from xpcsjax.service.plots import generate_plots
 
                 plots_result = generate_plots(result, data, config_manager, out_dir / "plots")
-                if plots_result is not None:
+                # Only when this run wrote an NPZ: with output_format "json" a stale
+                # nlsq_result.npz from an older run would pass the freshness guard.
+                if plots_result is not None and job.output_format.lower().strip() in (
+                    "npz",
+                    "both",
+                ):
                     # Mirrors cli/commands.py's post-plot merge: the "simulated"
                     # plot family writes c2_exp/c2_fitted/residuals to
                     # plots/simulated_data/c2_fitted_data.npz; fold those into

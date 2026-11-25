@@ -348,6 +348,13 @@ class HeterodyneModel:
         if params is None:
             params = self.get_params()
 
+        expected_shape = (len(self.t), len(self.t))
+        for label, arr in (("c2_data", c2_data), ("weights", weights)):
+            if arr is not None and np.shape(arr) != expected_shape:
+                raise ValueError(
+                    f"{label} must have shape {expected_shape} (n_t, n_t), got {np.shape(arr)}"
+                )
+
         if contrast is None or offset is None:
             sc_contrast, sc_offset = self.scaling.get_for_angle(angle_idx)
             if contrast is None:

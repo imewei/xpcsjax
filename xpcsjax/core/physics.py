@@ -158,6 +158,14 @@ def validate_parameters_detailed(
             message="Skipped validation for JAX tracers",
         )
 
+    if np.ndim(params) != 1:
+        return ValidationResult(
+            valid=False,
+            violations=[f"params must be 1-D, got {np.ndim(params)}-D input"],
+            parameters_checked=0,
+            message="Parameter shape validation failed",
+        )
+
     # Check parameter count
     if len(params) != len(bounds):
         return ValidationResult(

@@ -74,7 +74,7 @@ def _subset_data_by_phi(
         raw_diffs = np.abs(norm_data - norm_ang)
         diffs = np.minimum(raw_diffs, 360.0 - raw_diffs)
         j = int(np.argmin(diffs))
-        if diffs[j] > tol:
+        if not (diffs[j] <= tol):  # also true for NaN (NaN > tol is False)
             logger.warning(
                 "phi %.3f deg has no matching data angle within %.1f deg "
                 "(closest %.3f deg); not subsetting — fitting all angles.",
