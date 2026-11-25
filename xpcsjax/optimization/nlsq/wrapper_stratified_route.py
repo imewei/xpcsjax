@@ -34,6 +34,7 @@ import numpy as np
 from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.optimization.nlsq.memory import (
     NLSQStrategy,
+    config_memory_fraction,
     get_adaptive_memory_threshold,
 )
 from xpcsjax.optimization.nlsq.result_helpers import _info_cov_placeholder
@@ -212,7 +213,9 @@ def run_stratified_ls_route(
     # imports this module lazily, so there is no cycle at import time.
     from xpcsjax.optimization.nlsq import wrapper as _wrapper_mod
 
-    strategy_recheck = _wrapper_mod.select_nlsq_strategy(n_total_points, effective_n_params)
+    strategy_recheck = _wrapper_mod.select_nlsq_strategy(
+        n_total_points, effective_n_params, config_memory_fraction(config)
+    )
 
     logger.info(
         f"Strategy re-check (with {effective_n_params} effective params, "
@@ -302,8 +305,7 @@ def run_stratified_ls_route(
         # or memory_fraction (new adaptive approach)
         if "memory_threshold_gb" in nlsq_config:
             memory_threshold_gb = nlsq_config["memory_threshold_gb"]
-        if "memory_fraction" in nlsq_config:
-            memory_fraction = nlsq_config["memory_fraction"]
+        memory_fraction = config_memory_fraction(config)
 
     # Compute adaptive threshold if not explicitly set
     if memory_threshold_gb is None:

@@ -25,6 +25,7 @@ from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
     assemble_anti_degeneracy_diagnostics,
 )
 from xpcsjax.optimization.nlsq.covariance import finalize_covariance
+from xpcsjax.optimization.nlsq.data_prep import sigma_in_sorted_phi_order
 from xpcsjax.optimization.nlsq.gradient_monitor import (
     GradientCollapseMonitor,
     GradientMonitorConfig,
@@ -344,7 +345,12 @@ def build_heterodyne_pointwise_model(
     # ------------------------------------------------------------------
     meta_sigma: np.ndarray | None = None
     if hasattr(stratified_data, "sigma") and stratified_data.sigma is not None:
-        sigma_3d = np.asarray(stratified_data.sigma, dtype=np.float64)
+        # sigma's angle axis follows the input phi order (stratified_data.phi_raw);
+        # phi_idx_pre below is a SORTED-phi index. No-op for ascending phi.
+        sigma_3d = sigma_in_sorted_phi_order(
+            np.asarray(stratified_data.sigma, dtype=np.float64),
+            getattr(stratified_data, "phi_raw", None),
+        )
         # Reuse the pre-keep phi/t indices from the PRE-filter arrays so the
         # mask aligns with the flat order we started from.
         phi_idx_pre = _bin_to_grid(all_phi, phi_unique, "phi_sigma_pre")
@@ -923,6 +929,10 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             H = np.asarray(jax.jit(jax.hessian(_loss_jax))(popt_jax))
             if not np.all(np.isfinite(H)):
                 raise ValueError("Hessian contains non-finite entries")
+            # An indefinite Hessian inverts fine and can still have a positive
+            # inverse diagonal, so the sign check below cannot catch it.
+            if np.linalg.eigvalsh(0.5 * (H + H.T)).min() <= 0:
+                raise ValueError("Hessian is singular or not positive-definite")
             try:
                 pcov = 2.0 * s2_hier * np.linalg.inv(H)
             except np.linalg.LinAlgError as le:

@@ -627,7 +627,7 @@ def compute_consistent_per_angle_init(
                 t1_list = []
                 t2_list = []
                 for chunk in stratified_data.chunks:
-                    mask = np.isclose(chunk.phi, phi, atol=0.1)
+                    mask = chunk.phi == phi  # exact: phi comes from np.unique of this data
                     if np.any(mask):
                         g2_list.extend(chunk.g2[mask].tolist())
                         t1_list.extend(chunk.t1[mask].tolist())
@@ -638,7 +638,7 @@ def compute_consistent_per_angle_init(
                 t1_data = np.array(t1_list)
                 t2_data = np.array(t2_list)
             else:
-                mask = np.isclose(stratified_data.phi_flat, phi, atol=0.1)
+                mask = stratified_data.phi_flat == phi
                 if not np.any(mask):
                     continue
                 g2_data = stratified_data.g2_flat[mask]

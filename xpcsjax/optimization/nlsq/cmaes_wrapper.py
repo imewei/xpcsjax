@@ -699,17 +699,26 @@ class CMAESWrapper:
                     "standard": "trf",
                     "streaming": "hybrid_streaming",
                 }
-                # NLSQ returns (popt, pcov), not scipy's 5-tuple with full_output
-                popt, pcov = curve_fit(
+                _method = _method_map.get(self.config.refinement_workflow)
+                if _method == "hybrid_streaming":
+                    # The streaming solver rejects these TRF-only kwargs (TypeError),
+                    # which silently skipped the refinement.
+                    refinement_kwargs = {}
+                # NLSQ returns a CurveFitResult that unpacks as (popt, pcov) and
+                # also carries the solver's own convergence verdict.
+                fit_result = curve_fit(
                     f=model_func,
                     xdata=xdata,
                     ydata=ydata,
                     p0=p0,
                     sigma=sigma,
                     bounds=bounds,
-                    method=_method_map.get(self.config.refinement_workflow),
+                    method=_method,
                     **refinement_kwargs,
                 )
+                popt, pcov = fit_result
+                converged = bool(getattr(fit_result, "success", True))
+                solver_message = str(getattr(fit_result, "message", "") or "")
 
             # Compute refined chi-squared
             pred = model_func(xdata, *popt)
@@ -727,9 +736,16 @@ class CMAESWrapper:
                 "pcov": np.asarray(pcov) if pcov is not None else None,
                 "chi_squared": chi_squared,
                 "infodict": {},  # NLSQ doesn't return infodict
-                "mesg": "NLSQ TRF refinement converged",
-                "ier": 1,  # Success
-                "success": True,
+                "mesg": solver_message
+                or (
+                    "NLSQ refinement converged" if converged else "NLSQ refinement did not converge"
+                ),
+                "ier": 1 if converged else 0,
+                # success = the solver converged (e.g. False when max_nfev is
+                # exhausted); adoptable = it ran and returned a point, which is
+                # all the keep-better gates need.
+                "success": converged,
+                "adoptable": True,
                 "duration_s": phase.duration,
             }
 
@@ -754,6 +770,7 @@ class CMAESWrapper:
                 "mesg": f"Refinement failed: {e}",
                 "ier": -1,
                 "success": False,
+                "adoptable": False,
             }
 
     def _configure_memory(
@@ -992,7 +1009,9 @@ class CMAESWrapper:
                     f"max_gen {cmaes_config.max_generations}->{adaptive_gen}"
                 )
                 cmaes_config.popsize = adaptive_pop
-                cmaes_config.max_generations = adaptive_gen
+                # An explicit max_generations overrides adaptive scaling (docstring).
+                if self.config.max_generations is None:
+                    cmaes_config.max_generations = adaptive_gen
 
         # Configure memory batching using the FINAL (post-adaptive-scaling)
         # popsize -- sizing this before the scale_ratio > 1e3 block above would
@@ -1183,7 +1202,7 @@ class CMAESWrapper:
                 else float("nan")
             )
             if (
-                refinement_result["success"]
+                refinement_result["adoptable"]
                 and np.isfinite(_ref_chi2)
                 and (not np.isfinite(cmaes_chi_squared) or _ref_chi2 <= cmaes_chi_squared)
             ):
@@ -1192,6 +1211,7 @@ class CMAESWrapper:
                 best_covariance = refinement_result["pcov"]
                 best_chi_squared = refinement_result["chi_squared"]
                 nlsq_refined = True
+                diagnostics["refinement_converged"] = refinement_result["success"]
 
                 # Update diagnostics with refinement info.
                 # NLSQ curve_fit returns only (popt, pcov) — no nfev is available
@@ -1219,7 +1239,7 @@ class CMAESWrapper:
                 )
             else:
                 # Refinement failed or regressed; keep the CMA-ES result.
-                if refinement_result["success"]:
+                if refinement_result["adoptable"]:
                     logger.warning(
                         f"[CMA-ES] Refinement did not improve chi2 "
                         f"({cmaes_chi_squared:.4e} -> {_ref_chi2:.4e}); "

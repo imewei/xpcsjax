@@ -23,6 +23,46 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def restore_input_angle_order(result: Any, order: np.ndarray) -> Any:
+    """Un-permute an ``individual``-mode result solved on phi-sorted data.
+
+    The shared engine indexes per-angle scaling by SORTED phi, while heterodyne
+    results are reported in the caller's angle order. ``order`` is the argsort
+    that sorted the input; this maps the scaling-first ``[c | o | physics]``
+    vector, its covariance/uncertainties and every per-angle diagnostics array
+    back to input order.
+    """
+    from dataclasses import replace
+
+    inv = np.argsort(order)
+    n_phi = len(inv)
+    params = np.asarray(result.parameters)
+    perm = np.concatenate([inv, n_phi + inv, np.arange(2 * n_phi, params.size)])
+
+    def _per_angle(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: _per_angle(v) for k, v in value.items()}
+        arr = np.asarray(value) if isinstance(value, (list, np.ndarray)) else None
+        if arr is not None and arr.ndim == 1 and arr.size == n_phi and arr.dtype.kind in "fiu":
+            return arr[inv] if isinstance(value, np.ndarray) else arr[inv].tolist()
+        return value
+
+    unc, cov = result.uncertainties, result.covariance
+    return replace(
+        result,
+        parameters=params[perm],
+        uncertainties=(
+            np.asarray(unc)[perm] if unc is not None and np.shape(unc) == params.shape else unc
+        ),
+        covariance=(
+            np.asarray(cov)[np.ix_(perm, perm)]
+            if cov is not None and np.shape(cov) == (params.size, params.size)
+            else cov
+        ),
+        nlsq_diagnostics=_per_angle(result.nlsq_diagnostics),
+    )
+
+
 def build_result_from_scipy(
     opt_result: OptimizeResult,
     parameter_names: list[str],
@@ -762,7 +802,10 @@ def build_hybrid_streaming_result(
     reason = str(info.get("convergence_reason", ""))
     hit_max_nfev = (
         not success
-        and reason == "Maximum function evaluations reached"
+        and (
+            reason == "Maximum function evaluations reached"
+            or "maximum number of function evaluations" in reason.lower()
+        )
         and np.isfinite(reduced_chi2)
     )
     if success:

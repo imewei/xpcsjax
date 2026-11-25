@@ -380,6 +380,19 @@ def _reconstruct_per_angle_scaling(
     raise NotImplementedError(f"unknown per_angle_mode {mode!r} in L3 reconstruction")
 
 
+def _safe_std(x: jnp.ndarray) -> jnp.ndarray:
+    """Return the population std with a finite (zero) gradient at zero variance.
+
+    ``jnp.std`` is ``sqrt(var)``, whose derivative is NaN at ``var == 0`` -- exactly
+    the uniform per-angle scaling seed. The double ``where`` keeps the value
+    bit-identical to ``jnp.std`` everywhere (including 0 for a uniform group) and
+    gives gradient 0 instead of NaN there.
+    """
+    var = jnp.var(x)
+    pos = var > 0
+    return jnp.where(pos, jnp.sqrt(jnp.where(pos, var, 1.0)), 0.0)
+
+
 def _per_angle_cv(contrasts: jnp.ndarray, offsets: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Return ``(contrast_CV, offset_CV)`` with a safe-divide on near-zero means.
 
@@ -391,11 +404,11 @@ def _per_angle_cv(contrasts: jnp.ndarray, offsets: jnp.ndarray) -> tuple[jnp.nda
     flag.
     """
     c_mean = jnp.mean(contrasts)
-    c_std = jnp.std(contrasts)
+    c_std = _safe_std(contrasts)
     c_denom = jnp.where(jnp.abs(c_mean) > 1e-10, jnp.abs(c_mean), 1.0)
     c_cv = jnp.where(jnp.abs(c_mean) > 1e-10, c_std / c_denom, c_std)
     o_mean = jnp.mean(offsets)
-    o_std = jnp.std(offsets)
+    o_std = _safe_std(offsets)
     o_denom = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.abs(o_mean), 1.0)
     o_cv = jnp.where(jnp.abs(o_mean) > 1e-10, o_std / o_denom, o_std)
     return c_cv, o_cv
@@ -578,6 +591,37 @@ def fit_heterodyne_stratified_least_squares(
     from xpcsjax.optimization.nlsq.parameter_utils import (
         compute_quantile_per_angle_scaling,
     )
+
+    # The stratified engine indexes per-angle scaling by SORTED phi. For
+    # ``individual`` mode with non-ascending phi, solve on sorted data and restore
+    # the caller's angle order afterwards (see restore_input_angle_order).
+    _phi_in = np.asarray(phi, dtype=np.float64)
+    _order = np.argsort(_phi_in, kind="stable")
+    if (
+        np.ndim(c2) == 3
+        and not np.array_equal(_order, np.arange(len(_phi_in)))
+        and _resolve_effective_mode(config, len(np.unique(_phi_in))) == "individual"
+    ):
+        from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+            restore_input_angle_order,
+        )
+
+        _w = None if weights is None else np.asarray(weights)
+        return restore_input_angle_order(
+            fit_heterodyne_stratified_least_squares(
+                model=model,
+                c2=np.asarray(c2)[_order],
+                phi=_phi_in[_order],
+                config=config,
+                weights=_w[_order] if _w is not None and _w.ndim == 3 else weights,
+                target_chunk_size=target_chunk_size,
+                shuffle=shuffle,
+                use_index_based=use_index_based,
+                check_memory_safety=check_memory_safety,
+                anti_degeneracy_dict=anti_degeneracy_dict,
+            ),
+            _order,
+        )
 
     strat = build_heterodyne_stratified_data(model, c2, phi, weights)
     n_phi = len(phi)

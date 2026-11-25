@@ -395,6 +395,32 @@ def fit_two_component_via_engine(
 
     phi_arr = np.asarray(phi, dtype=np.float64)
     n_phi = len(phi_arr)
+
+    # The engine indexes per-angle scaling by SORTED phi. For ``individual`` mode
+    # with non-ascending phi, solve on sorted data and restore the caller's angle
+    # order afterwards (other modes carry no per-angle optimizer slots).
+    _order = np.argsort(phi_arr, kind="stable")
+    if (
+        np.ndim(c2) == 3
+        and not np.array_equal(_order, np.arange(n_phi))
+        and _resolve_effective_mode(config, n_phi) == "individual"
+    ):
+        from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+            restore_input_angle_order,
+        )
+
+        _w = None if weights is None else np.asarray(weights)
+        return restore_input_angle_order(
+            fit_two_component_via_engine(
+                model,
+                np.asarray(c2)[_order],
+                phi_arr[_order],
+                config,
+                weights=_w[_order] if _w is not None and _w.ndim == 3 else weights,
+            ),
+            _order,
+        )
+
     phys_names = list(model.param_manager.varying_names)
     n_varying = len(phys_names)
     t = np.asarray(model.t, dtype=np.float64)
@@ -552,7 +578,8 @@ def fit_two_component_via_engine(
 
     # -- NLSQ solve (SAME settings production uses) -------------------------
     joint_cfg = _NLSQConfig(
-        method=config.method,
+        # lm cannot honour bounds; coerce to trf like heterodyne_core's joint paths.
+        method=config.method if config.method != "lm" else "trf",
         loss=config.loss,
         ftol=config.ftol,
         xtol=config.xtol,

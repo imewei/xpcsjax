@@ -499,6 +499,8 @@ def fit_with_out_of_core_accumulation(
             return active_step
         return jnp.zeros(n_params).at[jnp.asarray(free_idx)].set(active_step)
 
+    n_diag_rows = int(np.count_nonzero(np.asarray(t1_flat) == np.asarray(t2_flat)))
+
     def _pcov_from_active_jtj(active_JtJ: Any, chi2: float, count: int) -> tuple[np.ndarray, bool]:
         """Invert the free-submatrix Hessian into a full-length covariance.
 
@@ -510,7 +512,11 @@ def fit_with_out_of_core_accumulation(
         directions as exactly 0.0 variance) but returned as all-NaN with
         ``is_placeholder=True``.
         """
-        s2 = float(chi2) / max(count - n_params_effective, 1)
+        # s² DOF: the kernel zero-masks the t1 == t2 rows, so they are not
+        # observations, and a fixed parameter is not estimated (same rule as
+        # stratified_ls.py).
+        n_fixed = 0 if free_idx is None else n_params - len(free_idx)
+        s2 = float(chi2) / max((count - n_diag_rows) - (n_params_effective - n_fixed), 1)
         try:
             active_pcov = s2 * np.linalg.inv(np.array(active_JtJ))
         except np.linalg.LinAlgError:
@@ -577,6 +583,13 @@ def fit_with_out_of_core_accumulation(
                 if i == 0:
                     raise RuntimeError("Initial parameters produced invalid gradients.")
                 break_reason = "non_finite_gradient"
+                break
+
+            if not bool(jnp.any(active_Jtr != 0)):
+                # Exactly zero gradient: already stationary. No damped step can
+                # lower chi2, which would otherwise be reported as a stalled
+                # line search (a failure) instead of convergence.
+                rel_change, cost_change = 0.0, 0.0
                 break
 
             diag_idx = jnp.diag_indices_from(active_JtJ)

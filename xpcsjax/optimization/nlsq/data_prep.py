@@ -64,6 +64,29 @@ class ExpandedParameters:
     n_angles: int
 
 
+def sigma_in_sorted_phi_order(sigma: np.ndarray, phi_raw: Any) -> np.ndarray:
+    """Return ``sigma`` with its angle axis reordered from raw to ascending phi.
+
+    A sigma grid's axis 0 follows the loader's phi order, while per-angle indices
+    are built against sorted-unique phi; gathering one with the other assigns
+    sigma to the wrong angle whenever the raw order is not ascending.
+
+    Returns the same object (no copy) when phi is already ascending, or when
+    ``phi_raw`` is missing, mismatched in length, or contains duplicates.
+    """
+    if phi_raw is None:
+        return sigma
+    phi_raw = np.asarray(phi_raw, dtype=np.float64).ravel()
+    if sigma.ndim < 1 or len(phi_raw) != sigma.shape[0]:
+        return sigma
+    if len(np.unique(phi_raw)) != len(phi_raw):
+        return sigma
+    order = np.argsort(phi_raw, kind="stable")
+    if np.array_equal(order, np.arange(len(order))):
+        return sigma
+    return sigma[order]
+
+
 def expand_per_angle_parameters(
     compact_params: np.ndarray,
     compact_bounds: tuple[np.ndarray, np.ndarray] | None,

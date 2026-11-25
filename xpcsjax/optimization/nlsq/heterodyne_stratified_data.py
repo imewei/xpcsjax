@@ -81,6 +81,9 @@ class HeterodyneStratifiedData:
 
     # per-angle mapping: chunk index → angle index (same as phi index here)
     angle_indices: list[int] = field(default_factory=list)
+    # Input-order phi, one per sigma row. Consumers that gather sigma by a
+    # sorted-phi index need it (data_prep.sigma_in_sorted_phi_order).
+    phi_raw: np.ndarray | None = None
 
 
 def build_heterodyne_stratified_data(
@@ -109,8 +112,9 @@ def build_heterodyne_stratified_data(
         Phi angles in degrees, shape ``(n_phi,)``.
     weights : np.ndarray, optional
         Inverse-variance weights, same shape as ``c2`` (broadcastable). ``None``
-        yields uniform ``sigma = 1``; otherwise ``sigma = 1 / sqrt(weight)``
-        (zeros are guarded to ``1``).
+        yields uniform ``sigma = 1``; otherwise ``sigma = 1 / sqrt(weight)``.
+        Non-positive weights give ``sigma = inf`` so those pixels contribute zero
+        residual (the in-memory kernel masks zero-weight pixels the same way).
 
     Returns
     -------
@@ -165,9 +169,9 @@ def build_heterodyne_stratified_data(
             w_arr = w_arr[np.newaxis, ...]
         # Broadcast to (n_phi, n_t, n_t)
         w_arr = np.broadcast_to(w_arr, (n_phi, n_t, n_t)).copy()
-        # sigma = 1/sqrt(weight), guard against zeros
+        # sigma = 1/sqrt(weight); weight <= 0 -> inf so the pixel's residual is 0.
         with np.errstate(divide="ignore", invalid="ignore"):
-            sigma = np.where(w_arr > 0, 1.0 / np.sqrt(w_arr), 1.0)
+            sigma = np.where(w_arr > 0, 1.0 / np.sqrt(w_arr), np.inf)
     else:
         # Unweighted: None sentinel instead of a dense (n_phi, n_t, n_t) ones
         # array. create_stratified_chunks forwards None unchanged; the engine and
@@ -226,4 +230,5 @@ def build_heterodyne_stratified_data(
         n_phi=n_phi,
         n_t=n_t,
         angle_indices=angle_indices,
+        phi_raw=phi_arr.copy(),
     )

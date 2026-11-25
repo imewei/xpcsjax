@@ -1370,6 +1370,10 @@ def fit_with_stratified_hybrid_streaming(
         covariance_is_placeholder = False
         if H is not None:
             try:
+                # An indefinite Hessian inverts without error; treat it like a
+                # singular one (no real covariance exists at such a point).
+                if np.all(np.isfinite(H)) and np.linalg.eigvalsh(0.5 * (H + H.T)).min() <= 0:
+                    raise np.linalg.LinAlgError("Hessian not positive-definite")
                 pcov_hier = 2.0 * s2_hier * np.linalg.inv(H)
                 logger.info(
                     f"Hierarchical covariance from Hessian: s^2={s2_hier:.6e} "

@@ -193,8 +193,10 @@ from xpcsjax.optimization.nlsq.transforms import (
 # Anti-Degeneracy Defense System
 
 # Memory management utilities (extracted to memory.py for reduced complexity)
+from xpcsjax.optimization.nlsq.data_prep import sigma_in_sorted_phi_order
 from xpcsjax.optimization.nlsq.memory import (
     NLSQStrategy,
+    config_memory_fraction,
     select_nlsq_strategy,
 )
 
@@ -868,7 +870,9 @@ class NLSQWrapper(NLSQAdapterBase):
         n_est_points = _extract_n_points(data)
         n_params = len(initial_params) if initial_params is not None else 0
 
-        strategy_decision = select_nlsq_strategy(n_est_points, n_params)
+        strategy_decision = select_nlsq_strategy(
+            n_est_points, n_params, config_memory_fraction(config)
+        )
         logger.info(
             f"Strategy selection: {strategy_decision.strategy.value} ({strategy_decision.reason})"
         )
@@ -1618,7 +1622,7 @@ class NLSQWrapper(NLSQAdapterBase):
 
         if not strategy_override:
             # Map memory-based decision to OptimizationStrategy for fallback chain
-            decision = select_nlsq_strategy(n_data, n_parameters)
+            decision = select_nlsq_strategy(n_data, n_parameters, config_memory_fraction(config))
             if decision.strategy == NLSQStrategy.HYBRID_STREAMING:
                 strategy = OptimizationStrategy.STREAMING
             elif decision.strategy == NLSQStrategy.OUT_OF_CORE:
@@ -1752,15 +1756,23 @@ class NLSQWrapper(NLSQAdapterBase):
         #   * constant  -> n_physics (scaling frozen, zero scaling DOF).
         # Single source of truth = the resolved enum + mapper (no inline token re-read).
         n_physical = len(physical_param_names)
+        # A fixed physical parameter must not consume a DOF (same rule as the
+        # stratified route): popt is restored to full length by this point.
+        n_fixed_physical = (
+            0 if resolved_physical is None else n_physical - int(resolved_physical.free_mask.sum())
+        )
+        n_free_physical = n_physical - n_fixed_physical
         n_dof_effective: int | None = None
         dof_basis: str | None = None
         if scaling_mapper is not None:
             if resolved_per_angle_mode in ("averaged", "individual"):
-                n_dof_effective = 2 * n_phi_unique + n_physical
+                n_dof_effective = 2 * n_phi_unique + n_free_physical
                 dof_basis = "expanded_constrained_model"
             elif resolved_per_angle_mode == "constant":
-                n_dof_effective = n_physical
+                n_dof_effective = n_free_physical
                 dof_basis = "physics_only"
+        if n_dof_effective is None and n_fixed_physical > 0:
+            n_dof_effective = len(popt) - n_fixed_physical
 
         return self._post_process_results(
             popt=popt,
@@ -2327,7 +2339,10 @@ class NLSQWrapper(NLSQAdapterBase):
             # t1_flat / t2_flat carry the reordered, interleaved per-point
             # VALUES. Map each point back onto the sigma grid the same way
             # the sequential fallback's residual_func does.
-            sigma_3d = np.asarray(sigma_raw, dtype=np.float64)
+            # sigma rows follow data.phi_raw; the indices below are sorted-phi.
+            sigma_3d = sigma_in_sorted_phi_order(
+                np.asarray(sigma_raw, dtype=np.float64), getattr(data, "phi_raw", None)
+            )
             phi_unique = np.asarray(data.phi)
             t1_unique = np.asarray(data.t1)
             t2_unique = np.asarray(data.t2)
@@ -2807,7 +2822,10 @@ class NLSQWrapper(NLSQAdapterBase):
         from xpcsjax.config.parameter_manager import ParameterManager
 
         param_manager = ParameterManager(config.config, analysis_mode)
-        base_param_names = param_manager.get_all_parameter_names()
+        # Canonical solver layout, NOT param_manager.get_all_parameter_names():
+        # that follows the config's active list, which may omit or reorder
+        # physical names and then misaligns bounds/labels with the solver vector.
+        base_param_names = ["contrast", "offset", *physical_param_names]
         config_lower_bounds, config_upper_bounds = param_manager.get_bounds_as_arrays(
             base_param_names
         )
@@ -2979,7 +2997,10 @@ class NLSQWrapper(NLSQAdapterBase):
                 dtype=np.float64,
             )
         else:
-            sigma_array = np.asarray(sigma_source, dtype=np.float64)
+            # Rows follow the raw phi order; phi_indices below are sorted-unique.
+            sigma_array = sigma_in_sorted_phi_order(
+                np.asarray(sigma_source, dtype=np.float64), getattr(data, "phi_raw", phi)
+            )
             if not np.all(np.isfinite(sigma_array)):
                 raise ValueError("sigma values must be finite; received NaN/inf entries")
             if np.any(sigma_array <= 0):
@@ -3587,6 +3608,12 @@ class NLSQWrapper(NLSQAdapterBase):
         # Pre-compute phi_unique for per-angle parameter mapping
         phi_unique = jnp.asarray(np.unique(np.asarray(phi)))
         n_phi = len(phi_unique)
+        # Invariant: per-angle parameters and grid theory are in SORTED-unique phi
+        # order; data rows are in the caller's order. Map data row -> sorted slot
+        # (identity for ascending phi).
+        phi_row_to_unique = jnp.asarray(
+            np.searchsorted(np.unique(np.asarray(phi)), np.atleast_1d(np.asarray(phi)))
+        )
 
         # Phase 5: mode-aware scaling slice. None -> legacy individual (static + the
         # pre-Phase-5 default). "constant" closes over frozen per-angle arrays and the
@@ -3776,7 +3803,7 @@ class NLSQWrapper(NLSQAdapterBase):
             t1_idx = remaining // n_t2
             t2_idx = remaining % n_t2
 
-            return g2_theory[phi_idx, t1_idx, t2_idx]
+            return g2_theory[phi_row_to_unique[phi_idx], t1_idx, t2_idx]
 
         return model_function
 

@@ -139,6 +139,8 @@ class ModelCacheKey:
     q: float
     per_angle_scaling: bool
     dt: float | None = None
+    # Stator-rotor gap baked into the closure (multiplies the shear prefactor).
+    L: float = 1.0
 
 
 # =============================================================================
@@ -195,6 +197,7 @@ def _make_cache_key(
     q: float,
     per_angle_scaling: bool,
     dt: float | None = None,
+    L: float = 1.0,
 ) -> ModelCacheKey:
     """Create a hashable cache key from the experimental setup.
 
@@ -224,6 +227,7 @@ def _make_cache_key(
         q=round(q, 10),  # Avoid floating-point precision issues
         per_angle_scaling=per_angle_scaling,
         dt=round(dt, 10) if dt is not None else None,
+        L=float(L),
     )
 
 
@@ -354,6 +358,7 @@ def get_or_create_model(
     enable_jit: bool = True,
     t: np.ndarray | None = None,
     dt: float | None = None,
+    L: float = 1.0,
 ) -> tuple[Any, Callable[[np.ndarray, Any], np.ndarray], bool]:
     """Get cached model or create new one.
 
@@ -454,7 +459,8 @@ def get_or_create_model(
     dt_val = float(dt) if dt is not None else None
 
     # Create cache key
-    cache_key = _make_cache_key(normalized_mode, phi_angles, q, per_angle_scaling, dt_val)
+    L_val = float(L)
+    cache_key = _make_cache_key(normalized_mode, phi_angles, q, per_angle_scaling, dt_val, L_val)
 
     # Check cache. A hit must update recency, otherwise insertion order turns
     # the advertised LRU policy into FIFO eviction.
@@ -608,7 +614,7 @@ def get_or_create_model(
             t2_batch,
             phi_batch,
             q_val,
-            1.0,  # Default L (stator-rotor gap), will be scaled by params
+            L_val,  # stator-rotor gap (multiplies the shear prefactor)
             dt_val,
         )
 
@@ -924,6 +930,10 @@ class NLSQAdapter(NLSQAdapterBase):
             if isinstance(config_dict, dict):
                 dt = config_dict.get("analyzer_parameters", {}).get("dt")
         dt_val = float(dt) if dt is not None else None
+        # Stator-rotor gap: the kernel's shear prefactor scales with it, so the
+        # data's L must reach the closure (1.0 only when the data carries none).
+        gap = self._get_attr(data, "L")
+        L_val = float(gap) if gap is not None else 1.0
 
         # T011: Use get_or_create_model for caching and JIT
         if self.config.enable_cache:
@@ -935,6 +945,7 @@ class NLSQAdapter(NLSQAdapterBase):
                 config=None,
                 enable_jit=self.config.enable_jit,
                 dt=dt_val,
+                L=L_val,
             )
             # T013: Cache statistics logging (DEBUG level)
             stats = get_cache_stats()
@@ -1015,7 +1026,7 @@ class NLSQAdapter(NLSQAdapterBase):
                     jnp.asarray(t2_all, dtype=jnp.float64),
                     phi_per_point,
                     q_val,
-                    1.0,
+                    L_val,
                     dt_val,
                 )
             )
@@ -1113,7 +1124,9 @@ class NLSQAdapter(NLSQAdapterBase):
             # duplicate angles instead collapse to a shared unique index below.
             n_angles = len(phi)
             n_points = len(g2)
-            if len(t1) % n_angles == 0:
+            # len(t1) == n_points: t1 is already flattened per point. Shared 1D
+            # marginals can also divide by n_angles and belong to the next branch.
+            if len(t1) == n_points and len(t1) % n_angles == 0:
                 n_time_per_angle = len(t1) // n_angles
                 phi_broadcast = np.repeat(np.asarray(phi), n_time_per_angle)
             elif len(t1) == len(t2) and n_points == n_angles * len(t1) * len(t2):

@@ -1184,7 +1184,8 @@ class _OptimizeWorker:
         start_time = time.perf_counter()
         result = self.single_fit_func(self.data, start)
         result.start_idx = idx
-        result.initial_params = start
+        # single_fit_func records the full-length start (fixed slots restored);
+        # overwriting it with the optimizer-space `start` dropped those slots.
         result.wall_time = time.perf_counter() - start_time
         return result
 

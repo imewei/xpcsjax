@@ -2440,8 +2440,12 @@ def fit_nlsq_cmaes(
         fixed_contrast_jax = None
         fixed_offset_jax = None
         if use_fixed_scaling and fixed_contrast_per_angle is not None:
-            fixed_contrast_jax = jnp.asarray(fixed_contrast_per_angle)
-            fixed_offset_jax = jnp.asarray(fixed_offset_per_angle)
+            # The quantile estimator returns scaling in SORTED-unique phi order, but
+            # phi_indices index data rows: gather into row order (identity for
+            # ascending phi). The result still reports the sorted-order arrays.
+            _row_to_sorted = np.searchsorted(np.unique(phi_angles), np.asarray(phi_angles))
+            fixed_contrast_jax = jnp.asarray(np.asarray(fixed_contrast_per_angle)[_row_to_sorted])
+            fixed_offset_jax = jnp.asarray(np.asarray(fixed_offset_per_angle)[_row_to_sorted])
 
         # ==========================================================================
         # HONOR fixed_parameters/active_parameters: strip fixed physical
@@ -2597,7 +2601,7 @@ def fit_nlsq_cmaes(
                     bounds=bounds,
                     sigma=sigma_flat,
                 )
-                if warmstart_result["success"] and warmstart_result["chi_squared"] is not None:
+                if warmstart_result["adoptable"] and warmstart_result["chi_squared"] is not None:
                     nlsq_warmstart_chi2 = warmstart_result["chi_squared"]
                     nlsq_warmstart_params = warmstart_result["popt"]
                     nlsq_warmstart_cov = warmstart_result["pcov"]
