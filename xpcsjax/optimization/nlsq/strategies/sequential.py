@@ -798,6 +798,17 @@ def combine_angle_results(
         )
     else:
         combined_params = np.sum(params_list * weights[:, np.newaxis], axis=0)
+    # uniform / n_points with partly-unknown variances: a slot an angle never
+    # fitted (NaN variance) holds its untouched initial guess, so average each
+    # parameter only over the angles that know it (scalar weight when none do).
+    _known_weights: np.ndarray | None = None
+    if weighting != "inverse_variance" and not np.all(np.isfinite(cov_list)):
+        _var = np.array([np.diag(cov) for cov in cov_list])
+        _known_weights = weights[:, np.newaxis] * np.isfinite(_var)
+        _dead = _known_weights.sum(axis=0) == 0
+        _known_weights[:, _dead] = weights[:, np.newaxis]
+        _known_weights = _known_weights / _known_weights.sum(axis=0)
+        combined_params = (params_list * _known_weights).sum(axis=0)
 
     # Combined covariance (inverse variance weighting formula)
     if weighting == "inverse_variance":
@@ -812,6 +823,13 @@ def combine_angle_results(
         combined_var = np.where(_all_zero, 0.0, combined_var)
         combined_var = np.where(_unknown, np.nan, combined_var)
         combined_cov = np.diag(combined_var)
+    elif _known_weights is not None:
+        # Same per-parameter rule for the variances; unknown everywhere -> NaN.
+        combined_cov = np.sum(np.nan_to_num(cov_list) * weights[:, np.newaxis, np.newaxis], axis=0)
+        np.fill_diagonal(
+            combined_cov,
+            np.where(_dead, np.nan, (np.nan_to_num(_var) * _known_weights).sum(axis=0)),
+        )
     else:
         # Weighted average of covariances
         combined_cov = np.sum(cov_list * weights[:, np.newaxis, np.newaxis], axis=0)
@@ -928,6 +946,11 @@ def optimize_per_angle_sequential(
     # Re-normalize optimizer kwargs for the reduced (free) parameter count
     has_fixed = np.any(~free_mask)
     if has_fixed:
+        # A full-length numeric x_scale must be cut to the free parameters first;
+        # re-validating it against the free count would drop it with a warning.
+        _xs = optimizer_kwargs.get("x_scale")
+        if isinstance(_xs, np.ndarray) and _xs.shape == free_mask.shape:
+            optimizer_kwargs = {**optimizer_kwargs, "x_scale": _xs[free_mask]}
         optimizer_kwargs = _normalize_least_squares_kwargs(
             optimizer_kwargs,
             n_params=len(free_params),

@@ -26,6 +26,7 @@ from xpcsjax.optimization.nlsq.anti_degeneracy_controller import (
     AntiDegeneracyController,
 )
 from xpcsjax.optimization.nlsq.covariance import finalize_covariance, gauss_newton_covariance
+from xpcsjax.optimization.nlsq.data_prep import sigma_in_sorted_phi_order
 from xpcsjax.optimization.nlsq.parameter_utils import (
     ResolvedPhysicalParameters,
     restore_by_mask_jax,
@@ -100,6 +101,12 @@ def create_stratified_chunks(
     sigma = (
         stratified_data.sigma
     )  # 3D array (n_phi, n_t1, n_t2), or None (unweighted unit-sigma sentinel)
+    if sigma is not None:
+        # sigma's angle axis follows the raw loader phi order; the residual
+        # engines gather it by sorted-phi index. No-op for ascending phi.
+        sigma = sigma_in_sorted_phi_order(
+            np.asarray(sigma), getattr(stratified_data, "phi_raw", None)
+        )
     q = stratified_data.q
     L = stratified_data.L
     dt = getattr(stratified_data, "dt", None)
@@ -153,6 +160,27 @@ def create_stratified_chunks(
             chunks.append(chunk)
 
     return StratifiedChunkedData(chunks, sigma)
+
+
+def _n_contributing_rows(stratified_data: Any) -> int:
+    """Count the rows that carry a residual.
+
+    The residual engine zero-masks every row with ``|t1 - t2| <= 1e-15`` and every
+    cell whose sigma is ``<= 1e-10`` (residual_jit.py), so neither is an
+    observation for the covariance dof. The two masks are intersected on the
+    ``(t1, t2)`` grid, which is exact for separate t1 / t2 axes as well.
+    """
+    t1 = np.asarray(stratified_data.t1_flat)
+    t2 = np.asarray(stratified_data.t2_flat)
+    n_valid = int(np.count_nonzero(np.abs(t1 - t2) > 1e-15))
+    sigma = getattr(stratified_data, "sigma", None)
+    if sigma is not None:
+        t1_axis, t2_axis = np.unique(t1), np.unique(t2)
+        off_diag = np.abs(t1_axis[:, None] - t2_axis[None, :]) > 1e-15
+        bad = ~(np.asarray(sigma) > 1e-10)
+        if bad.ndim == 3 and bad.shape[1:] == off_diag.shape:
+            n_valid -= int(np.count_nonzero(bad & off_diag[None]))
+    return n_valid
 
 
 def fit_with_stratified_least_squares(
@@ -561,6 +589,20 @@ def fit_with_stratified_least_squares(
             f"Gradient estimate (1% perturbation of param[{phys_idx}]): {gradient_estimate:.6e}"
         )
 
+        if gradient_estimate < 1e-10:
+            # D0 alone can be insensitive at a legal start (e.g. every contrast on
+            # its 0.0 lower bound). Only a start where NO parameter moves the
+            # residuals is unfittable, so probe the rest before failing.
+            for idx in range(len(initial_params)):
+                params_test = np.array(initial_params, copy=True)
+                params_test[idx] = params_test[idx] * 1.01 + 1e-6
+                gradient_estimate = float(
+                    np.abs(np.sum(_solver_residual_fn(params_test) - residuals_0))
+                )
+                if gradient_estimate >= 1e-10:
+                    log.info(f"Gradient found via param[{idx}]: {gradient_estimate:.6e}")
+                    break
+
         # Check if gradient is suspiciously small
         if gradient_estimate < 1e-10:
             log.error("=" * 80)
@@ -935,7 +977,9 @@ def fit_with_stratified_least_squares(
                 pcov = gauss_newton_covariance(
                     np.asarray(final_residuals),
                     J,
-                    n_valid=int(n_data_real),
+                    # Observations only: the engine zero-masks the t1 == t2 rows
+                    # (covariance.py module docstring), so they carry no DOF.
+                    n_valid=_n_contributing_rows(stratified_data) or int(n_data_real),
                     n_params=int(n_params_effective),
                     loss="linear",
                 )

@@ -828,7 +828,9 @@ class OOCComputePool:
         if self._shutdown:
             return
         self._shutdown = True
-        self._executor.shutdown(wait=True, cancel_futures=True)
+        # wait=False: after an as_completed timeout a stalled worker would
+        # otherwise hang the fit here (same hazard the sibling pool documents).
+        self._executor.shutdown(wait=False, cancel_futures=True)
         logger.info("OOCComputePool shut down")
 
     def __enter__(self) -> OOCComputePool:

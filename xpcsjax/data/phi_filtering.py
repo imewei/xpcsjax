@@ -19,7 +19,10 @@ from typing import Any
 
 import numpy as np
 
-from xpcsjax.data.angle_filtering import normalize_angle_to_symmetric_range
+from xpcsjax.data.angle_filtering import (
+    normalize_angle_to_symmetric_range,
+    normalize_range_bounds,
+)
 from xpcsjax.utils.logging import get_logger
 
 # JAX integration with fallback
@@ -38,13 +41,7 @@ def _normalize_target_ranges(
     target_ranges: list[tuple[float, float]],
 ) -> list[tuple[float, float]]:
     """Normalize range bounds to [-180, 180] to match normalized phi angles."""
-    return [
-        (
-            float(normalize_angle_to_symmetric_range(min_angle)),
-            float(normalize_angle_to_symmetric_range(max_angle)),
-        )
-        for min_angle, max_angle in target_ranges
-    ]
+    return [normalize_range_bounds(min_angle, max_angle) for min_angle, max_angle in target_ranges]
 
 
 class PhiAngleFilter:

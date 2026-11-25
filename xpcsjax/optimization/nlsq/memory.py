@@ -367,10 +367,26 @@ class StrategyDecision:
     reason: str
 
 
+def config_memory_fraction(config: Any) -> float | None:
+    """Return ``optimization.nlsq.memory_fraction`` from *config*, or ``None``.
+
+    ``None`` also when ``NLSQ_MEMORY_FRACTION`` is set: the templates document the
+    environment variable as forcing the fraction on any run, so it must win over
+    the config value (an explicit argument would otherwise mask it).
+    """
+    if os.environ.get(MEMORY_FRACTION_ENV_VAR) is not None:
+        return None
+    cfg = getattr(config, "config", config)
+    if not isinstance(cfg, dict):
+        return None
+    value = ((cfg.get("optimization") or {}).get("nlsq") or {}).get("memory_fraction")
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 def select_nlsq_strategy(
     n_points: int,
     n_params: int,
-    memory_fraction: float = DEFAULT_MEMORY_FRACTION,
+    memory_fraction: float | None = None,
     *,
     concurrency: int | None = None,
 ) -> StrategyDecision:

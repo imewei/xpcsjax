@@ -272,6 +272,8 @@ def _diagonal_correction_jax_core(c2_mat: jnp.ndarray) -> jnp.ndarray:
 def _diagonal_correction_jax(c2_mat: ArrayLike) -> jnp.ndarray:
     """JAX implementation wrapper (handles type conversion)."""
     c2_jax = jnp.asarray(c2_mat)
+    # Integer/bool input would truncate the float diagonal on scatter; floats keep their dtype.
+    c2_jax = c2_jax.astype(jnp.result_type(c2_jax, float))
     result: jnp.ndarray = _diagonal_correction_jax_core(c2_jax)
     return result
 
@@ -283,6 +285,7 @@ _vmapped_diagonal_correction = vmap(_diagonal_correction_jax_core, in_axes=0)
 def _diagonal_correction_batch_jax(c2_matrices: ArrayLike) -> jnp.ndarray:
     """Batch JAX implementation using vmap."""
     c2_jax = jnp.asarray(c2_matrices)
+    c2_jax = c2_jax.astype(jnp.result_type(c2_jax, float))
     result: jnp.ndarray = _vmapped_diagonal_correction(c2_jax)
     return result
 

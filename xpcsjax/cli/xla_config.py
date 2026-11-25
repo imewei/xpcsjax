@@ -58,9 +58,7 @@ def configure_xla(
 
     if num_threads is not None:
         existing = os.environ.get("XLA_FLAGS", "")
-        new_flags = (
-            f"--xla_cpu_multi_thread_eigen=true --intra_op_parallelism_threads={num_threads}"
-        )
+        new_flags = "--xla_cpu_multi_thread_eigen=true"
         if new_flags not in existing:
             os.environ["XLA_FLAGS"] = f"{existing} {new_flags}".strip()
         os.environ["OMP_NUM_THREADS"] = str(num_threads)
@@ -170,9 +168,7 @@ def main() -> None:
         threads = int(physical) if isinstance(physical, int) else 4
 
     preview: dict[str, str] = {"JAX_PLATFORM_NAME": "cpu"}
-    preview["XLA_FLAGS"] = (
-        f"--xla_cpu_multi_thread_eigen=true --intra_op_parallelism_threads={threads}"
-    )
+    preview["XLA_FLAGS"] = "--xla_cpu_multi_thread_eigen=true"
     preview["OMP_NUM_THREADS"] = str(threads)
     preview["MKL_NUM_THREADS"] = str(threads)
     if args.debug:

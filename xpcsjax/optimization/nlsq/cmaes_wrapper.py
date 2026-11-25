@@ -636,8 +636,9 @@ class CMAESWrapper:
     ) -> dict[str, Any]:
         """Run NLSQ TRF refinement on CMA-ES solution.
 
-        Uses NLSQ's curve_fit with workflow="auto" for memory-aware strategy
-        selection, similar to NLSQ's "auto_global" workflow.
+        Calls NLSQ's ``curve_fit`` with ``method`` mapped from
+        ``config.refinement_workflow`` (``auto`` -> NLSQ's default,
+        ``standard`` -> ``trf``, ``streaming`` -> ``hybrid_streaming``).
 
         Parameters
         ----------
@@ -657,7 +658,13 @@ class CMAESWrapper:
         Returns
         -------
         dict[str, Any]
-            Refinement result with keys: popt, pcov, infodict, mesg, ier.
+            Refinement result with keys ``popt``, ``pcov``, ``chi_squared``,
+            ``infodict``, ``mesg``, ``ier``, ``success``, ``adoptable`` and (when
+            the solve ran) ``duration_s``. ``success`` is the solver's own
+            convergence verdict (``False`` e.g. when ``max_nfev`` is exhausted);
+            ``adoptable`` is ``True`` whenever the solve ran and returned a point,
+            which is what the keep-better gates test. On an exception both are
+            ``False``, ``popt`` is ``p0`` and ``chi_squared`` is ``None``.
         """
         from nlsq import curve_fit
 
@@ -671,7 +678,6 @@ class CMAESWrapper:
         try:
             with log_phase("CMA-ES refinement", logger, track_memory=True) as phase:
                 # Build refinement kwargs for NLSQ curve_fit
-                # Note: NLSQ curve_fit uses 'workflow' instead of full scipy interface
                 refinement_kwargs: dict[str, Any] = {
                     "ftol": self.config.refinement_ftol,
                     "xtol": self.config.refinement_xtol,
@@ -699,17 +705,22 @@ class CMAESWrapper:
                     "standard": "trf",
                     "streaming": "hybrid_streaming",
                 }
-                # NLSQ returns (popt, pcov), not scipy's 5-tuple with full_output
-                popt, pcov = curve_fit(
+                _method = _method_map.get(self.config.refinement_workflow)
+                # NLSQ returns a CurveFitResult that unpacks as (popt, pcov) and
+                # also carries the solver's own convergence verdict.
+                fit_result = curve_fit(
                     f=model_func,
                     xdata=xdata,
                     ydata=ydata,
                     p0=p0,
                     sigma=sigma,
                     bounds=bounds,
-                    method=_method_map.get(self.config.refinement_workflow),
+                    method=_method,
                     **refinement_kwargs,
                 )
+                popt, pcov = fit_result
+                converged = bool(getattr(fit_result, "success", True))
+                solver_message = str(getattr(fit_result, "message", "") or "")
 
             # Compute refined chi-squared
             pred = model_func(xdata, *popt)
@@ -727,9 +738,16 @@ class CMAESWrapper:
                 "pcov": np.asarray(pcov) if pcov is not None else None,
                 "chi_squared": chi_squared,
                 "infodict": {},  # NLSQ doesn't return infodict
-                "mesg": "NLSQ TRF refinement converged",
-                "ier": 1,  # Success
-                "success": True,
+                "mesg": solver_message
+                or (
+                    "NLSQ refinement converged" if converged else "NLSQ refinement did not converge"
+                ),
+                "ier": 1 if converged else 0,
+                # success = the solver converged (e.g. False when max_nfev is
+                # exhausted); adoptable = it ran and returned a point, which is
+                # all the keep-better gates need.
+                "success": converged,
+                "adoptable": True,
                 "duration_s": phase.duration,
             }
 
@@ -754,6 +772,7 @@ class CMAESWrapper:
                 "mesg": f"Refinement failed: {e}",
                 "ier": -1,
                 "success": False,
+                "adoptable": False,
             }
 
     def _configure_memory(
@@ -992,7 +1011,9 @@ class CMAESWrapper:
                     f"max_gen {cmaes_config.max_generations}->{adaptive_gen}"
                 )
                 cmaes_config.popsize = adaptive_pop
-                cmaes_config.max_generations = adaptive_gen
+                # An explicit max_generations overrides adaptive scaling (docstring).
+                if self.config.max_generations is None:
+                    cmaes_config.max_generations = adaptive_gen
 
         # Configure memory batching using the FINAL (post-adaptive-scaling)
         # popsize -- sizing this before the scale_ratio > 1e3 block above would
@@ -1183,7 +1204,7 @@ class CMAESWrapper:
                 else float("nan")
             )
             if (
-                refinement_result["success"]
+                refinement_result["adoptable"]
                 and np.isfinite(_ref_chi2)
                 and (not np.isfinite(cmaes_chi_squared) or _ref_chi2 <= cmaes_chi_squared)
             ):
@@ -1192,6 +1213,7 @@ class CMAESWrapper:
                 best_covariance = refinement_result["pcov"]
                 best_chi_squared = refinement_result["chi_squared"]
                 nlsq_refined = True
+                diagnostics["refinement_converged"] = refinement_result["success"]
 
                 # Update diagnostics with refinement info.
                 # NLSQ curve_fit returns only (popt, pcov) — no nfev is available
@@ -1219,7 +1241,7 @@ class CMAESWrapper:
                 )
             else:
                 # Refinement failed or regressed; keep the CMA-ES result.
-                if refinement_result["success"]:
+                if refinement_result["adoptable"]:
                     logger.warning(
                         f"[CMA-ES] Refinement did not improve chi2 "
                         f"({cmaes_chi_squared:.4e} -> {_ref_chi2:.4e}); "

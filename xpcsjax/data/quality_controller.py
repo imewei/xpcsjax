@@ -868,7 +868,9 @@ class DataQualityController:
         c2_exp = data.get("c2_exp", [])
 
         try:
-            if isinstance(c2_exp, (list, tuple, np.ndarray)) and len(c2_exp) > 0:
+            # hasattr(shape): JAX arrays are not np.ndarray but must be checked too.
+            is_array_like = hasattr(c2_exp, "shape") or isinstance(c2_exp, (list, tuple))
+            if is_array_like and len(c2_exp) > 0:
                 c2_exp_arr = np.asarray(c2_exp)
                 # A bare 2-D c2_exp is a single (N, N) correlation matrix, not a
                 # stack — iterating it directly yields 1-D rows and silently

@@ -7,9 +7,11 @@ import os
 import tempfile
 from pathlib import Path
 
-from xpcsjax.gui.project.model import Dataset, FitRun, Project
+from xpcsjax.gui.project.model import KILLED, QUEUED, RUNNING, STARTING, Dataset, FitRun, Project
 
 _SCHEMA = "xpcsjax.project/v1"
+# In-flight states have no worker after a reload; restoring them verbatim blocks Run forever.
+_STALE_ON_LOAD = frozenset({QUEUED, STARTING, RUNNING})
 
 
 def _rel(path: str, base: Path) -> str:
@@ -99,8 +101,9 @@ def load_project(path: str | Path) -> Project:
         payload = json.loads(path.read_text(encoding="utf-8"))  # JSONDecodeError IS a ValueError
     except OSError as exc:
         raise ValueError(f"could not read .xpcsproj: {exc}") from exc
-    if not isinstance(payload, dict) or payload.get("schema") != _SCHEMA:
-        raise ValueError(f"unrecognized .xpcsproj schema: {payload.get('schema')!r}")
+    schema = payload.get("schema") if isinstance(payload, dict) else None
+    if schema != _SCHEMA:
+        raise ValueError(f"unrecognized .xpcsproj schema: {schema!r}")
 
     try:
         project = Project()
@@ -114,7 +117,7 @@ def load_project(path: str | Path) -> Project:
                 dataset.runs.append(
                     FitRun(
                         run_id=str(r["run_id"]),
-                        status=str(r["status"]),
+                        status=KILLED if r["status"] in _STALE_ON_LOAD else str(r["status"]),
                         result_dir=_abs(str(r["result_dir"]), base)
                         if r.get("result_dir")
                         else None,

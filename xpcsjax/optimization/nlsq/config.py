@@ -297,7 +297,7 @@ class NLSQConfig:
     # Layer 1: Per-Angle Reparameterization (scaling mode)
     # Resolves per-angle (contrast, offset) scaling to one of: individual,
     # averaged (the auto default at n_phi>=threshold), or constant (frozen).
-    per_angle_mode: str = "auto"  # "individual", "constant", "auto"
+    per_angle_mode: str = "auto"  # "individual", "averaged", "constant", "auto"
     # Single threshold owner = per_angle_mode.py (MINOR 1): import the constant, do NOT
     # re-hardcode 3, so the default cannot drift between config files and the resolver.
     constant_scaling_threshold: int = (
@@ -746,7 +746,7 @@ class NLSQConfig:
         "loss": ["linear", "soft_l1", "huber", "cauchy", "arctan"],
         "hybrid_normalization_strategy": ["auto", "bounds", "p0", "none"],
         "multi_start_sampling_strategy": ["latin_hypercube", "random"],
-        "per_angle_mode": ["individual", "constant", "auto"],
+        "per_angle_mode": ["individual", "averaged", "constant", "auto"],
         "regularization_mode": ["absolute", "relative", "auto"],
         "gradient_collapse_response": ["warn", "hierarchical", "reset", "abort"],
         "cmaes_preset": ["cmaes-fast", "cmaes", "cmaes-global"],

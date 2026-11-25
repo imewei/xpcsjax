@@ -82,6 +82,10 @@ class ResultPresenter(QObject):
         self._pending_summary: Any = None
         self._pending_result_dir: str | None = None
 
+    def invalidate_pending(self) -> None:
+        """Drop any in-flight bundle load so its late arrival is discarded."""
+        self._pending_result_dir = None
+
     def show_result(self, summary: Any) -> None:
         """Render the finished-fit summary (a ResultSummary or None) in the text panel.
 

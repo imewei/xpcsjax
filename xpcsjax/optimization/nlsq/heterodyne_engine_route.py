@@ -395,6 +395,26 @@ def fit_two_component_via_engine(
 
     phi_arr = np.asarray(phi, dtype=np.float64)
     n_phi = len(phi_arr)
+
+    # The engine indexes per-angle scaling by SORTED phi. For ``individual`` mode
+    # with non-ascending phi, solve on sorted data and restore the caller's angle
+    # order afterwards (other modes carry no per-angle optimizer slots).
+    from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
+        restore_input_angle_order,
+        sorted_angle_inputs,
+    )
+
+    _sorted = (
+        sorted_angle_inputs(c2, phi_arr, weights)
+        if _resolve_effective_mode(config, n_phi) == "individual"
+        else None
+    )
+    if _sorted is not None:
+        _order, _c2_s, _phi_s, _w_s = _sorted
+        return restore_input_angle_order(
+            fit_two_component_via_engine(model, _c2_s, _phi_s, config, weights=_w_s), _order
+        )
+
     phys_names = list(model.param_manager.varying_names)
     n_varying = len(phys_names)
     t = np.asarray(model.t, dtype=np.float64)
@@ -415,6 +435,9 @@ def fit_two_component_via_engine(
         weights = np.asarray(weights, dtype=np.float64)
         if weights.ndim == 2:
             weights = weights[np.newaxis, ...]
+        if weights.shape != c2.shape:
+            # Shared (1, N, N) slab: the scorer vmaps over the angle axis.
+            weights = np.broadcast_to(weights, c2.shape).copy()
 
     # The engine solve is UNWEIGHTED: build_heterodyne_stratified_data is called
     # below WITHOUT weights (sigma=None / unit sigma). Uniform weights only
@@ -552,7 +575,8 @@ def fit_two_component_via_engine(
 
     # -- NLSQ solve (SAME settings production uses) -------------------------
     joint_cfg = _NLSQConfig(
-        method=config.method,
+        # lm cannot honour bounds; coerce to trf like heterodyne_core's joint paths.
+        method=config.method if config.method != "lm" else "trf",
         loss=config.loss,
         ftol=config.ftol,
         xtol=config.xtol,

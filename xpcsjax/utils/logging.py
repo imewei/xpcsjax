@@ -679,21 +679,35 @@ class MinimalLogger:
 
                 if file_handler is None:
                     max_bytes = int(max_size_mb * 1024 * 1024)
-                    if max_bytes > 0:
-                        file_handler = RotatingFileHandler(
-                            file_path,
-                            maxBytes=max_bytes,
-                            backupCount=backup_count,
+                    try:
+                        if max_bytes > 0:
+                            file_handler = RotatingFileHandler(
+                                file_path,
+                                maxBytes=max_bytes,
+                                backupCount=backup_count,
+                            )
+                        else:
+                            file_handler = logging.FileHandler(file_path)
+                    except OSError as e:
+                        # Unopenable log file (directory, no permission, ...):
+                        # logging must never abort the run; stay console-only.
+                        logging.getLogger(self._root_logger_name).warning(
+                            "Cannot open log file %s: %s. File logging disabled.", file_path, e
                         )
+                        created_file = None
                     else:
-                        file_handler = logging.FileHandler(file_path)
-                    file_handler._xpcsjax_managed = True  # type: ignore[attr-defined]
-                    root_logger.addHandler(file_handler)
-                file_handler.setLevel(_resolve_level_or(file_level, root_level))
-                file_fmt = (
-                    DEFAULT_FORMAT_SIMPLE if file_format == "simple" else DEFAULT_FORMAT_DETAILED
-                )
-                file_handler.setFormatter(logging.Formatter(file_fmt, datefmt="%Y-%m-%d %H:%M:%S"))
+                        file_handler._xpcsjax_managed = True  # type: ignore[attr-defined]
+                        root_logger.addHandler(file_handler)
+                if file_handler is not None:
+                    file_handler.setLevel(_resolve_level_or(file_level, root_level))
+                    file_fmt = (
+                        DEFAULT_FORMAT_SIMPLE
+                        if file_format == "simple"
+                        else DEFAULT_FORMAT_DETAILED
+                    )
+                    file_handler.setFormatter(
+                        logging.Formatter(file_fmt, datefmt="%Y-%m-%d %H:%M:%S")
+                    )
 
         # Default suppression for external libraries (FR-005)
         # These are applied first, then user overrides can override them
@@ -1358,10 +1372,10 @@ def reset_log_context(token: contextvars.Token[_LogContext | None]) -> None:
 @contextmanager
 def log_context(
     *,
-    run_id: str | None = ...,  # type: ignore[assignment]  # sentinel: not-passed vs None
-    phase: str | None = ...,  # type: ignore[assignment]
-    mode: str | None = ...,  # type: ignore[assignment]
-    strategy: str | None = ...,  # type: ignore[assignment]
+    run_id: str | None = _UNSET,  # type: ignore[assignment]  # sentinel: not-passed vs None
+    phase: str | None = _UNSET,  # type: ignore[assignment]
+    mode: str | None = _UNSET,  # type: ignore[assignment]
+    strategy: str | None = _UNSET,  # type: ignore[assignment]
 ) -> Generator[None, None, None]:
     """Context manager that sets log context fields for the enclosed scope.
 

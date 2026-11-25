@@ -1266,7 +1266,8 @@ def compute_chi_squared(
     # Guard against zero sigma: replace with inf so residual becomes 0 for masked pixels
     # (finite / inf = 0, so zero-sigma points contribute nothing to chi-squared).
     safe_sigma = jnp.where(sigma > 0, sigma, jnp.inf)
-    residuals = (data - theory) / safe_sigma
+    # Select (not multiply) so NaN data under a masked sigma stays masked (NaN / inf is NaN).
+    residuals = jnp.where(jnp.isfinite(sigma) & (sigma > 0), (data - theory) / safe_sigma, 0.0)
     return jnp.sum(residuals**2)
 
 

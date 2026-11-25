@@ -13,6 +13,10 @@ from typing import Any
 
 import numpy as np
 
+from xpcsjax.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class PreparedData:
@@ -62,6 +66,46 @@ class ExpandedParameters:
     n_params: int
     n_physical: int
     n_angles: int
+
+
+def rows_to_sorted_phi_index(phi: Any) -> np.ndarray:
+    """Map each data row to its slot in sorted-unique phi order.
+
+    Per-angle parameters and grid theory are stored by sorted-unique phi, while
+    data rows keep the caller's order. The identity for ascending, unique phi.
+    """
+    phi_arr = np.atleast_1d(np.asarray(phi))
+    return np.searchsorted(np.unique(phi_arr), phi_arr)
+
+
+def sigma_in_sorted_phi_order(sigma: np.ndarray, phi_raw: Any) -> np.ndarray:
+    """Return ``sigma`` with its angle axis reordered from raw to ascending phi.
+
+    A sigma grid's axis 0 follows the loader's phi order, while per-angle indices
+    are built against sorted-unique phi; gathering one with the other assigns
+    sigma to the wrong angle whenever the raw order is not ascending.
+
+    Returns the same object (no copy) when phi is already ascending, or when
+    ``phi_raw`` is missing, mismatched in length, or contains duplicates.
+    """
+    if phi_raw is None:
+        return sigma
+    phi_raw = np.asarray(phi_raw, dtype=np.float64).ravel()
+    if sigma.ndim < 1 or len(phi_raw) != sigma.shape[0]:
+        if sigma.ndim >= 1 and sigma.shape[0] != 1:  # a shared slab is fine
+            logger.warning(
+                "sigma has %d angle rows but phi_raw has %d angles; sigma is used "
+                "as given, which is only correct if phi is already ascending.",
+                sigma.shape[0],
+                len(phi_raw),
+            )
+        return sigma
+    if len(np.unique(phi_raw)) != len(phi_raw):
+        return sigma
+    order = np.argsort(phi_raw, kind="stable")
+    if np.array_equal(order, np.arange(len(order))):
+        return sigma
+    return sigma[order]
 
 
 def expand_per_angle_parameters(

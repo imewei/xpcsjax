@@ -110,8 +110,14 @@ def _plot_simulated_from_config(
     cfg = config_manager.config or {}
     analyzer = cfg.get("analyzer_parameters", {}) or {}
     temporal = cfg.get("temporal", {}) or {}
-    scattering = analyzer.get("scattering", {}) or {}
-    q = float(scattering.get("wavevector_q", 0.01))
+    # The model itself falls back to the top-level ``scattering`` section
+    # (heterodyne_model_stateful.py); mirror that so plots use the fit's q.
+    # Per KEY, not per section: a nested section holding only phi_angles must
+    # not hide a top-level wavevector_q.
+    q_raw = (analyzer.get("scattering") or {}).get("wavevector_q")
+    if q_raw is None:
+        q_raw = (cfg.get("scattering") or {}).get("wavevector_q", 0.01)
+    q = float(q_raw)
     geometry = analyzer.get("geometry", {}) or {}
     L = float(geometry.get("stator_rotor_gap", 1.0))
     dt = float(analyzer.get("dt", temporal.get("dt", 1.0)))
@@ -144,8 +150,37 @@ def _plot_simulated_from_config(
 
     # Order the dict-form init params per the active-parameter list.
     try:
+        from xpcsjax.config.parameter_registry import get_registry
+        from xpcsjax.config.types import PARAMETER_NAME_MAPPING
+
         active = config_manager.get_active_parameters()
-        params_arr = np.array([float(init_params[name]) for name in active], dtype=np.float64)
+        # get_initial_parameters() drops fixed parameters, and a subset
+        # ``active_parameters`` shortens the list, but the model needs its full
+        # physical vector: fill from fixed values, then registry defaults.
+        full = get_registry().get_param_names(config_manager.analysis_mode)
+        # Registry order whenever the active list is a (possibly reordered)
+        # subset: the model takes its physics positionally in that order.
+        names = full if set(active) <= set(full) else active
+        fixed = {
+            PARAMETER_NAME_MAPPING.get(k, k): v
+            for k, v in config_manager._get_parameter_manager().get_fixed_parameters().items()
+        }
+        values = {**init_params, **fixed}
+        if str(cfg.get("analysis_mode")) == "two_component":
+            # The heterodyne fit reads grouped ``parameters.<group>.<name>``
+            # values; the generic accessor above only knows the flat section.
+            from xpcsjax.config.heterodyne_parameter_manager import (
+                HeterodyneParameterManager,
+            )
+
+            values = {**values, **HeterodyneParameterManager.from_config(cfg).get_parameter_dict()}
+        params_arr = np.array(
+            [
+                float(values[n] if n in values else get_registry().get_param_info(n).default)
+                for n in names
+            ],
+            dtype=np.float64,
+        )
     except Exception as exc:
         log_exception(
             logger,

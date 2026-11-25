@@ -147,6 +147,10 @@ def generate_config(
         # template mid-line (audit C2). `width` must be effectively unbounded or
         # the emitter folds long space-containing scalars (e.g. a path with
         # spaces) onto continuation lines that the [0] slice would silently drop.
+        if isinstance(value, str) and "\n" in value:
+            # Force the double-quoted style: it escapes the newline (and any
+            # control / non-BMP character) so the scalar stays on one line.
+            return yaml.dump(value, default_style='"', width=1 << 31).strip()
         return yaml.dump(value, default_flow_style=True, width=1 << 31).splitlines()[0].strip()
 
     if data_path is not None:
@@ -235,11 +239,20 @@ def validate_config_file(config_path: Path | str) -> ValidationReport:
 
     try:
         with open(config_path, encoding="utf-8") as f:
-            yaml.safe_load(f)
+            parsed = yaml.safe_load(f)
     except yaml.YAMLError as exc:
         return ValidationReport(ok=False, errors=[f"Failed to parse YAML: {exc}"])
     except OSError as exc:
         return ValidationReport(ok=False, errors=[f"Failed to read file: {exc}"])
+
+    if not isinstance(parsed, dict):
+        return ValidationReport(
+            ok=False,
+            errors=[
+                "Config must be a YAML mapping, got "
+                f"{'an empty file' if parsed is None else type(parsed).__name__}"
+            ],
+        )
 
     try:
         ConfigManager(str(config_path))

@@ -9,6 +9,7 @@ import datetime
 import json
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -133,7 +134,11 @@ def _extract_metadata(result: OptimizationResult) -> dict[str, Any]:
     if result.device_info:
         meta["device_info"] = _json_safe(result.device_info)
     if result.nlsq_diagnostics:
-        meta["nlsq_diagnostics"] = _json_safe(result.nlsq_diagnostics)
+        # The n x n diagnostic covariance lives in the NPZ (save_results_npz); embedding
+        # it here exceeds json_safe's array limit once n_params >= 32.
+        meta["nlsq_diagnostics"] = _json_safe(
+            {k: v for k, v in result.nlsq_diagnostics.items() if k != "diagnostic_covariance"}
+        )
     if result.streaming_diagnostics:
         meta["streaming_diagnostics"] = _json_safe(result.streaming_diagnostics)
     if result.stratification_diagnostics is not None:
@@ -206,6 +211,25 @@ def _synthesize_scaling_names(physics_names: list[str], n_total: int) -> list[st
     return [*scaling, *physics_names]
 
 
+def _canonical_physics_names(config_manager: Any) -> list[str] | None:
+    """Registry-order physics names for the config's analysis mode, or ``None``.
+
+    The solver lays the physics tail of ``result.parameters`` out in canonical
+    registry order, full length (fixed parameters are restored), regardless of the
+    order or subset ``active_parameters`` lists. ``None`` when the mode is unknown.
+    """
+    config = getattr(config_manager, "config", None)
+    mode = config.get("analysis_mode") if isinstance(config, dict) else None
+    if not isinstance(mode, str):
+        return None
+    from xpcsjax.config.parameter_registry import AnalysisMode, get_param_names
+
+    try:
+        return get_param_names(AnalysisMode.parse(mode, allow_bare_static=True))
+    except ValueError:
+        return None
+
+
 def _resolve_parameter_names(
     config_manager: ConfigManager | None,
     result: OptimizationResult | None = None,
@@ -244,7 +268,9 @@ def _resolve_parameter_names(
     if config_manager is None or not hasattr(config_manager, "get_active_parameters"):
         return None
     try:
-        physics_names = list(config_manager.get_active_parameters())
+        physics_names = _canonical_physics_names(config_manager) or list(
+            config_manager.get_active_parameters()
+        )
     except Exception:
         logger.warning(
             "Could not resolve parameter names from ConfigManager; output will be unlabeled.",
@@ -331,11 +357,17 @@ def save_results_json(
         payload["cli_args"] = _json_safe(cli_args)
 
     path = output_dir / filename
-    tmp_path = output_dir / (filename + ".tmp")
-    tmp_path.write_text(
-        json.dumps(_json_safe(payload), indent=2, default=json_serializer), encoding="utf-8"
-    )
-    os.replace(tmp_path, path)
+    # Unique temp name: a fixed ".tmp" suffix races concurrent writers (one's
+    # os.replace consumes the other's temp file).
+    text = json.dumps(_json_safe(payload), indent=2, default=json_serializer)
+    # (Not mkstemp: that would create the result file owner-only, 0600.)
+    tmp_path = output_dir / f"{filename}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    try:
+        tmp_path.write_text(text, encoding="utf-8")
+        os.replace(tmp_path, path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
     logger.info("Saved NLSQ result JSON to %s", path)
     return path
 
@@ -397,6 +429,9 @@ def save_results_npz(
         arrays["parameter_names"] = np.array(parameter_names)
     if residuals is not None:
         arrays["residuals"] = np.asarray(residuals, dtype=np.float64)
+    diag_cov = (result.nlsq_diagnostics or {}).get("diagnostic_covariance")
+    if diag_cov is not None:
+        arrays["diagnostic_covariance"] = np.asarray(diag_cov, dtype=np.float64)
 
     metadata_blob = json.dumps(_json_safe(_extract_metadata(result)), default=json_serializer)
     arrays["metadata_json"] = np.array(metadata_blob)
@@ -603,15 +638,19 @@ def merge_fitted_c2(npz_path: Path, fitted_c2_npz: Path) -> bool:
     # NamedTemporaryFile with suffix=".npz" keeps the temp name and the
     # actually-written name identical, so os.replace below targets the
     # right file instead of silently no-op'ing on a missing source.
-    with tempfile.NamedTemporaryFile(dir=npz_path.parent, suffix=".npz", delete=False) as tmp_fh:
-        tmp_path = Path(tmp_fh.name)
+    tmp_path: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(
+            dir=npz_path.parent, suffix=".npz", delete=False
+        ) as tmp_fh:
+            tmp_path = Path(tmp_fh.name)
         np.savez(tmp_path, **arrays)  # type: ignore[arg-type]  # numpy stub: **kwargs ArrayLike
         os.replace(tmp_path, npz_path)
     except Exception as exc:
         logger.warning("Could not write merged NPZ %s: %s", npz_path, exc)
         try:
-            os.unlink(tmp_path)
+            if tmp_path is not None:
+                os.unlink(tmp_path)
         except OSError:
             # Best-effort cleanup of the temp file; already reporting the
             # write failure above, so a missing/unremovable tmp file here

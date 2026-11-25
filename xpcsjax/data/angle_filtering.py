@@ -74,6 +74,21 @@ def normalize_angle_to_symmetric_range(angle: float | np.ndarray) -> float | np.
     return normalized
 
 
+def normalize_range_bounds(min_angle: float, max_angle: float) -> tuple[float, float]:
+    """Normalize a target-range's bounds to [-180°, 180°].
+
+    A range spanning a full turn or more (e.g. ``(0, 360)``) would collapse to
+    ``(0, 0)`` under per-bound normalization and keep only a single angle, so it
+    maps to the full circle ``(-180, 180)`` instead.
+    """
+    if max_angle - min_angle >= 360:
+        return -180.0, 180.0
+    return (
+        float(normalize_angle_to_symmetric_range(min_angle)),
+        float(normalize_angle_to_symmetric_range(max_angle)),
+    )
+
+
 def angle_in_range(angle: float, min_angle: float, max_angle: float) -> bool:
     """Check if angle is in range, accounting for wrap-around at ±180°.
 
@@ -311,8 +326,7 @@ def apply_angle_filtering_for_optimization(
     for range_spec in target_ranges:
         min_angle = range_spec.get("min_angle", -180)
         max_angle = range_spec.get("max_angle", 180)
-        normalized_min = normalize_angle_to_symmetric_range(min_angle)
-        normalized_max = normalize_angle_to_symmetric_range(max_angle)
+        normalized_min, normalized_max = normalize_range_bounds(min_angle, max_angle)
         normalized_ranges.append(
             {
                 "min_angle": normalized_min,
@@ -410,11 +424,16 @@ def apply_angle_filtering_for_plot(
     if target_ranges:
         normalized_ranges = [
             {
-                "min_angle": normalize_angle_to_symmetric_range(range_spec.get("min_angle", -180)),
-                "max_angle": normalize_angle_to_symmetric_range(range_spec.get("max_angle", 180)),
+                "min_angle": lo,
+                "max_angle": hi,
                 "description": range_spec.get("description", ""),
             }
             for range_spec in target_ranges
+            for lo, hi in [
+                normalize_range_bounds(
+                    range_spec.get("min_angle", -180), range_spec.get("max_angle", 180)
+                )
+            ]
         ]
         normalized_config = config.copy()
         normalized_config["phi_filtering"] = phi_filtering_config.copy()

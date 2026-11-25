@@ -115,6 +115,12 @@ class DatashaderRenderer:
         y_finite = y_coords[np.isfinite(y_coords)]
         if x_finite.size == 0 or y_finite.size == 0:
             raise ValueError("Cannot rasterize: all coordinate values are NaN")
+        if x_coords.size < 2 or y_coords.size < 2:
+            # quadmesh needs a cell extent on each axis; a singleton axis has none.
+            raise ValueError(
+                "Cannot rasterize: each axis needs at least 2 coordinates, got "
+                f"x={x_coords.size}, y={y_coords.size}"
+            )
 
         canvas = ds.Canvas(
             plot_width=self.width,

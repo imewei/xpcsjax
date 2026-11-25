@@ -978,6 +978,14 @@ def fit_nlsq_multi_phi(
             f"Number of c2 matrices ({len(c2_data)}) doesn't match "
             f"number of phi angles ({len(phi_angles)})"
         )
+    if (
+        weights is not None
+        and np.ndim(weights) == 3
+        and np.shape(weights)[0] == 1
+        and len(phi_angles) > 1
+    ):
+        # Shared slab: the per-angle builders index one weight matrix per angle.
+        weights = np.broadcast_to(np.asarray(weights), np.shape(c2_data)).copy()
 
     # ------------------------------------------------------------------
     # Determine whether to use homodyne-style joint multi-angle fitting.
@@ -1676,6 +1684,13 @@ def _fit_joint_averaged_multi_phi(
             if joint_result.covariance is not None
             else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
         )
+        covariance, uncertainties = _drop_penalty_rows_from_dof(
+            covariance,
+            uncertainties,
+            n_valid=int(data_only_residual.size),
+            n_params=int(n_total_params),
+            n_penalty_rows=int(n_penalty_rows),
+        )
 
     solve_success = bool(joint_result.success) and not floor_reverted
     # A kept global escape (or a warm-start kept over a failed search) has its
@@ -1778,10 +1793,11 @@ def _fit_joint_averaged_multi_phi(
         # own ``global_escape`` marker instead.
         covariance_is_placeholder=(not is_escape) and not bool(np.all(np.isfinite(uncertainties))),
         # The solver residual carries exactly the valid observations here (no
-        # padding, diagonal + t=0 excluded), so the covariance dof needs no
-        # rescale; recorded for symmetry with the engine route.
+        # padding, diagonal + t=0 excluded) plus any L3 penalty rows, which the
+        # rescale above removes from the dof; recorded for symmetry with the
+        # engine route.
         covariance_dof={
-            "n_rows_solver": int(data_only_residual.size),
+            "n_rows_solver": int(data_only_residual.size) + int(n_penalty_rows),
             "n_valid": int(data_only_residual.size),
             "n_params": int(n_total_params),
         },
@@ -1903,6 +1919,47 @@ _JOINT_CMAES_SEED = 42
 _PER_ANGLE_CMAES_SEED = 42
 
 
+def _drop_penalty_rows_from_dof(
+    covariance: np.ndarray,
+    uncertainties: np.ndarray,
+    *,
+    n_valid: int,
+    n_params: int,
+    n_penalty_rows: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Put a solver covariance back on the data-row degrees of freedom.
+
+    The solver scaled its covariance by ``cost / (n_valid + n_penalty_rows - p)``,
+    counting the L3 penalty rows as observations. No-op without penalty rows; with
+    no data dof left (only the penalty rows made it positive) there is no
+    covariance, so both arrays become NaN.
+    """
+    if not n_penalty_rows:
+        return covariance, uncertainties
+    dof_valid = n_valid - n_params
+    if dof_valid <= 0:
+        return np.full_like(covariance, np.nan), np.full_like(uncertainties, np.nan)
+    scale = (dof_valid + n_penalty_rows) / dof_valid
+    return covariance * scale, uncertainties * np.sqrt(scale)
+
+
+def _public_to_optimizer_coords(
+    model: HeterodyneModel, prob: JointProblem, parameters: np.ndarray
+) -> np.ndarray:
+    """Map a public ``[scaling | 14 physics]`` result vector to optimizer coords.
+
+    ``OptimizationResult.parameters`` carries the full physics block, while the joint
+    residual / bounds / ``x0`` use ``[scaling | varying physics]``. Identity when every
+    physics parameter varies.
+    """
+    x = np.asarray(parameters, dtype=np.float64)
+    if x.size == prob.x0.size:
+        return x
+    n_scaling = prob.x0.size - int(prob.meta["n_physics_varying"])
+    idx = model.param_manager.varying_indices
+    return np.concatenate([x[:n_scaling], x[n_scaling:][idx]])
+
+
 def _cmaes_keep_best_over_seeds(
     *,
     run_one_seed: Callable[[int], Any],
@@ -2020,7 +2077,7 @@ def _fit_joint_cmaes_multi_phi(
                 prob=prob,
                 warm_start_probe=True,
             )
-        x_warm = np.asarray(warm.parameters, dtype=np.float64)
+        x_warm = _public_to_optimizer_coords(model, prob, warm.parameters)
         ssr_warm = float(warm.chi_squared)
 
         # Data-only SSR (excludes any L3 penalty rows) so the keep-better
@@ -2306,7 +2363,7 @@ def _fit_joint_multistart(
                 x0_override=np.asarray(x_start, dtype=np.float64),
                 warm_start_probe=True,
             )
-            x_fit = np.asarray(res.parameters, dtype=np.float64)
+            x_fit = _public_to_optimizer_coords(model, prob, res.parameters)
             assert SingleStartResult is not None, "HAS_JOINT_MULTISTART guards entry"
             return SingleStartResult(
                 start_idx=0,
@@ -2350,7 +2407,7 @@ def _fit_joint_multistart(
                 weights=weights,
                 warm_start_probe=True,
             )
-        x_default = np.asarray(default.parameters, dtype=np.float64)
+        x_default = _public_to_optimizer_coords(model, prob, default.parameters)
         ssr_default = _data_ssr(x_default)
 
         _kept_result_success: bool | None = None
@@ -3381,6 +3438,8 @@ def _build_joint_problem(
         # (``plan.expand_tail_jax``), so the penalty targets the same per-angle
         # contrast/offset variance the data residual sees.
         sqrt_lambda = float(np.sqrt(float(regularizer.lambda_value)))
+        # Lazy: heterodyne_stratified_ls imports this module lazily too.
+        from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import _per_angle_cv
 
         def joint_residual_fn(x: np.ndarray) -> Any:  # type: ignore[return-value]
             r = base_residual_fn(x)
@@ -3388,21 +3447,9 @@ def _build_joint_problem(
             # scaling head (the numpy ``expand_tail`` calls np.asarray on the
             # traced slice and crashes inside the JIT-compiled residual).
             contrasts, offsets = plan.expand_tail_jax(x[:n_scaling])
-            # CV = std / |mean| (safe divide). The division is evaluated in both
-            # branches of a jnp.where under JIT, so mean=0 produces Inf in the
-            # false branch. Sanitize only the denominator (std itself is never
-            # unsafe) and keep the mean~0 fallback as std -- NOT 0 -- matching
-            # this penalty's pre-existing contract: zeroing the fallback instead
-            # collapses the CV penalty to 0 exactly at the near-zero-mean,
-            # high-relative-spread case it exists to catch.
-            c_mean = jnp.mean(contrasts)
-            c_std = jnp.std(contrasts)
-            c_denom = jnp.where(jnp.abs(c_mean) > 1e-10, jnp.abs(c_mean), 1.0)
-            c_cv = jnp.where(jnp.abs(c_mean) > 1e-10, c_std / c_denom, c_std)
-            o_mean = jnp.mean(offsets)
-            o_std = jnp.std(offsets)
-            o_denom = jnp.where(jnp.abs(o_mean) > 1e-10, jnp.abs(o_mean), 1.0)
-            o_cv = jnp.where(jnp.abs(o_mean) > 1e-10, o_std / o_denom, o_std)
+            # Shared safe-divide CV with a finite gradient at zero variance (the
+            # uniform seed); same value as std / |mean| elsewhere.
+            c_cv, o_cv = _per_angle_cv(contrasts, offsets)
             penalty_rows = jnp.array([sqrt_lambda * c_cv, sqrt_lambda * o_cv], dtype=jnp.float64)
             return jnp.concatenate([r, penalty_rows])
     else:
@@ -3792,6 +3839,14 @@ def _build_joint_result(
         if joint_result is not None and joint_result.covariance is not None
         else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
     )
+    if joint_result is not None:
+        covariance, uncertainties = _drop_penalty_rows_from_dof(
+            covariance,
+            uncertainties,
+            n_valid=int(data_only_residual.size),
+            n_params=int(prob.x0.size),
+            n_penalty_rows=int(n_penalty_rows),
+        )
 
     # When no NLSQ result backs this assembly, the verdict depends on WHY
     # ``joint_result`` is None. A kept GLOBAL ESCAPE returns a pre-accepted
@@ -3928,7 +3983,7 @@ def _build_joint_result(
         covariance_is_placeholder=(joint_result is not None)
         and not bool(np.all(np.isfinite(uncertainties))),
         covariance_dof={
-            "n_rows_solver": int(data_only_residual.size),
+            "n_rows_solver": int(data_only_residual.size) + int(n_penalty_rows),
             "n_valid": int(data_only_residual.size),
             "n_params": int(n_total_params),
         },

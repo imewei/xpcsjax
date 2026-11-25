@@ -34,6 +34,7 @@ import numpy as np
 from xpcsjax.config.parameter_registry import AnalysisMode
 from xpcsjax.optimization.nlsq.memory import (
     NLSQStrategy,
+    config_memory_fraction,
     get_adaptive_memory_threshold,
 )
 from xpcsjax.optimization.nlsq.result_helpers import _info_cov_placeholder
@@ -212,7 +213,9 @@ def run_stratified_ls_route(
     # imports this module lazily, so there is no cycle at import time.
     from xpcsjax.optimization.nlsq import wrapper as _wrapper_mod
 
-    strategy_recheck = _wrapper_mod.select_nlsq_strategy(n_total_points, effective_n_params)
+    strategy_recheck = _wrapper_mod.select_nlsq_strategy(
+        n_total_points, effective_n_params, config_memory_fraction(config)
+    )
 
     logger.info(
         f"Strategy re-check (with {effective_n_params} effective params, "
@@ -302,8 +305,7 @@ def run_stratified_ls_route(
         # or memory_fraction (new adaptive approach)
         if "memory_threshold_gb" in nlsq_config:
             memory_threshold_gb = nlsq_config["memory_threshold_gb"]
-        if "memory_fraction" in nlsq_config:
-            memory_fraction = nlsq_config["memory_fraction"]
+        memory_fraction = config_memory_fraction(config)
 
     # Compute adaptive threshold if not explicitly set
     if memory_threshold_gb is None:
@@ -549,6 +551,11 @@ def run_stratified_ls_route(
         # In averaged mode, popt has compressed length (e.g. 9),
         # but the true model DOF is 2*n_phi + n_physical (e.g. 53).
         _sls_n_params_effective: int | None = None
+        # A fixed physical parameter must not consume a DOF (popt is restored
+        # to full length by this point).
+        _sls_n_fixed_physical = (
+            0 if resolved_physical is None else n_physical - int(resolved_physical.free_mask.sum())
+        )
         if per_angle_scaling:
             from xpcsjax.optimization.nlsq.per_angle_mode import (
                 effective_constrained_dof as _eff_dof,
@@ -575,8 +582,10 @@ def run_stratified_ls_route(
                     is_laminar_flow=(analysis_mode == AnalysisMode.LAMINAR_FLOW),
                 ),
                 n_phi=n_angles_check,
-                n_physical=n_physical,
+                n_physical=n_physical - _sls_n_fixed_physical,
             )
+        if _sls_n_params_effective is None and _sls_n_fixed_physical > 0:
+            _sls_n_params_effective = len(popt) - _sls_n_fixed_physical
 
         # Create result
         result = wrapper._create_fit_result(

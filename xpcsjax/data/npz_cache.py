@@ -147,6 +147,10 @@ def load_from_cache(loader: XPCSDataLoader, cache_path: str) -> dict[str, Any]:
                     f"JSON object, got {type(metadata).__name__}"
                 )
             validate_cache_q_vector(loader, metadata)
+            for reason in metadata.get("load_degradations") or []:
+                replayed = f"{reason} (replayed from cache metadata)"
+                if replayed not in getattr(loader, "load_degradations", []):
+                    loader._record_degradation(replayed)
             logger.debug(f"Cache metadata validation passed: {metadata}")
         elif "cache_metadata" in data.files:
             # Legacy object-serialized metadata is a trust-boundary problem
@@ -303,7 +307,15 @@ def save_to_cache(loader: XPCSDataLoader, data: dict[str, Any], cache_path: str)
             "_applied_end_frame",
             cache_data["c2_exp"].shape[-1] + loader.analyzer_config.get("start_frame", 1) - 1,
         ),
+        # The frame window as REQUESTED (pre-clamp), so validation can tell a
+        # cache built for another window apart from one whose window was merely
+        # clamped to the data extent (e.g. end_frame=8000 on a 100-frame file).
+        "requested_start_frame": loader.analyzer_config.get("start_frame", 1),
+        "requested_end_frame": loader.analyzer_config.get("end_frame", -1),
         "phi_count": len(cache_data["phi_angles_list"]),
+        # DATA-1 fallbacks that shaped these rows (e.g. filter fell back to all
+        # data); replayed on a cache hit so a warm load is not silently "clean".
+        "load_degradations": [str(r) for r in getattr(loader, "load_degradations", [])],
         "cache_version": "2.0",
         "selective_q_caching": True,
         # q_tolerance_fraction drives the q-band width used to select which
@@ -369,6 +381,11 @@ def save_to_cache(loader: XPCSDataLoader, data: dict[str, Any], cache_path: str)
         f"Cache size: {file_size_mb:.2f} MB, Q-vectors: {cache_metadata['q_count']}, Phi angles: {cache_metadata['phi_count']}",
     )
     logger.debug(f"Q-vector: {actual_q:.6f} +/- {q_variance:.6f} A^-1")
+
+
+def _is_raw_source(path: str) -> bool:
+    """Return True if *path* is an existing raw data file the cache can be rebuilt from."""
+    return os.path.isfile(path) and not path.lower().endswith(".npz")
 
 
 def validate_cache_q_vector(loader: XPCSDataLoader, cache_metadata: dict[str, Any]) -> None:
@@ -477,6 +494,53 @@ def validate_cache_q_vector(loader: XPCSDataLoader, cache_metadata: dict[str, An
             "cache was built. The cache's (q, phi) selection is "
             "angle-filter-specific; delete it and regenerate."
         )
+
+    # Check that the cached frame window matches the requested one. A fixed
+    # cache_filename_template does not encode start/end_frame, so a window-only
+    # edit would otherwise serve the old (differently sized) c2 stack. A stale
+    # window is a cache MISS: the loader reloads the HDF5 and rewrites the cache.
+    cached_start = cache_metadata.get("requested_start_frame")
+    cached_end = cache_metadata.get("requested_end_frame")
+    if cached_start is None or cached_end is None:
+        # Older cache: only the APPLIED (clamped) window is recorded. A different
+        # start, or fewer requested frames than cached, is certainly stale. More
+        # requested frames than cached is either a clamp or another window; that
+        # cannot be told apart here, so regenerate when the HDF5 source exists.
+        applied_start = cache_metadata.get("start_frame")
+        applied_end = cache_metadata.get("end_frame")
+        req_start = loader.analyzer_config.get("start_frame", 1)
+        req_end = loader.analyzer_config.get("end_frame", -1)
+        exp_cfg = getattr(loader, "exp_config", None) or {}
+        source = os.path.join(
+            str(exp_cfg.get("data_folder_path") or ""), str(exp_cfg.get("data_file_name") or "")
+        )
+        comparable = all(
+            isinstance(v, int) for v in (applied_start, applied_end, req_start, req_end)
+        )
+        if comparable and (
+            applied_start != req_start
+            or 0 < req_end < applied_end
+            or ((req_end > applied_end or req_end == -1) and _is_raw_source(source))
+        ):
+            raise CacheStaleError(
+                f"Cache frame-window mismatch: configured start_frame={req_start}, "
+                f"end_frame={req_end} but the (pre-fingerprint) cache holds frames "
+                f"{applied_start}-{applied_end}.",
+            )
+        logger.warning(
+            "Cache metadata predates frame-window fingerprinting; cannot fully "
+            "verify the cached start_frame/end_frame match the current config.",
+        )
+    else:
+        # Compared as stored (no int()): a null frame bound in YAML must not crash.
+        req_start = loader.analyzer_config.get("start_frame", 1)
+        req_end = loader.analyzer_config.get("end_frame", -1)
+        if (cached_start, cached_end) != (req_start, req_end):
+            raise CacheStaleError(
+                f"Cache frame-window mismatch: configured start_frame={req_start}, "
+                f"end_frame={req_end} but the cache was built for "
+                f"start_frame={cached_start}, end_frame={cached_end}.",
+            )
 
     # Check if the time step (t1/t2 axis generator) matches. dt is not
     # folded into filter_config_hash, so a dt-only edit with an otherwise

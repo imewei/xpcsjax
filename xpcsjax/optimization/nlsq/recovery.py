@@ -313,9 +313,10 @@ def execute_with_recovery(
                 return popt, pcov, info, recovery_actions, "failed"
 
             # Success!
-            convergence_status = "converged" if attempt == 0 else "converged_with_recovery"
+            # Always "converged": the retry history lives in recovery_actions, and
+            # any other string is read as a failure by OptimizationResult.success.
             log.info(f"Optimization converged on attempt {attempt + 1}")
-            return popt, pcov, info, recovery_actions, convergence_status
+            return popt, pcov, info, recovery_actions, "converged"
 
         except (
             ValueError,

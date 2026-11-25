@@ -99,6 +99,8 @@ class _ReaderThread(QThread):
         # Synthesize Died only on genuine abnormal exit — NOT when we were
         # deliberately interrupted (cancel/shutdown already accounts for the run).
         if not terminal_seen and not self.isInterruptionRequested():
+            # EOF can arrive a moment before the process is reapable; wait so exitcode is set.
+            self._proc.join(_DEATH_GRACE_S)
             code = self._proc.exitcode
             sig = -code if isinstance(code, int) and code < 0 else None
             self.event.emit(Died(run_id=self._run_id, seq=-1, exit_code=code, signal=sig))
@@ -158,6 +160,12 @@ class WorkerHandle(QObject):
         self._queue = ctx.Queue(maxsize=_QUEUE_MAXSIZE)
         self._proc = ctx.Process(target=run_worker, args=(self._job, self._queue), daemon=False)
         self._proc.start()
+        # The parent never put()s. Drop its copy of the write end so the pipe reaches EOF
+        # when the worker dies; otherwise get() blocks forever on a half-written frame.
+        # (multiprocessing has no public API for this; the child already has its own copy.)
+        writer = getattr(self._queue, "_writer", None)
+        if writer is not None:
+            writer.close()
         # The worker calls os.setpgrp(), so its own pid is its process-group id.
         # Capture it now, while the child is alive, for a POSIX group sweep on
         # cancel — reading proc.pid only after a join() risks PID reuse.

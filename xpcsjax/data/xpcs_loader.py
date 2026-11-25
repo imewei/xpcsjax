@@ -266,6 +266,20 @@ def _validate_loaded_arrays(data: dict[str, Any], *, source: str) -> None:
         _check_allocation_budget(
             int(c2.shape[0]), int(c2.shape[-1]), c2.dtype.itemsize, source=source
         )
+        # One phi angle per correlation matrix; a mismatch would silently pair
+        # angles with the wrong matrices downstream. (wavevector_q_list is
+        # deliberately excluded: its length is not tied to the stack here.)
+        if "phi_angles_list" in data:
+            _phi = np.atleast_1d(np.asarray(data["phi_angles_list"]))
+            n_phi = int(_phi.size)
+            if n_phi == int(c2.shape[0]) and _phi.ndim > 1 and int(_phi.shape[0]) == n_phi:
+                # An (n, 1) column: canonicalize to the flat vector consumers iterate.
+                data["phi_angles_list"] = _phi = _phi.reshape(-1)
+            if n_phi != int(c2.shape[0]) or int(_phi.shape[0]) != n_phi:
+                raise XPCSDataFormatError(
+                    f"phi_angles_list from {source!r} has {n_phi} entries but c2_exp "
+                    f"holds {int(c2.shape[0])} matrices; they must match one-to-one."
+                )
     else:
         # A non-3-D shape (2-D, 1-D, 4-D, ...) is a malformed I/O-boundary input
         # and must hard-fail here rather than silently skip the square/frame/
@@ -475,6 +489,13 @@ class XPCSDataLoader:
 
         # Extract main configuration sections
         self.exp_config = self.config.get("experimental_data", {})
+        # An explicit, truthy ``file_path`` wins over the legacy
+        # ``data_folder_path`` + ``data_file_name`` pair: derive the pair from it.
+        _file_path = self.exp_config.get("file_path")
+        if isinstance(_file_path, str) and _file_path:
+            _file_path = os.path.expanduser(os.path.expandvars(_file_path))
+            self.exp_config["data_folder_path"] = os.path.dirname(_file_path) or "."
+            self.exp_config["data_file_name"] = os.path.basename(_file_path)
         # Resolve ${ENV_VAR} and a leading ~ in the data folder path so configs
         # can stay machine-agnostic (e.g. fixtures point at ${XPCSJAX_DATA_ROOT}).
         # expandvars/expanduser are no-ops on plain absolute paths, so this cannot
@@ -791,6 +812,7 @@ class XPCSDataLoader:
             values, non-square matrices, oversized allocation, or a
             non-monotonic time axis).
         """
+        self.load_degradations = []  # per-load signal, not loader-lifetime history
         # Construct file paths
         data_folder = self.exp_config.get("data_folder_path", "./")
         data_file = self.exp_config.get("data_file_name", "")
@@ -829,6 +851,12 @@ class XPCSDataLoader:
 
         validate_save_path(cache_path, allowed_extensions=(".npz",), require_parent_exists=False)
 
+        # ``use_caching`` (shipped in every template) and ``cache_strategy: none``
+        # both disable cache reads and writes.
+        cache_enabled = bool(self.exp_config.get("use_caching", True)) and (
+            self.v2_config.get("cache_strategy", "intelligent") != "none"
+        )
+
         # Track the genuine pre-filter correlation-matrix count for the
         # quality-control retention metric. Reset per load; only the HDF paths
         # populate it (a cache hit has no pre-filter baseline to compare against).
@@ -843,10 +871,7 @@ class XPCSDataLoader:
             data = self._load_from_cache(direct_path)
 
         # Otherwise, try cache then raw HDF
-        elif (
-            os.path.exists(cache_path)
-            and self.v2_config.get("cache_strategy", "intelligent") != "none"
-        ):
+        elif os.path.exists(cache_path) and cache_enabled:
             # A09-1: log only the basename at INFO; full path at DEBUG so log
             # artifacts don't disclose the user's home/dataset directory layout.
             logger.info(f"Loading cached data from: {Path(cache_path).name}")
@@ -872,8 +897,9 @@ class XPCSDataLoader:
             logger.debug(f"HDF full path: {hdf_path}")
             data = self._load_from_hdf(hdf_path)
 
-            # Save to cache if caching enabled
-            if self.v2_config.get("cache_strategy", "intelligent") != "none":
+            # Save to cache if caching enabled (degradations recorded so far are
+            # stored in the cache metadata and re-recorded on a warm hit).
+            if cache_enabled:
                 logger.info(f"Saving processed data to cache: {Path(cache_path).name}")
                 self._save_to_cache(data, cache_path)
 
@@ -1068,6 +1094,10 @@ class XPCSDataLoader:
 
         Note: Diagonal correction is now applied post-load for consistent behavior.
         """
+        if c2_half.dtype.kind in "iub":
+            # Promote BEFORE adding: integer/bool addition wraps in the source
+            # dtype, and the in-place /= 2 below is undefined on integers.
+            c2_half = c2_half.astype(_hdf5_readers._c2_out_dtype(c2_half.dtype))
         c2_full = c2_half + c2_half.T
         # Correct diagonal (was doubled in addition)
         diag_indices = np.diag_indices(c2_half.shape[0])
@@ -1774,6 +1804,15 @@ class XPCSDataLoader:
                 successful_stages = sum(result.stage_results.values())
                 total_stages = len(result.stage_results)
                 logger.info(f"Successful stages: {successful_stages}/{total_stages}")
+
+                # DATA-1: a skipped stage (abort_on_error=False) leaves the data
+                # without that operation while success stays True -- record it.
+                for stage, ok in result.stage_results.items():
+                    if ok is False:
+                        self._record_degradation(
+                            f"preprocessing stage '{stage.value}' failed and was skipped; "
+                            "its operation was not applied to the data"
+                        )
 
                 # Quality control validation after preprocessing
                 if quality_controller and quality_results:
