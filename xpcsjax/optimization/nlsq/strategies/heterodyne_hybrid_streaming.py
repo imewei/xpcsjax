@@ -394,6 +394,13 @@ def build_heterodyne_pointwise_model(
         "offset_arr": offset_arr,
         "keep_mask": keep,
         "n_data_points": int(keep.sum()),
+        # Rows that are observations: a zero-weight pixel (sigma = inf) keeps its
+        # row but contributes nothing, so it must not count toward the dof.
+        "n_contributing_points": (
+            int(keep.sum())
+            if meta_sigma is None
+            else int(np.count_nonzero(np.isfinite(meta_sigma) & (meta_sigma > 0)))
+        ),
         "sigma": meta_sigma,
         # Unique time grid the pointwise kernel was indexed against (t1_idx /
         # t2_idx in x_data address THIS array, not necessarily model.t — they
@@ -1024,7 +1031,7 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         info["hybrid_streaming_diagnostics"] = {k: info[k] for k in ("nit", "success") if k in info}
 
     # Thread data-point count for reduced-chi dof (Finding 3)
-    info["n_data_points"] = meta["n_data_points"]
+    info["n_data_points"] = meta.get("n_contributing_points", meta["n_data_points"])
 
     # ------------------------------------------------------------------
     # SSR + frozen baseline (Task 2)

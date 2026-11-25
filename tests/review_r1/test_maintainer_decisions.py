@@ -131,6 +131,89 @@ def test_gui_b2_service_phi_subset_slices_per_row_q():
     np.testing.assert_allclose(data["wavevector_q_list"], [0.011])
 
 
+# ------------------------------------------------------------------------ R4-A3
+def test_r4_a3_covariance_helper_counts_only_real_observations():
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        covariance_on_valid_rows,
+        n_contributing_rows,
+        noise_normalized_reduced_chi2,
+    )
+
+    w = np.ones((2, 5, 5))
+    assert n_contributing_rows(w) == 2 * 4 * 3  # off-diagonal, t > 0
+    w[0, 1, 2] = 0.0  # in the support
+    w[:, 0, :] = 0.0  # t = 0 row: never in the support
+    w[1, 3, 3] = 0.0  # diagonal: never in the support
+    assert n_contributing_rows(w) == 23
+
+    cov, unc = np.eye(2), np.ones(2)
+    same = covariance_on_valid_rows(cov, unc, n_rows_solver=24, n_valid=24, n_params=2)
+    assert same[0] is cov and same[1] is unc
+    cov2, unc2 = covariance_on_valid_rows(cov, unc, n_rows_solver=24, n_valid=13, n_params=2)
+    np.testing.assert_allclose(cov2, cov * 2.0)
+    np.testing.assert_allclose(unc2, unc * np.sqrt(2.0))
+    none = covariance_on_valid_rows(cov, unc, n_rows_solver=24, n_valid=2, n_params=2)
+    assert np.isnan(none[0]).all() and np.isnan(none[1]).all()
+
+    c2 = np.ones((2, 5, 5))
+    assert np.isnan(noise_normalized_reduced_chi2(1.0, c2, 2, 2, n_rows=24))
+    assert np.isfinite(noise_normalized_reduced_chi2(1.0, c2, 2, 2))  # unmasked: old floor
+
+
+@pytest.mark.parametrize("mode", ["individual", "auto", "constant"])
+def test_r4_a3_masked_joint_fit_reports_dof_of_unmasked_pixels(mode):
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+    from xpcsjax.optimization.nlsq.heterodyne_engine_route import fit_two_component_via_engine
+
+    model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=12)
+    n_rows = 4 * 11 * 10
+    config = NLSQConfig(per_angle_mode=mode)
+
+    unit = fit_nlsq_multi_phi(model, c2, phi, config).nlsq_diagnostics["covariance_dof"]
+    assert unit["n_valid"] == n_rows  # unweighted: every row is an observation
+
+    weights = np.ones_like(c2)
+    weights[:, 1:6, :] = 0.0  # 5 rows of 10 off-diagonal pixels, per angle
+    # A masked in-memory fit leaves the engine route for fit_nlsq_multi_phi.
+    with pytest.raises(NotImplementedError):
+        fit_two_component_via_engine(model, c2, phi, config, weights=weights)
+    result = fit_nlsq_multi_phi(model, c2, phi, config, weights=weights)
+    dof = result.nlsq_diagnostics["covariance_dof"]
+    assert dof["n_valid"] == n_rows - 4 * 5 * 10
+    assert dof["n_rows_solver"] >= n_rows
+
+
+def test_r4_a3_stratified_ls_dof_excludes_zero_weight_pixels(monkeypatch):
+    from tests.optimization._heterodyne_fixtures import make_synthetic_two_component
+    from xpcsjax.optimization.nlsq.heterodyne_adapter import NLSQAdapter
+    from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import far_lag_noise_variance
+    from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
+    from xpcsjax.optimization.nlsq.heterodyne_stratified_ls import (
+        fit_heterodyne_stratified_least_squares as fit_strat,
+    )
+
+    def solve(self, *, initial_params, **kwargs):
+        return NLSQResult(np.asarray(initial_params), self._parameter_names, True, "ok")
+
+    monkeypatch.setattr(NLSQAdapter, "fit", solve)
+    model, c2, phi = make_synthetic_two_component(n_phi=4, n_t=12)
+    weights = np.ones_like(c2)
+    weights[:, 1:6, :] = 0.0
+    result = fit_strat(
+        model=model,
+        c2=c2,
+        phi=phi,
+        weights=weights,
+        config=NLSQConfig(per_angle_mode="individual"),
+    )
+    n_params = 2 * 4 + len(model.param_manager.varying_names)
+    implied_dof = result.chi_squared / (far_lag_noise_variance(c2) * result.reduced_chi_squared)
+    assert round(implied_dof) == (4 * 11 * 10 - 4 * 5 * 10) - n_params
+
+
 # ---------------------------------------------------------------------- core-B3
 @pytest.mark.parametrize("enable_cache", [True, False])
 @pytest.mark.parametrize("late_axis", ["t1", "t2"])

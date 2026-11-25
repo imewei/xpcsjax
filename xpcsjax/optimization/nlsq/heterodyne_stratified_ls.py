@@ -1260,8 +1260,18 @@ def fit_heterodyne_stratified_least_squares(
     # threshold that gated the baseline solve — rather than risk an OOM after a
     # successful solve. This deliberately trades uncertainties for the fit on
     # large-N fits; the parameters are unaffected.
+    # Zero-weight rows (sigma = inf) are in the residual but are not observations.
+    _n_obs = int(meta.get("n_contributing_points", meta["n_data_points"]))
     if _pcov_from_adapter is not None:
-        pcov: np.ndarray = _pcov_from_adapter
+        from xpcsjax.optimization.nlsq.heterodyne_data_prep import covariance_on_valid_rows
+
+        pcov: np.ndarray = covariance_on_valid_rows(
+            _pcov_from_adapter,
+            np.empty(0),
+            n_rows_solver=int(meta["n_data_points"]),
+            n_valid=_n_obs,
+            n_params=int(popt.size),
+        )[0]
     else:
         n_params = int(popt.size)
         n_data = int(meta["n_data_points"])
@@ -1287,7 +1297,7 @@ def fit_heterodyne_stratified_least_squares(
             # post-solve memory spike at >=1M points (see _chunked_jacfwd_dense).
             J = _chunked_jacfwd_dense(residual_fn, popt)
             pcov = gauss_newton_covariance(
-                final_residual, J, n_valid=n_data, n_params=n_params, loss=str(config.loss)
+                final_residual, J, n_valid=_n_obs, n_params=n_params, loss=str(config.loss)
             )
             del J
         except (MemoryError, np.linalg.LinAlgError, ValueError, RuntimeError) as _exc:
@@ -1348,7 +1358,7 @@ def fit_heterodyne_stratified_least_squares(
     # (n_scaling=0 -> n_physics); individual is already dense (== popt.size).
     _n_phys_meta = int(meta["n_physics"])
     _n_params_dof = _n_phys_meta if int(meta["n_scaling"]) == 0 else 2 * n_phi_meta + _n_phys_meta
-    _n_dof = max(1, _n_data - _n_params_dof)
+    _n_dof = max(1, _n_obs - _n_params_dof)
     _reduced_chi2 = ssr / (_sigma2_noise * _n_dof) if _sigma2_noise > 1e-12 else ssr / _n_dof
     _hlog.log_optimization_results(
         success=_eff_success,
@@ -1409,7 +1419,7 @@ def fit_heterodyne_stratified_least_squares(
         "cost": 0.5 * ssr,
         "nit": _eff_nit,
         "wall_time": _eff_wall,
-        "n_data_points": int(meta["n_data_points"]),
+        "n_data_points": _n_obs,  # the reduced-chi2 dof count in the result builder
         "sigma2_noise": float(_sigma2_noise),
         "stratification_memory": mem_estimate,
     }

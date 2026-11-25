@@ -1659,14 +1659,19 @@ def _fit_joint_averaged_multi_phi(
     # ``chi2_per_angle`` are left untouched, so the SSR-conservation invariant
     # (``chi2_per_angle.sum() == chi_squared``) still holds.
     from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        covariance_on_valid_rows,
+        n_contributing_rows,
         noise_normalized_reduced_chi2,
     )
 
+    # Zero-weight pixels keep a (always-zero) residual row but are not observations.
+    n_valid = n_contributing_rows(weights_batch)
     reduced_chi2 = noise_normalized_reduced_chi2(
         ssr=ssr,
         c2_data=c2_data,
-        n_data_valid=int(data_only_residual.size),
+        n_data_valid=n_valid,
         n_params=_dof_params,
+        n_rows=int(data_only_residual.size),
     )
 
     # NaN-fill uncertainties / covariance when the NLSQ adapter could not
@@ -1688,12 +1693,12 @@ def _fit_joint_averaged_multi_phi(
             if joint_result.covariance is not None
             else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
         )
-        covariance, uncertainties = _drop_penalty_rows_from_dof(
+        covariance, uncertainties = covariance_on_valid_rows(
             covariance,
             uncertainties,
-            n_valid=int(data_only_residual.size),
+            n_rows_solver=int(data_only_residual.size) + int(n_penalty_rows),
+            n_valid=n_valid,
             n_params=int(n_total_params),
-            n_penalty_rows=int(n_penalty_rows),
         )
 
     solve_success = bool(joint_result.success) and not floor_reverted
@@ -1802,7 +1807,7 @@ def _fit_joint_averaged_multi_phi(
         # engine route.
         covariance_dof={
             "n_rows_solver": int(data_only_residual.size) + int(n_penalty_rows),
-            "n_valid": int(data_only_residual.size),
+            "n_valid": n_valid,
             "n_params": int(n_total_params),
         },
         # PHYSICS-FIRST layout: x0 = [physics | contrast, offset] (see above).
@@ -1921,30 +1926,6 @@ _JOINT_CMAES_SEED = 42
 # per-angle ``_fit_cmaes`` path left ``CMAESWrapperConfig.seed=None`` →
 # non-reproducible, unlike the seed-pinned joint escapes.
 _PER_ANGLE_CMAES_SEED = 42
-
-
-def _drop_penalty_rows_from_dof(
-    covariance: np.ndarray,
-    uncertainties: np.ndarray,
-    *,
-    n_valid: int,
-    n_params: int,
-    n_penalty_rows: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Put a solver covariance back on the data-row degrees of freedom.
-
-    The solver scaled its covariance by ``cost / (n_valid + n_penalty_rows - p)``,
-    counting the L3 penalty rows as observations. No-op without penalty rows; with
-    no data dof left (only the penalty rows made it positive) there is no
-    covariance, so both arrays become NaN.
-    """
-    if not n_penalty_rows:
-        return covariance, uncertainties
-    dof_valid = n_valid - n_params
-    if dof_valid <= 0:
-        return np.full_like(covariance, np.nan), np.full_like(uncertainties, np.nan)
-    scale = (dof_valid + n_penalty_rows) / dof_valid
-    return covariance * scale, uncertainties * np.sqrt(scale)
 
 
 def _public_to_optimizer_coords(
@@ -3459,12 +3440,15 @@ def _build_joint_problem(
     else:
         joint_residual_fn = base_residual_fn  # type: ignore[assignment]
 
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import n_contributing_rows
+
     meta: dict[str, Any] = {
         "base_residual_fn": base_residual_fn,
         "n_physics_varying": int(n_physics_varying),
         "scaling_tail_size": int(plan.n_scaling),
         "regularization_active": regularization_active,
         "n_penalty_rows": int(n_penalty_rows),
+        "n_data_rows": n_contributing_rows(weights_batch),
         "hierarchical_stage1_chi2": hierarchical_stage1_chi2,
         "varying_names": list(varying_names),
         # Keep-better floor fallback preserving Stage-1's per-angle scaling
@@ -3820,14 +3804,18 @@ def _build_joint_result(
     # the rationale. Only ``reduced_chi_squared`` changes — ``chi_squared``
     # (= ssr) and ``chi2_per_angle`` are untouched, preserving SSR conservation.
     from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        covariance_on_valid_rows,
         noise_normalized_reduced_chi2,
     )
 
+    # Zero-weight pixels keep a (always-zero) residual row but are not observations.
+    n_valid = int(prob.meta["n_data_rows"])
     reduced_chi2 = noise_normalized_reduced_chi2(
         ssr=ssr,
         c2_data=c2_data,
-        n_data_valid=int(data_only_residual.size),
+        n_data_valid=n_valid,
         n_params=n_total_params,
+        n_rows=int(data_only_residual.size),
     )
 
     # NaN-fill uncertainties/covariance when the NLSQ adapter could not
@@ -3844,12 +3832,12 @@ def _build_joint_result(
         else np.full((n_total_params, n_total_params), np.nan, dtype=np.float64)
     )
     if joint_result is not None:
-        covariance, uncertainties = _drop_penalty_rows_from_dof(
+        covariance, uncertainties = covariance_on_valid_rows(
             covariance,
             uncertainties,
-            n_valid=int(data_only_residual.size),
+            n_rows_solver=int(data_only_residual.size) + int(n_penalty_rows),
+            n_valid=n_valid,
             n_params=int(prob.x0.size),
-            n_penalty_rows=int(n_penalty_rows),
         )
 
     # When no NLSQ result backs this assembly, the verdict depends on WHY
@@ -3988,7 +3976,7 @@ def _build_joint_result(
         and not bool(np.all(np.isfinite(uncertainties))),
         covariance_dof={
             "n_rows_solver": int(data_only_residual.size) + int(n_penalty_rows),
-            "n_valid": int(data_only_residual.size),
+            "n_valid": n_valid,
             "n_params": int(n_total_params),
         },
         contrast_per_angle_fitted=np.asarray(fitted_contrast, dtype=np.float64),

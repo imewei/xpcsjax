@@ -8,9 +8,9 @@ based on merged `main` (`fde41b4`). Item IDs are defined in `2026-11-24-evidence
 
 | Disposition | Count | Items |
 |---|---|---|
-| Fixed | 20 | core-B1, opthet-B11, R4-A5, opthet-B10, optstrat-B9, optstrat-B10, optstrat-B11, optstrat-B12, optescape-B3, R2-A4, data-B1, gui-B2, optwrap-B4, optrest-B3, opthet-B13, cli-B10, R4-C2, R3-A1, opthet-B8, core-B9 |
+| Fixed | 23 | R4-A3, data-B9, core-B3, core-B1, opthet-B11, R4-A5, opthet-B10, optstrat-B9, optstrat-B10, optstrat-B11, optstrat-B12, optescape-B3, R2-A4, data-B1, gui-B2, optwrap-B4, optrest-B3, opthet-B13, cli-B10, R4-C2, R3-A1, opthet-B8, core-B9 |
 | Closed as intended | 12 | optrest-B4, optescape-B1, opthet-B6, config-B2, config-B9, core-B2, optescape-B5, cli-B9, ioviz-B7, ioviz-B8, optstrat-B7, optstrat-B13 |
-| Still open | 3 | R4-A3, data-B9 (`cache_directory`), core-B3 |
+| Still open | 0 | — |
 
 Four choices were made by the maintainer before the work started (recorded below where they apply):
 honour `regularization.enable` and keep template behaviour; apply the DOF reporting fixes and
@@ -19,8 +19,9 @@ items; disable the dead streaming paths rather than repair them.
 
 ## Recommendation
 
-Review the three default-visible changes below before merging, then decide the three open items.
-`R4-A3` is the only open item that affects a reported number.
+Review the default-visible changes below before merging. No item is left open: the last three
+were decided in a three-way round (Claude, Codex, Antigravity) and implemented; see
+"Decided by the three-way round".
 
 ## Fixed
 
@@ -93,19 +94,38 @@ Behaviour-identical or failure-path only:
 - **optstrat-B13** — `optimization.max_iterations` (full out-of-core passes) and
   `optimization.nlsq.max_iterations` count different things.
 
-## Still open
+## Decided by the three-way round
 
-- **R4-A3** — heterodyne joint covariance DOF still counts rows zeroed by zero weights. Fixing it
-  needs the weight mask threaded into both result builders with the same row selection the residual
-  uses; counting exact-zero residuals instead would be fragile. Affects reported uncertainties only
-  when weights contain zeros.
-- **data-B9 (`cache_directory`)** — the templates ship `cache_directory: "./cache"` but the loader
-  ignores it and caches next to the data file. Honouring it relocates every template user's cache
-  (a one-time regeneration, old caches orphaned) and makes a relative path depend on the working
-  directory. Needs a decision: honour it, or remove the key from the templates.
-- **core-B3** — the opt-in adapter path does not pass a time grid, so times beyond `10000 * dt`
-  clip. The kernel docstring records why this was deferred: the grid must come from the full
-  experiment axis outside any traced closure, which needs an API change to `get_or_create_model`.
+Claude, Codex and Antigravity each took a position on the last three items from one brief, then
+ratified a merged plan. Both rounds were unanimous. Record: `2026-11-25-evidence/` (brief, merged
+plan, two position files per reviewer).
+
+- **R4-A3 — zero-weight rows are not observations (option A).** A zero-weight pixel keeps a
+  residual row that is always 0. The heterodyne joint fits counted it as an observation, so
+  `s² = cost / (rows − p)` was too small and uncertainties too tight on masked data.
+  - The row count now comes from the weight mask on the kernel's own support, and is used for the
+    covariance DOF, the reported `covariance_dof.n_valid` and reduced chi-squared on the individual,
+    averaged and constant joint paths (the paths a masked fit below 1 M points takes, since the
+    engine route declines non-uniform weights).
+  - The same count is applied to the ≥ 1 M stratified-LS path (covariance and reduced chi-squared)
+    and to hybrid streaming's reduced chi-squared.
+  - With no data DOF left after masking, covariance, uncertainties and reduced chi-squared are NaN.
+  - Unweighted and all-positive-weight fits are unchanged. Parameters and chi-squared never change.
+  - Not changed: the CMA-ES warm-start skip test (it steers the solve), and the hybrid-streaming
+    covariance scale, which comes from that optimizer's own estimate.
+- **data-B9 — `cache_directory` removed (option B).** The loader never read it; caches go to
+  `cache_file_path`, defaulting to the data folder, and still do. The key is gone from the four
+  templates and the manager defaults; templates show `cache_file_path` (a directory) as a commented
+  option. A null `cache_file_path` now means the data folder instead of crashing.
+  **Default-visible:** configs made from the old templates still carry `cache_directory`, so each
+  load logs one warning that the key is unused.
+- **core-B3 — the adapter refuses times its fixed grid would clamp (option B).** `NLSQAdapter`
+  (opt-in) raises a `ValueError` naming `use_adapter=False` when `t1` or `t2` leaves
+  `[0, 10000·dt]`. Through `fit_nlsq_jax` that triggers the existing logged fallback to
+  `NLSQWrapper`, which uses a real time grid, so the user gets a warning and a correct fit instead
+  of a silently clamped one. Passing a real grid through `get_or_create_model` remains a possible
+  enhancement; both reviewers judged it disproportionate (a non-uniform time axis would integrate
+  wrongly).
 
 ## Verification status
 
