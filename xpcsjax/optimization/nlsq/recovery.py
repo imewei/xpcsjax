@@ -271,17 +271,22 @@ def execute_with_recovery(
             params_unchanged = np.allclose(popt, current_params, rtol=1e-10)
             identity_covariance = np.allclose(pcov, np.eye(len(popt)), rtol=1e-10)
             # A solve that moved the parameters but returned a NaN/Inf covariance
-            # (e.g. a near-singular JtJ that didn't trip NLSQ's own identity-
-            # covariance fallback) is not a success either -- without this check
-            # it falls straight through to "Success!" with garbage uncertainties.
-            pcov_non_finite = not np.all(np.isfinite(pcov))
+            # is a converged fit with UNKNOWN covariance, not a failed fit: nlsq
+            # >= 0.8 returns all-inf whenever a rank-deficient Jacobian's
+            # pseudo-inverse cannot be trusted. Report all-NaN + placeholder flag.
+            if not (params_unchanged or identity_covariance) and not np.all(np.isfinite(pcov)):
+                log.warning(
+                    "Solver returned a non-finite covariance; covariance unknown "
+                    "(NaN, covariance_is_placeholder=True)."
+                )
+                pcov = np.full_like(np.asarray(pcov, dtype=float), np.nan)
+                info["covariance_is_placeholder"] = True
 
-            if params_unchanged or identity_covariance or pcov_non_finite:
+            if params_unchanged or identity_covariance:
                 log.warning(
                     f"Potential optimization failure detected:\n"
                     f"  Parameters unchanged: {params_unchanged}\n"
                     f"  Identity covariance: {identity_covariance}\n"
-                    f"  Non-finite covariance: {pcov_non_finite}\n"
                     f"  This may indicate NLSQ streaming bug or failed optimization"
                 )
 
