@@ -296,6 +296,17 @@ def _build_homodyne_l4_callback(
         call chain is byte-identical to today.  A raising observer is silently
         swallowed so it cannot abort the fit.
     """
+    if on_iteration is not None:
+        # A recovery retry restarts the solver's iteration count at 1; keep the
+        # index the observer sees non-decreasing across restarts.
+        _observer, _seen = on_iteration, [0, 0]  # [offset, last raw index]
+
+        def on_iteration(iteration: int, cost: float) -> None:
+            if iteration < _seen[1]:
+                _seen[0] += _seen[1]
+            _seen[1] = iteration
+            _observer(_seen[0] + iteration, cost)
+
     enabled, ratio_threshold, consecutive_triggers = _homodyne_l4_monitoring_enabled(config)
     if enabled and per_angle_scaling and len(validated_params) == n_physical:
         # `constant` per-angle mode freezes the scaling out of the optimizer

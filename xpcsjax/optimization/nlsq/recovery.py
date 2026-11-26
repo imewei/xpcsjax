@@ -271,22 +271,31 @@ def execute_with_recovery(
             params_unchanged = np.allclose(popt, current_params, rtol=1e-10)
             identity_covariance = np.allclose(pcov, np.eye(len(popt)), rtol=1e-10)
             # A solve that moved the parameters but returned a NaN/Inf covariance
-            # is a converged fit with UNKNOWN covariance, not a failed fit: nlsq
-            # >= 0.8 returns all-inf whenever a rank-deficient Jacobian's
-            # pseudo-inverse cannot be trusted. Report all-NaN + placeholder flag.
-            if not (params_unchanged or identity_covariance) and not np.all(np.isfinite(pcov)):
+            # is retried from a perturbed start, which often yields a real
+            # covariance. If the last attempt still has none, the fit is
+            # converged with UNKNOWN covariance, not failed: nlsq >= 0.8 returns
+            # all-inf whenever a rank-deficient Jacobian's pseudo-inverse cannot
+            # be trusted. Report all-NaN + placeholder flag.
+            pcov_non_finite = not np.all(np.isfinite(pcov))
+            if (
+                pcov_non_finite
+                and attempt >= max_retries - 1
+                and not (params_unchanged or identity_covariance)
+            ):
                 log.warning(
-                    "Solver returned a non-finite covariance; covariance unknown "
-                    "(NaN, covariance_is_placeholder=True)."
+                    "Solver returned a non-finite covariance on the final attempt; "
+                    "covariance unknown (NaN, covariance_is_placeholder=True)."
                 )
                 pcov = np.full_like(np.asarray(pcov, dtype=float), np.nan)
                 info["covariance_is_placeholder"] = True
+                pcov_non_finite = False
 
-            if params_unchanged or identity_covariance:
+            if params_unchanged or identity_covariance or pcov_non_finite:
                 log.warning(
                     f"Potential optimization failure detected:\n"
                     f"  Parameters unchanged: {params_unchanged}\n"
                     f"  Identity covariance: {identity_covariance}\n"
+                    f"  Non-finite covariance: {pcov_non_finite}\n"
                     f"  This may indicate NLSQ streaming bug or failed optimization"
                 )
 
