@@ -280,7 +280,7 @@ class LargeDatasetExecutor(OptimizationExecutor):
             )
 
             # Handle different return formats from curve_fit_large
-            if isinstance(result, tuple) and len(result) >= 2:
+            if isinstance(result, tuple):
                 popt, pcov = result[0], result[1]
                 info = result[2] if len(result) > 2 else {}
             else:
