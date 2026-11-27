@@ -347,7 +347,7 @@ Use the project Makefile rather than reinventing pytest/ruff invocations — the
 
 | Action | Command |
 |---|---|
-| Install dev deps | `make dev` (= `uv pip install -e ".[dev]"`) |
+| Install dev deps | `make dev` (= `uv pip install -e ".[dev]"`); GUI tests skip without Qt, so use `uv sync --extra dev --extra gui` for the full suite |
 | Run all tests | `make test` |
 | Run a single test file | `uv run pytest tests/optimization/test_nlsq_core.py -v` |
 | Run a single test | `uv run pytest tests/optimization/test_nlsq_core.py::test_name -v` |
@@ -377,7 +377,7 @@ Notes:
 - **Float64 everywhere.** `JAX_ENABLE_X64=1` is mandatory — parameters span 6+ orders of magnitude.
 - **No `from module import *`.** Enforced by user CLAUDE.md and by ruff (`F` rule).
 - **JIT-safe interpolation only.** `interpax` is not currently a dependency (nothing in the codebase interpolates); if a JIT'd path ever needs interpolation, add `interpax` for it — never use `jax.numpy.interp` in JIT'd paths.
-- **Parity coverage is synthetic — the real-data/upstream-homodyne oracles were removed.** The Phase-5 no-worse band (`chi2_default <= chi2_individual * (1 + 1e-3)`; `averaged` is more-constrained, so a small SSR degradation is the *intended* default change, not a regression) is checked synthetically by `tests/parity/test_phase5_default_no_worse.py::test_synthetic_default_averaged_no_worse_than_individual` — do **not** "fix" that band by forcing it to bit-identity. The engine seam is pinned by `tests/parity/test_homodyne_engine_preservation.py` goldens (`tests/parity/_golden/`, `rtol=1e-10`); if a strict golden value-compare fails after a port change, regenerate the golden only if the kernel legitimately changed — never loosen the tolerance. There is no longer any `XPCSJAX_RUN_CHARACTERIZATION` / `XPCSJAX_RUN_AB_PARITY` live fit against upstream `homodyne`.
+- **Parity coverage is synthetic — the real-data/upstream-homodyne oracles were removed.** The Phase-5 no-worse band (`chi2_default <= chi2_individual * (1 + 1e-3)`; `averaged` is more-constrained, so a small SSR degradation is the *intended* default change, not a regression) is checked synthetically by `tests/parity/test_phase5_default_no_worse.py::test_synthetic_default_averaged_no_worse_than_individual` — do **not** "fix" that band by forcing it to bit-identity. The engine seam is pinned by `tests/parity/test_homodyne_engine_preservation.py` goldens (`tests/parity/_golden/`, `rtol=1e-10`); if a strict golden value-compare fails after a port change, regenerate the golden only if the kernel legitimately changed, or after a jax/nlsq upgrade moved the solver trajectory while the kernel golden (`stratified_residual_jit.npz`) still passes — never loosen the tolerance. There is no longer any `XPCSJAX_RUN_CHARACTERIZATION` / `XPCSJAX_RUN_AB_PARITY` live fit against upstream `homodyne`.
 
 ## graphify
 
