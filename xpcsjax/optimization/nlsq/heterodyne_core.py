@@ -4572,7 +4572,8 @@ def _normalize_chi2_by_noise(
     The solver's value is ``SSR / (N² − p)``: it counts the diagonal and the
     ``t = 0`` row and column, which the residual forces to zero, and pixels with
     zero weight, and it is not normalised by the measurement noise. With no
-    degrees of freedom left the value is NaN.
+    degrees of freedom left the value is NaN if pixels are masked or there is no
+    noise estimate; unmasked noisy data keeps a denominator clamped to one.
     """
     if result.final_cost is None:
         return
@@ -4583,19 +4584,20 @@ def _normalize_chi2_by_noise(
     )
 
     n_matrix = c2.shape[0]
-    n_valid = (n_matrix - 1) * (n_matrix - 2) if weights is None else n_contributing_rows(weights)
-    if n_valid <= n_varying:
-        result.reduced_chi_squared = float("nan")
-        return
+    n_rows = (n_matrix - 1) * (n_matrix - 2)
+    n_valid = n_rows if weights is None else n_contributing_rows(weights)
     c2_np = np.asarray(c2)
     sigma2_noise = far_lag_noise_variance(c2_np)
     if sigma2_noise <= 1e-12:
+        if n_valid <= n_varying:
+            result.reduced_chi_squared = float("nan")
+            return
         logger.warning(
             "chi2 noise estimate near-zero (σ²=%.2e); reporting uncorrected MSE chi2",
             sigma2_noise,
         )
     result.reduced_chi_squared = noise_normalized_reduced_chi2(
-        2.0 * result.final_cost, c2_np, n_valid, n_varying
+        2.0 * result.final_cost, c2_np, n_valid, n_varying, n_rows=n_rows
     )
     logger.debug(
         "chi2 correction: σ²_noise=%.4e  n_valid=%d  chi2_corrected=%.4f",

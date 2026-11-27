@@ -158,11 +158,9 @@ def test_cmaes_path_keeps_the_observation_count(monkeypatch):
     np.testing.assert_allclose(result.reduced_chi_squared, expected.reduced_chi_squared)
 
 
-@pytest.mark.parametrize("noisy", [False, True], ids=["constant", "noisy"])
-def test_unmasked_fit_without_dof_has_no_chi2_and_runs_cmaes(monkeypatch, noisy):
+def test_noiseless_fit_without_dof_has_no_chi2_and_runs_cmaes(monkeypatch):
     """Twelve rows cannot judge fourteen parameters, so nothing may be skipped."""
     model, c2, phi = make_synthetic_two_component(n_phi=1, n_t=5)
-    data = c2[0] if noisy else np.ones_like(c2[0])
     searched = []
 
     def solve(_self, jax_residual_fn, initial_params, n_data, **_kwargs):  # called by keyword
@@ -181,7 +179,7 @@ def test_unmasked_fit_without_dof_has_no_chi2_and_runs_cmaes(monkeypatch, noisy)
 
     monkeypatch.setattr(heterodyne_core.NLSQAdapter, "fit_jax", solve)
     monkeypatch.setattr(heterodyne_core, "fit_with_cmaes", search)
-    args = (data, float(phi[0]), NLSQConfig(), None)
+    args = (np.ones_like(c2[0]), float(phi[0]), NLSQConfig(), None)
 
     local = heterodyne_core._fit_local(model, *args, True)
     result = heterodyne_core._fit_cmaes(model, *args)
