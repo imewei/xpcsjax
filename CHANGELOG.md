@@ -26,23 +26,27 @@ the rendered documentation.
 - **`two_component` covariance with jax 0.12.1 / nlsq 0.8.1.** For a
   rank-deficient Jacobian nlsq either returns an all-`inf` covariance or accepts
   one whose degenerate entries can be wrong by orders of magnitude. When the
-  solver returns its Jacobian and cost, xpcsjax now checks the rank itself. If
-  only `f0` and `f2` are inseparable, the covariance is computed as
-  `pinv(J^T J)` from a full-rank subset of the columns. If any other parameter is
-  inseparable, the covariance and uncertainties are `NaN` and
-  `covariance_is_placeholder` is set. When `f0` and `f2` are both free and report
+  solver returns its Jacobian and cost, xpcsjax now checks the rank itself. It
+  computes `pinv(J^T J)` from the other columns only when the `f0`/`f2` pair is
+  the single dependency and coefficients hidden within round-off would leave the
+  other parameters' entries unchanged. In every other rank-deficient case the
+  covariance and uncertainties are `NaN` and `covariance_is_placeholder` is set.
+  When `f0` and `f2` are both free and report
   uncertainties, `nlsq_diagnostics["covariance_unidentified_parameters"]` names
   them: only `f0*exp(-f1*f2)` is identifiable, so their individual uncertainties
   are not meaningful.
 - Masked (zero-weight) pixels no longer count as observations in the sequential
-  `two_component` covariance and reduced chi-squared; with no degrees of freedom
+  `two_component` covariance and reduced chi-squared, including the single-angle
+  CMA-ES path and data with no far-lag noise estimate; with no degrees of freedom
   left both are `NaN`. A sequential fit with no usable covariance reports `NaN`
   physics uncertainties instead of zero.
 - A single-angle `two_component` solve that produced no fit can no longer win the
   comparison with a zero chi-squared; its chi-squared is `NaN`.
 - A homodyne fit that moved but has a non-finite solver covariance is reported as
   converged with an unknown (`NaN`) covariance instead of failed, after retrying;
-  the lowest-cost attempt is kept. `on_iteration` indices stay non-decreasing
+  the attempt with the lowest solver cost is kept, also when a later retry raises.
+  A solve the solver reports as unsuccessful, including one that stops at its
+  evaluation limit, stays failed. `on_iteration` indices stay non-decreasing
   across those retries.
 
 ## [0.1.8] - 2026-09-16
