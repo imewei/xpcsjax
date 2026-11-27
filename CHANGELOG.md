@@ -15,10 +15,11 @@ the rendered documentation.
 
 - **Single-angle `two_component` in-memory fits that the engine route accepts run
   two solvers** (the engine route and `fit_nlsq_multi_phi`) and keep the lower
-  chi-squared. On noiseless single-angle data either one could stop in a worse
-  minimum, depending on the CPU. Such fits take longer, results can differ from
-  earlier releases, and the kept fit reports its own convergence status. Fits the
-  route declines (masked or non-unit weights, fixed or tied physics) use
+  chi-squared (a difference within a relative 1e-12 counts as a tie). On
+  noiseless single-angle data either one could stop in a worse minimum,
+  depending on the CPU. Such fits take longer, results can differ from earlier
+  releases, and the kept fit reports its own convergence status. Fits the route
+  declines (masked or non-unit weights, fixed or tied physics) use
   `fit_nlsq_multi_phi` alone, as before.
 
 ### Fixed
@@ -31,6 +32,8 @@ the rendered documentation.
   the single dependency and coefficients hidden within round-off would leave the
   other parameters' entries unchanged. In every other rank-deficient case the
   covariance and uncertainties are `NaN` and `covariance_is_placeholder` is set.
+  This includes fits whose Jacobian columns differ so much in size (about 1e14)
+  that round-off could hide a coupling.
   When `f0` and `f2` are both free and report
   uncertainties, `nlsq_diagnostics["covariance_unidentified_parameters"]` names
   them: only `f0*exp(-f1*f2)` is identifiable, so their individual uncertainties
