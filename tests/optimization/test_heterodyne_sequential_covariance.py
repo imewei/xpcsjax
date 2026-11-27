@@ -156,3 +156,35 @@ def test_cmaes_path_keeps_the_observation_count(monkeypatch):
 
     assert result.metadata["cmaes_winner"] == "nlsq"
     np.testing.assert_allclose(result.reduced_chi_squared, expected.reduced_chi_squared)
+
+
+@pytest.mark.parametrize("noisy", [False, True], ids=["constant", "noisy"])
+def test_unmasked_fit_without_dof_has_no_chi2_and_runs_cmaes(monkeypatch, noisy):
+    """Twelve rows cannot judge fourteen parameters, so nothing may be skipped."""
+    model, c2, phi = make_synthetic_two_component(n_phi=1, n_t=5)
+    data = c2[0] if noisy else np.ones_like(c2[0])
+    searched = []
+
+    def solve(_self, jax_residual_fn, initial_params, n_data, **_kwargs):  # called by keyword
+        assert n_data <= model.param_manager.n_varying
+        return NLSQResult(
+            parameters=np.asarray(initial_params),
+            parameter_names=list(model.param_manager.varying_names),
+            success=True,
+            message="ok",
+            final_cost=5e-11,
+        )
+
+    def search(p0, **_kwargs):
+        searched.append(1)
+        return SimpleNamespace(parameters=p0, success=True)
+
+    monkeypatch.setattr(heterodyne_core.NLSQAdapter, "fit_jax", solve)
+    monkeypatch.setattr(heterodyne_core, "fit_with_cmaes", search)
+    args = (data, float(phi[0]), NLSQConfig(), None)
+
+    local = heterodyne_core._fit_local(model, *args, True)
+    result = heterodyne_core._fit_cmaes(model, *args)
+
+    assert np.isnan(local.reduced_chi_squared) and np.isnan(result.reduced_chi_squared)
+    assert searched == [1]
