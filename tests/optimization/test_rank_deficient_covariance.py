@@ -144,7 +144,9 @@ def test_result_builder_reports_only_the_labelled_degeneracy(solver_pcov, names,
     result = build_result_from_nlsq(solve, names, 4)
 
     if known:
-        np.testing.assert_allclose(result.covariance, np.linalg.pinv(J.T @ J))
+        # exact pinv(JᵀJ); numpy's own carries round-off in the zeros on some CPUs
+        expected = np.array([[0.25, 0.0, 0.25], [0.0, 1.0, 0.0], [0.25, 0.0, 0.25]])
+        np.testing.assert_allclose(result.covariance, expected, rtol=1e-7, atol=1e-12)
         assert result.metadata["covariance_is_placeholder"] is False
     else:
         assert np.all(np.isnan(result.covariance))
