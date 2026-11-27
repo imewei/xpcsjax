@@ -379,6 +379,23 @@ def test_single_angle_keeps_the_lower_chi2(monkeypatch, engine_chi2, production_
     assert fit_nlsq({"c2": c2, "phi": phi}, _single_angle_config()).label == kept
 
 
+def test_single_angle_crashed_comparison_never_wins(monkeypatch):
+    """A comparison whose solvers all crashed has no objective: keep the engine."""
+
+    def crash(*_args, **_kwargs):
+        raise RuntimeError("injected backend failure")
+
+    monkeypatch.setattr(heterodyne_core.NLSQAdapter, "fit_jax", crash)
+    monkeypatch.setattr(heterodyne_core.NLSQWrapper, "fit", crash)
+    phi = np.array([12.0], dtype=np.float64)
+    c2 = _single_angle_c2(_build_single_angle_model(), float(phi[0]))
+
+    result = fit_nlsq({"c2": c2, "phi": phi}, _single_angle_config())
+
+    assert result.device_info["adapter"] != "sequential_per_angle"
+    assert np.isfinite(result.chi_squared) and result.chi_squared > 0.0
+
+
 # ===========================================================================
 # Bug (PR #27 review) — a fixed-but-NOT-tied physics parameter (fixed via
 # active_parameters / set_vary) must also bail out of the engine route, not
