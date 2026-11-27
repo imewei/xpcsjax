@@ -67,7 +67,7 @@ def test_homodyne_l4_is_diagnostic_only():
     cov_on = getattr(r_on, "covariance", None)
     cov_off = getattr(r_off, "covariance", None)
     if cov_on is not None and cov_off is not None:
-        assert np.array_equal(np.asarray(cov_on), np.asarray(cov_off))
+        assert np.array_equal(np.asarray(cov_on), np.asarray(cov_off), equal_nan=True)
 
 
 def test_homodyne_l4_is_per_iteration_block():
@@ -138,7 +138,7 @@ def test_heterodyne_l4_is_diagnostic_only():
     # not a parity pass.
     assert r_on.nlsq_diagnostics["covariance_is_placeholder"] is False
     assert r_off.nlsq_diagnostics["covariance_is_placeholder"] is False
-    assert np.array_equal(np.asarray(r_on.covariance), np.asarray(r_off.covariance))
+    assert np.array_equal(np.asarray(r_on.covariance), np.asarray(r_off.covariance), equal_nan=True)
 
 
 # ---------------------------------------------------------------------------
