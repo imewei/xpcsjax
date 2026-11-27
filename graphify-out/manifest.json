@@ -438,9 +438,9 @@
     "semantic_hash": "45d3462dc44c3575306d1d54d4fc8603"
   },
   "tests/optimization/test_l4_callback_observational.py": {
-    "mtime": 1789550825.8061256,
-    "seen": 1789550844.8059118,
-    "ast_hash": "ebbe634badb7f64744a8e492627d7185",
+    "mtime": 1795746007.370482,
+    "seen": 1795746286.0907655,
+    "ast_hash": "1a6063d1d463b0944fcdced602bb7247",
     "semantic_hash": ""
   },
   "tests/data/test_validation_integrity_logging.py": {
@@ -594,9 +594,9 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "tests/parity/test_l4_per_iteration_parity.py": {
-    "mtime": 1789504836.7263591,
-    "seen": 1789550844.8061142,
-    "ast_hash": "256621b961922862400b80c285346631",
+    "mtime": 1795746131.534333,
+    "seen": 1795746286.0909536,
+    "ast_hash": "b8adf0a12dd19ec0a133bd168018e4f0",
     "semantic_hash": ""
   },
   "tests/parity/test_homodyne_engine_preservation.py": {
