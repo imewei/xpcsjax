@@ -137,6 +137,18 @@ def execute_with_recovery(
     # -- goes through the same diagnose_error()/retry machinery as every other
     # failure in this function, instead of crashing before the loop even starts.
     initial_cost: float | None = None
+    # Lowest-objective usable solve whose covariance came back NaN/Inf.
+    best_unknown: tuple[float, np.ndarray, np.ndarray, dict] | None = None
+
+    def _objective(params: np.ndarray) -> float:
+        probe = getattr(residual_fn, "fn", residual_fn)
+        if hasattr(probe, "n_total_points"):
+            residuals = np.asarray(residual_fn(params))
+        else:
+            residuals = np.asarray(residual_fn(xdata, *params)) - np.asarray(ydata)
+            if sigma is not None:
+                residuals = residuals / np.asarray(sigma)
+        return float(np.sum(residuals**2))
 
     # Determine if we should use large dataset functions
     use_large = strategy != OptimizationStrategy.STANDARD
@@ -272,23 +284,34 @@ def execute_with_recovery(
             identity_covariance = np.allclose(pcov, np.eye(len(popt)), rtol=1e-10)
             # A solve that moved the parameters but returned a NaN/Inf covariance
             # is retried from a perturbed start, which often yields a real
-            # covariance. If the last attempt still has none, the fit is
-            # converged with UNKNOWN covariance, not failed: nlsq >= 0.8 returns
-            # all-inf whenever a rank-deficient Jacobian's pseudo-inverse cannot
-            # be trusted. Report all-NaN + placeholder flag.
+            # covariance. If no attempt does, the best usable one (solver did not
+            # report failure, parameters and objective finite) is converged with
+            # UNKNOWN covariance, not failed: nlsq >= 0.8 returns all-inf whenever
+            # a rank-deficient Jacobian's pseudo-inverse cannot be trusted.
             pcov_non_finite = not np.all(np.isfinite(pcov))
+            stagnated = params_unchanged or identity_covariance
             if (
                 pcov_non_finite
-                and attempt >= max_retries - 1
-                and not (params_unchanged or identity_covariance)
+                and not stagnated
+                and bool(info.get("success", True))
+                and np.all(np.isfinite(popt))
             ):
+                cost = _objective(popt)
+                if np.isfinite(cost) and (best_unknown is None or cost < best_unknown[0]):
+                    best_unknown = (cost, popt, pcov, info)
+            if (
+                attempt >= max_retries - 1
+                and best_unknown is not None
+                and (pcov_non_finite or stagnated)
+            ):
+                _, popt, pcov, info = best_unknown
                 log.warning(
-                    "Solver returned a non-finite covariance on the final attempt; "
-                    "covariance unknown (NaN, covariance_is_placeholder=True)."
+                    "No attempt returned a finite covariance; accepting the lowest-objective "
+                    "solve with covariance unknown (NaN, covariance_is_placeholder=True)."
                 )
                 pcov = np.full_like(np.asarray(pcov, dtype=float), np.nan)
                 info["covariance_is_placeholder"] = True
-                pcov_non_finite = False
+                params_unchanged = identity_covariance = pcov_non_finite = False
 
             if params_unchanged or identity_covariance or pcov_non_finite:
                 log.warning(
@@ -300,7 +323,11 @@ def execute_with_recovery(
                 )
 
                 if attempt < max_retries - 1:
-                    recovery_actions.append("detected_parameter_stagnation")
+                    recovery_actions.append(
+                        "detected_parameter_stagnation"
+                        if params_unchanged or identity_covariance
+                        else "retry_non_finite_covariance"
+                    )
                     log.info("Retrying with perturbed parameters...")
                     _rng = np.random.default_rng(seed=42 + attempt)
                     # Use an absolute-value scale with a unit floor so parameters
@@ -317,7 +344,7 @@ def execute_with_recovery(
                         current_params = np.clip(current_params, bounds[0], bounds[1])
                     continue
                 log.error(
-                    "Optimization returned unchanged parameters after all retries. "
+                    "No usable solve after all retries (see the flags above). "
                     "This may indicate a bug in NLSQ or an intractable problem."
                 )
                 # Honest status: a detected stagnation on the final attempt is
