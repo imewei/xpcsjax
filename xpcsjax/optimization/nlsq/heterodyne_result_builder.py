@@ -463,9 +463,10 @@ def build_result_from_nlsq(
         pair = None
         if _LABELLED_DEGENERACY <= set(names):
             pair = (names.index("f0"), names.index("f2"))
-        recomputed = rank_deficient_covariance(
-            read("jac"), cost=read("cost"), n_data=n_data, pair=pair
-        )
+        jac = read("jac")
+        if jac is not None and np.shape(jac)[1:] != (len(names),):
+            jac = None  # the columns cannot be matched to parameter names
+        recomputed = rank_deficient_covariance(jac, cost=read("cost"), n_data=n_data, pair=pair)
         if recomputed is not None:
             if np.isfinite(recomputed).all():
                 logger.info(

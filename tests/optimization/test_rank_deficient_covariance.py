@@ -61,8 +61,11 @@ def _third_column_involved(weight: float, scale: float) -> np.ndarray:
         (_third_column_involved(5.0, 1e9), (1, 2)),
         (_third_column_involved(5.0, 1e14), (1, 2)),
         (_third_column_involved(2.0, 1e14), (1, 2)),
+        (_third_column_involved(0.05, 1e14), (1, 2)),
         (_third_column_involved(1e14 * (np.exp(np.log(1e100)) / 1e100 - 1), 1e14), (1, 2)),
         (_third_column_involved(0.5, 1.0), (1, 2)),
+        # a clean pair beside a column 1e20 smaller: round-off could couple them
+        (np.column_stack([1e10 * np.eye(4)[0], 1e-10 * np.eye(4)[1], 1e10 * np.eye(4)[0]]), (0, 2)),
         # two dependencies, and a dependency the caller does not know about
         (np.eye(6, 2) @ np.array([[1.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 1.0]]), (0, 2)),
         (np.column_stack([np.eye(4)[0], np.eye(4)[1], np.eye(4)[0]]), None),
@@ -160,6 +163,15 @@ def test_free_fraction_pair_is_labelled_unidentified(f2_sigma, expected) -> None
     )
     labelled = label_unidentified_fraction_parameters(result)
     assert labelled.nlsq_diagnostics.get("covariance_unidentified_parameters") == expected
+
+
+@pytest.mark.parametrize("names", [["f0", "f2"], ["a", "b", "f0", "f2"]])
+def test_result_builder_ignores_a_jacobian_that_does_not_match_the_names(names) -> None:
+    J, _ = _exact_pinv_case()  # three columns
+    solve = _solver_result(J, jac=J, cost=0.5) | {"x": np.ones(len(names))}
+    solve["pcov"] = np.eye(len(names))
+    result = build_result_from_nlsq(solve, names, 4)
+    np.testing.assert_array_equal(result.covariance, np.eye(len(names)))
 
 
 def test_result_builder_keeps_placeholder_without_a_jacobian() -> None:

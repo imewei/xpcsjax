@@ -87,7 +87,7 @@ _EPS = float(np.finfo(np.float64).eps)
 # The dependent column must be a multiple of its partner this closely (unit-norm
 # columns); the heterodyne chain rule gives about 10 eps.
 _PAIR_RESIDUAL_TOL = 1e-12
-# Round-off allowance on each unit-norm column coefficient.
+# Least round-off allowed on each unit-norm column coefficient.
 _COEF_ROUNDOFF = 4.0 * _EPS
 # Largest change, in units of sd_i * sd_j, that coefficients hidden within
 # round-off may make to the covariance of the identifiable parameters.
@@ -176,7 +176,9 @@ def rank_deficient_covariance(
     pcov = pseudo_inverse(np.where(keep == partner, ratio, 0.0))
     coef = pinv_keep @ Q[:, dependent]
     gain = np.linalg.norm(pinv_keep, axis=1)  # coefficient error per unit column error
-    hidden = pseudo_inverse(coef + np.copysign(_COEF_ROUNDOFF * gain, coef))
+    # A coefficient can hide in whatever the pair actually disagrees by.
+    allowance = max(_COEF_ROUNDOFF, 4.0 * residual) * gain
+    hidden = pseudo_inverse(coef + np.copysign(allowance, coef))
     # The pair's own entries carry no meaning, so only the others are compared.
     rest = np.ix_(*[np.delete(np.arange(p), [partner, dependent])] * 2)
     sd = np.sqrt(np.diag(pcov))

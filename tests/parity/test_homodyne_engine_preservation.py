@@ -327,8 +327,9 @@ def test_laminar_flow_unknown_covariance_is_flagged(monkeypatch):
     real_curve_fit = wrapper.curve_fit
 
     def curve_fit(*args, **kwargs):
-        popt, pcov = real_curve_fit(*args, **kwargs)
-        return popt, np.full_like(np.asarray(pcov, dtype=np.float64), np.inf)
+        result = real_curve_fit(*args, **kwargs)  # keep its status and cost
+        result["pcov"] = np.full_like(np.asarray(result.pcov, dtype=np.float64), np.inf)
+        return result
 
     monkeypatch.setattr(wrapper, "curve_fit", curve_fit)
 
