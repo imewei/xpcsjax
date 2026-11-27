@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from nlsq.result import CurveFitResult
 
+from xpcsjax.optimization.nlsq.covariance import _rho
 from xpcsjax.optimization.nlsq.fallback_chain import OptimizationStrategy
 from xpcsjax.optimization.nlsq.recovery import execute_with_recovery
 
@@ -148,3 +149,23 @@ def test_an_exception_without_a_usable_solve_still_raises():
 
     with pytest.raises(RuntimeError, match="after 3 attempts"):
         _solve(solver)
+
+
+@pytest.mark.parametrize("success,status", [(False, "failed"), (True, "converged")])
+def test_zero_variance_is_unknown_covariance_for_a_failed_solve(success, status):
+    """The public result discards such a matrix, so a failed solve has nothing."""
+
+    def solver(*_a, **_k):
+        return CurveFitResult(x=np.array([2.0, 3.0]), pcov=np.diag([1.0, 0.0]), success=success)
+
+    _, _, info, _, got = _solve(solver)
+
+    assert got == status
+    assert not info.get("covariance_is_placeholder")
+
+
+def test_huber_scoring_handles_exact_zero_residuals():
+    with np.errstate(all="raise"):
+        rho = _rho("huber", np.array([0.0, 0.25, 4.0]))
+
+    np.testing.assert_allclose(rho[0], [0.0, 0.25, 3.0])

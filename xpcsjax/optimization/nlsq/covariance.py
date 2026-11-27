@@ -193,9 +193,10 @@ def _rho(loss: str, z: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         return z, np.ones_like(z), np.zeros_like(z)
     if loss == "huber":
         big = z > 1.0
-        rho0 = np.where(big, 2.0 * np.sqrt(z) - 1.0, z)
-        rho1 = np.where(big, z**-0.5, 1.0)
-        rho2 = np.where(big, -0.5 * z**-1.5, 0.0)
+        tail = np.where(big, z, 1.0)  # both np.where branches are evaluated
+        rho0 = np.where(big, 2.0 * np.sqrt(tail) - 1.0, z)
+        rho1 = tail**-0.5
+        rho2 = np.where(big, -0.5 * tail**-1.5, 0.0)
         return rho0, rho1, rho2
     if loss == "soft_l1":
         t = 1.0 + z
