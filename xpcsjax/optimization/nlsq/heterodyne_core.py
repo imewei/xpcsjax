@@ -4588,7 +4588,7 @@ def _normalize_chi2_by_noise(
     n_valid = n_rows if weights is None else n_contributing_rows(weights)
     c2_np = np.asarray(c2)
     sigma2_noise = far_lag_noise_variance(c2_np)
-    if sigma2_noise <= 1e-12:
+    if not sigma2_noise > 1e-12:  # near zero, or NaN from a non-finite far-lag pixel
         if n_valid <= n_varying:
             result.reduced_chi_squared = float("nan")
             return
