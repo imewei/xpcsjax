@@ -22,9 +22,9 @@ Bug 2 — single-angle 2D ``c2`` was accepted but mis-scored.
     ``compute_multi_angle_residuals``, which vmaps over axis 0 — treating the
     leading TIME dimension as the angle batch (inconsistent vmap sizes vs the
     length-1 ``phi``/contrast/offset → raises, swallowed by the dispatcher's
-    best-effort fallback). The engine route now declines every single-angle fit
-    (its local solve stops in worse minima there), so these inputs reach
-    ``fit_nlsq_multi_phi``; the tests below go through the public dispatcher.
+    best-effort fallback). The fix normalizes ``c2`` (and 2D ``weights``) to
+    ``(1, N, N)`` at the top of ``fit_two_component_via_engine``. For one angle the
+    dispatcher also runs ``fit_nlsq_multi_phi`` and keeps the lower chi^2.
 
 These tests are fixture-robust: the well-posed fixture used elsewhere has
 UNIFORM true scaling, which hides Bug 1 numerically (the per-angle-DOF optimum
@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -43,8 +44,7 @@ import pytest
 from tests.parity.test_engine_heterodyne_fit_parity import _make_well_posed_case
 from xpcsjax.config import ConfigManager
 from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
-from xpcsjax.optimization.exceptions import EngineRouteDeclined
-from xpcsjax.optimization.nlsq import fit_nlsq
+from xpcsjax.optimization.nlsq import fit_nlsq, heterodyne_core, heterodyne_engine_route
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
@@ -308,8 +308,12 @@ def test_single_angle_2d_c2_equivalent_to_3d():
     phi = np.array([12.0], dtype=np.float64)
     c2_3d = _single_angle_c2(_build_single_angle_model(), float(phi[0]))
 
-    res_3d = fit_nlsq({"c2": c2_3d, "phi": phi}, _single_angle_config())
-    res_2d = fit_nlsq({"c2": c2_3d[0], "phi": phi}, _single_angle_config())
+    res_3d = fit_two_component_via_engine(
+        _build_single_angle_model(), c2_3d, phi, _make_config("auto"), None
+    )
+    res_2d = fit_two_component_via_engine(
+        _build_single_angle_model(), c2_3d[0], phi, _make_config("auto"), None
+    )
 
     assert np.isfinite(res_2d.chi_squared)
     assert np.asarray(res_2d.nlsq_diagnostics["chi2_per_angle"]).shape == (1,)
@@ -320,19 +324,59 @@ def test_single_angle_2d_c2_equivalent_to_3d():
     np.testing.assert_allclose(res_2d.parameters, res_3d.parameters, rtol=1e-7, atol=1e-9)
 
 
-def test_single_angle_declines_engine_route_and_reaches_minimum():
-    """One angle is declined by the engine route; the dispatcher's production fit
-    reaches the noiseless minimum (~0), which the engine solve missed."""
+def test_single_angle_2d_c2_no_worse_than_production(monkeypatch):
+    """For one angle the dispatcher runs BOTH solvers and keeps the lower chi^2, so
+    the fit is no worse than either, whichever of them a given CPU favours."""
+    chi2: dict[str, float] = {}
+
+    def record(module, name):
+        real = getattr(module, name)
+
+        def wrapper(*args, **kwargs):
+            solved = real(*args, **kwargs)
+            chi2[name] = solved.chi_squared
+            return solved
+
+        monkeypatch.setattr(module, name, wrapper)
+
+    record(heterodyne_engine_route, "fit_two_component_via_engine")
+    record(heterodyne_core, "fit_nlsq_multi_phi")
     phi = np.array([12.0], dtype=np.float64)
     c2_2d = _single_angle_c2(_build_single_angle_model(), float(phi[0]))[0]
 
-    with pytest.raises(EngineRouteDeclined, match="single"):
-        fit_two_component_via_engine(
-            _build_single_angle_model(), c2_2d, phi, _make_config("auto"), None
-        )
-
     result = fit_nlsq({"c2": c2_2d, "phi": phi}, _single_angle_config())
-    assert result.chi_squared < 1e-6, f"single-angle chi2 {result.chi_squared!r}"
+
+    assert set(chi2) == {"fit_two_component_via_engine", "fit_nlsq_multi_phi"}
+    assert result.chi_squared <= min(chi2.values()) * (1.0 + 1e-11), chi2
+
+
+@pytest.mark.parametrize(
+    ("engine_chi2", "production_chi2", "kept"),
+    [
+        (1.0, 0.5, "production"),
+        (0.5, 1.0, "engine"),
+        (float("nan"), 1.0, "production"),
+        (1.0, float("nan"), "engine"),
+        (1.0, None, "engine"),  # production raises
+    ],
+)
+def test_single_angle_keeps_the_lower_chi2(monkeypatch, engine_chi2, production_chi2, kept):
+    def stub(label, value):
+        def solve(*args, **kwargs):
+            if value is None:
+                raise RuntimeError("solver failed")
+            return SimpleNamespace(label=label, chi_squared=value, nlsq_diagnostics={})
+
+        return solve
+
+    monkeypatch.setattr(
+        heterodyne_engine_route, "fit_two_component_via_engine", stub("engine", engine_chi2)
+    )
+    monkeypatch.setattr(heterodyne_core, "fit_nlsq_multi_phi", stub("production", production_chi2))
+    phi = np.array([12.0], dtype=np.float64)
+    c2 = _single_angle_c2(_build_single_angle_model(), float(phi[0]))
+
+    assert fit_nlsq({"c2": c2, "phi": phi}, _single_angle_config()).label == kept
 
 
 # ===========================================================================

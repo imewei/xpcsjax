@@ -13,10 +13,11 @@ the rendered documentation.
 
 ### Changed
 
-- **Single-angle `two_component` fits now use `fit_nlsq_multi_phi`** instead of
-  the in-memory engine route, which declines them. On noiseless single-angle data
-  the engine solve could stop in a worse minimum that the production solve did not,
-  so single-angle results can differ from earlier releases.
+- **Single-angle `two_component` in-memory fits run two solvers** (the engine
+  route and `fit_nlsq_multi_phi`) and keep the lower chi-squared. On noiseless
+  single-angle data either one could stop in a worse minimum, depending on the CPU.
+  Such fits take longer, results can differ from earlier releases, and the kept
+  fit reports its own convergence status.
 
 ### Fixed
 

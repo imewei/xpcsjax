@@ -1134,8 +1134,9 @@ def _fit_nlsq_heterodyne(
     # modes (constant / individual / averaged — production constant / individual /
     # auto-at-n_phi>=3) route through the SHARED stratification engine via
     # fit_two_component_via_engine (Task #16b). The engine route does its own
-    # frame-0 exclusion + stratification. It declines single-angle fits. Best-effort:
-    # any routing failure falls back to fit_nlsq_multi_phi so a fit never breaks.
+    # frame-0 exclusion + stratification. Best-effort: any routing failure falls
+    # back to fit_nlsq_multi_phi so a fit never breaks. A single-angle fit runs
+    # BOTH solvers (see below).
     #
     # NOTE: this CHANGES two_component in-memory in-scope-mode results by ~1e-3
     # vs the old direct fit_nlsq_multi_phi path — the accepted no-worse contract
@@ -1169,9 +1170,9 @@ def _fit_nlsq_heterodyne(
             het_result = fit_two_component_via_engine(model, c2, phi, nlsq_cfg, weights)
     except EngineRouteDeclined as _engine_skip:
         # By-design bail: the engine route raises EngineRouteDeclined for the
-        # cases it intentionally does not handle (a single angle, masking or
-        # non-unit weights, duplicate phi, an out-of-scope ``per_angle_mode``,
-        # fixed or tied physics). Any OTHER
+        # cases it intentionally does not handle (masking or non-unit weights,
+        # duplicate phi, an out-of-scope ``per_angle_mode``, fixed or tied
+        # physics). Any OTHER
         # NotImplementedError comes from inside the solve and takes the
         # warning branch below. The "auto"/None max_nfev budget is
         # now handled in-route (passed through so nlsq auto-resolves
@@ -1199,6 +1200,33 @@ def _fit_nlsq_heterodyne(
 
     if het_result is None:
         het_result = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
+    elif len(phi) == 1:
+        # With one angle either solver can stop in a worse minimum than the other,
+        # and which one does depends on the CPU: run both, keep the lower chi^2.
+        # The engine route only reads ``model``, so both start from the same values.
+        from xpcsjax.utils.logging import get_logger as _get_logger
+
+        try:
+            from xpcsjax.optimization.nlsq.heterodyne_core import _escape_keeps_candidate
+
+            other = fit_nlsq_multi_phi(model, c2, phi, nlsq_cfg, weights)
+            keep_other = _escape_keeps_candidate(het_result.chi_squared, other.chi_squared)
+            _get_logger(__name__).info(
+                "Single-angle fit: engine route chi^2=%.6e, fit_nlsq_multi_phi chi^2=%.6e; "
+                "keeping %s.",
+                het_result.chi_squared,
+                other.chi_squared,
+                "fit_nlsq_multi_phi" if keep_other else "the engine route",
+            )
+            if keep_other:
+                het_result = other
+        except Exception as _other_exc:  # the engine-route result is still valid
+            _get_logger(__name__).warning(
+                "Single-angle fit_nlsq_multi_phi comparison failed (%s: %s); "
+                "keeping the engine-route result.",
+                type(_other_exc).__name__,
+                _other_exc,
+            )
     if _stratified_ls_fallback and het_result.nlsq_diagnostics is not None:
         het_result.nlsq_diagnostics["stratified_ls_fallback"] = True
     # Actionable hint: a failed joint fit with no global escape enabled is the
