@@ -459,24 +459,23 @@ def build_result_from_nlsq(
         )
         # None unless J is rank-deficient: nlsq then reports all-inf, or accepts
         # a matrix whose degenerate entries can be wrong by orders of magnitude.
-        recomputed = rank_deficient_covariance(read("jac"), cost=read("cost"), n_data=n_data)
+        names = list(parameter_names)
+        pair = None
+        if _LABELLED_DEGENERACY <= set(names):
+            pair = (names.index("f0"), names.index("f2"))
+        recomputed = rank_deficient_covariance(
+            read("jac"), cost=read("cost"), n_data=n_data, pair=pair
+        )
         if recomputed is not None:
-            cov, unidentified = recomputed
-            degenerate = [parameter_names[i] for i in np.flatnonzero(unidentified)]
-            if set(degenerate) <= _LABELLED_DEGENERACY:
+            if np.isfinite(recomputed).all():
                 logger.info(
-                    "Rank-deficient Jacobian (%s): covariance computed as pinv(J^T J) "
-                    "from a full-rank subset of its columns.",
-                    ", ".join(degenerate),
+                    "Rank-deficient Jacobian (f0, f2): covariance computed as "
+                    "pinv(J^T J) from the other columns."
                 )
-                pcov = cov
             else:
-                # Anything else must not look measured.
-                logger.warning(
-                    "Rank-deficient Jacobian involving %s: covariance unknown.",
-                    ", ".join(degenerate),
-                )
-                pcov = None
+                # Anything but a clean f0/f2 pair must not look measured.
+                logger.warning("Rank-deficient Jacobian beyond the f0/f2 pair: covariance unknown.")
+            pcov = recomputed
 
     # Uncertainties from the covariance diagonal — ONE rule for every
     # heterodyne path (see covariance.finalize_covariance): nlsq's all-``inf``

@@ -18,7 +18,6 @@ from collections.abc import Callable
 import jax
 import jax.numpy as jnp
 import numpy as np
-from scipy.linalg import qr
 
 
 def rescale_covariance_dof(
@@ -85,24 +84,32 @@ def finalize_covariance(
 
 _EPS = float(np.finfo(np.float64).eps)
 
-# A coefficient (unit-norm columns) is part of a dependency when it exceeds this
-# many times its error bound; round-off stays below the bound.
-_DEPENDENCY_SNR = 10.0
-# A dependency rebuilt from those coefficients must reproduce its column this well.
-_DEPENDENCY_RESIDUAL_TOL = 1e-8
+# The dependent column must be a multiple of its partner this closely (unit-norm
+# columns); the heterodyne chain rule gives about 10 eps.
+_PAIR_RESIDUAL_TOL = 1e-12
+# Round-off allowance on each unit-norm column coefficient.
+_COEF_ROUNDOFF = 4.0 * _EPS
+# Largest change, in units of sd_i * sd_j, that coefficients hidden within
+# round-off may make to the covariance of the identifiable parameters.
+_HIDDEN_COEF_TOL = 1e-2
 
 
 def rank_deficient_covariance(
-    J: np.ndarray | None, *, cost: float | None, n_data: int
-) -> tuple[np.ndarray, np.ndarray] | None:
+    J: np.ndarray | None,
+    *,
+    cost: float | None,
+    n_data: int,
+    pair: tuple[int, int] | None,
+) -> np.ndarray | None:
     """Covariance ``pinv(JᵀJ) · 2·cost / (n − p)`` of a rank-deficient fit.
 
     nlsq >= 0.8 reports all-``inf`` when the pseudo-inverse it builds from a
     rank-deficient Jacobian fails its accuracy checks, which discards the
     identifiable parameters' uncertainties too; when it accepts, the degenerate
-    parameters' entries can still be wrong. This computes the Moore-Penrose
-    inverse from a full-rank subset of columns, so identifiable parameters are
-    never mixed with the degenerate ones through round-off.
+    parameters' entries can still be wrong. Only one degeneracy is reported with
+    numbers: the one the model is known to have. Its Moore-Penrose inverse is
+    built from the other columns, and is used only if coefficients hidden within
+    round-off would leave the other parameters' entries unchanged.
 
     Parameters
     ----------
@@ -113,58 +120,69 @@ def rank_deficient_covariance(
         Solver cost (``0.5 · Σρ``).
     n_data : int
         Number of observations (``n`` above and in the rank cutoff).
+    pair : tuple of int or None
+        Columns ``(partner, dependent)`` the model makes proportional
+        (``f0``, ``f2``), or None when the two are not both free.
 
     Returns
     -------
-    tuple of np.ndarray, or None
-        ``(pcov, unidentified)``: the ``(p, p)`` covariance and a ``(p,)`` mask of
-        the parameters inside a degenerate combination, whose entries are the
-        minimum-norm values and are not individually meaningful. ``None`` when
-        ``J`` is not rank-deficient (an all-``inf`` covariance then has another
-        cause), the inputs are unusable, or a dependency cannot be isolated
-        cleanly.
+    np.ndarray or None
+        None when ``J`` is not rank-deficient or the inputs are unusable (keep
+        the solver covariance). Otherwise a ``(p, p)`` matrix: the pseudo-inverse
+        when ``pair`` is the only dependency, whose two entries are minimum-norm
+        values and not individually meaningful; all-NaN (unknown) in every other
+        case.
     """
     if J is None or cost is None or not (np.isfinite(cost) and cost >= 0):
         return None
     J = np.asarray(J, dtype=np.float64)
-    if J.ndim != 2 or not 0 < J.shape[1] < n_data or not np.all(np.isfinite(J)):
+    if J.ndim != 2 or not (J.shape[0] and 0 < J.shape[1] < n_data) or not np.all(np.isfinite(J)):
         return None
     p = J.shape[1]
     R = np.linalg.qr(J, mode="r")  # RᵀR = JᵀJ, so everything below is (p, p)
     norm = np.linalg.norm(R, axis=0)
     norm[norm == 0.0] = 1.0
     Q = R / norm
-    _, s, vt = np.linalg.svd(Q)
-    rank = int(np.sum(s > _EPS * max(n_data, p) * s[0]))
-    if not 0 < rank < p:
+    s = np.linalg.svd(Q, compute_uv=False)
+    cutoff = _EPS * max(n_data, p) * s[0]
+    rank = int(np.sum(s > cutoff))
+    if rank == p:
         return None
+    unknown = np.full((p, p), np.nan)
+    if pair is None or rank != p - 1:
+        return unknown
 
-    # Columns that best span the null space are the dependent ones.
-    order = qr(vt[rank:], mode="r", pivoting=True)[1]
-    dependent, free = order[: p - rank], np.sort(order[p - rank :])
-    u_free, s_free, vt_free = np.linalg.svd(Q[:, free], full_matrices=False)
-    pinv_free = (vt_free.T / s_free) @ u_free.T
-    gain = np.linalg.norm(pinv_free, axis=1)  # coefficient error per unit column error
-    null = np.zeros((p, p - rank))
-    for k, col in enumerate(dependent):
-        coef = pinv_free @ Q[:, col]
-        error = max(np.linalg.norm(Q[:, free] @ coef - Q[:, col]), _EPS * max(n_data, p))
-        used = np.flatnonzero(np.abs(coef) > _DEPENDENCY_SNR * error * gain)
-        coef = np.linalg.lstsq(Q[:, free[used]], Q[:, col], rcond=None)[0]
-        if np.linalg.norm(Q[:, free[used]] @ coef - Q[:, col]) > _DEPENDENCY_RESIDUAL_TOL:
-            return None
-        null[col, k] = 1.0
-        null[free[used], k] = -coef * norm[col] / norm[free[used]]
+    partner, dependent = pair
+    keep = np.delete(np.arange(p), dependent)
+    u, s_keep, vt = np.linalg.svd(Q[:, keep], full_matrices=False)
+    ratio = Q[:, partner] @ Q[:, dependent]
+    residual = np.linalg.norm(Q[:, dependent] - ratio * Q[:, partner])
+    if np.sum(s_keep > cutoff) < p - 1 or residual > _PAIR_RESIDUAL_TOL:
+        return unknown
 
-    # pinv(H) = P G P: G inverts the free block, P projects out the null space.
-    involved = np.flatnonzero(np.any(null != 0.0, axis=1))
-    basis = np.linalg.qr(null[involved])[0]
-    projector = np.eye(p)
-    projector[np.ix_(involved, involved)] -= basis @ basis.T
-    factor = projector[:, free] @ ((vt_free.T / s_free) / norm[free, None])
-    unidentified = np.zeros(p, dtype=bool)
-    unidentified[involved] = True
-    return factor @ factor.T * (2.0 * float(cost) / (n_data - p)), unidentified
+    pinv_keep = (vt.T / s_keep) @ u.T
+    inverse = (vt.T / s_keep) / norm[keep, None]
+
+    def pseudo_inverse(coef: np.ndarray) -> np.ndarray:
+        """``pinv(JᵀJ)`` if column ``dependent`` is ``Q[:, keep] @ coef``."""
+        null = np.zeros(p)
+        null[dependent] = 1.0
+        null[keep] = -coef * norm[dependent] / norm[keep]
+        null /= np.linalg.norm(null)
+        factor = -np.outer(null, null[keep] @ inverse)
+        factor[keep] += inverse
+        return factor @ factor.T
+
+    pcov = pseudo_inverse(np.where(keep == partner, ratio, 0.0))
+    coef = pinv_keep @ Q[:, dependent]
+    gain = np.linalg.norm(pinv_keep, axis=1)  # coefficient error per unit column error
+    hidden = pseudo_inverse(coef + np.copysign(_COEF_ROUNDOFF * gain, coef))
+    # The pair's own entries carry no meaning, so only the others are compared.
+    rest = np.ix_(*[np.delete(np.arange(p), [partner, dependent])] * 2)
+    sd = np.sqrt(np.diag(pcov))
+    if not np.all(np.abs(hidden - pcov)[rest] <= _HIDDEN_COEF_TOL * np.outer(sd, sd)[rest]):
+        return unknown
+    return pcov * (2.0 * float(cost) / (n_data - p))
 
 
 def _rho(loss: str, z: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
