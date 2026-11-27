@@ -158,10 +158,12 @@ def test_zero_variance_is_unknown_covariance_for_a_failed_solve(success, status)
     def solver(*_a, **_k):
         return CurveFitResult(x=np.array([2.0, 3.0]), pcov=np.diag([1.0, 0.0]), success=success)
 
-    _, _, info, _, got = _solve(solver)
+    _, _, info, actions, got = _solve(solver)
 
     assert got == status
     assert not info.get("covariance_is_placeholder")
+    expected = ["retry_non_positive_variance"] * 2 + ["unusable_covariance_after_all_retries"]
+    assert actions == ([] if success else expected)
 
 
 def test_huber_scoring_handles_exact_zero_residuals():

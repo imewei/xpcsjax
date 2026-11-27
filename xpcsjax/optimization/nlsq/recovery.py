@@ -334,11 +334,12 @@ def execute_with_recovery(
                 )
 
                 if attempt < max_retries - 1:
-                    recovery_actions.append(
-                        "detected_parameter_stagnation"
-                        if params_unchanged or identity_covariance
-                        else "retry_non_finite_covariance"
-                    )
+                    if params_unchanged or identity_covariance:
+                        recovery_actions.append("detected_parameter_stagnation")
+                    elif not np.all(np.isfinite(pcov)):
+                        recovery_actions.append("retry_non_finite_covariance")
+                    else:
+                        recovery_actions.append("retry_non_positive_variance")
                     log.info("Retrying with perturbed parameters...")
                     _rng = np.random.default_rng(seed=42 + attempt)
                     # Use an absolute-value scale with a unit floor so parameters
@@ -361,7 +362,11 @@ def execute_with_recovery(
                 # Honest status: a detected stagnation on the final attempt is
                 # a failure, not a convergence. Returning "converged" here would
                 # silently mislabel an unoptimized fit as successful.
-                recovery_actions.append("stagnation_after_all_retries")
+                recovery_actions.append(
+                    "stagnation_after_all_retries"
+                    if stagnated
+                    else "unusable_covariance_after_all_retries"
+                )
                 return popt, pcov, info, recovery_actions, "failed"
 
             # Success!
