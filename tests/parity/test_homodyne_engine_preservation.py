@@ -309,12 +309,42 @@ def test_stratified_residual_jit_golden():
 # ---------------------------------------------------------------------------
 
 
+def _assert_covariance_matches_flag(result) -> None:
+    """Covariance is either a usable estimate or all-NaN with the placeholder flag."""
+    uncertainties = np.asarray(result.uncertainties, dtype=np.float64)
+    covariance = np.asarray(result.covariance, dtype=np.float64)
+    if result.nlsq_diagnostics["covariance_is_placeholder"]:
+        assert np.all(np.isnan(covariance)) and np.all(np.isnan(uncertainties))
+        return
+    assert np.all(np.isfinite(covariance)) and np.all(np.diag(covariance) >= 0.0)
+    np.testing.assert_allclose(uncertainties, np.sqrt(np.diag(covariance)))
+
+
+def test_laminar_flow_unknown_covariance_is_flagged(monkeypatch):
+    """Retries that only ever return an all-``inf`` covariance end all-NaN + flag."""
+    from xpcsjax.optimization.nlsq import wrapper
+
+    real_curve_fit = wrapper.curve_fit
+
+    def curve_fit(*args, **kwargs):
+        popt, pcov = real_curve_fit(*args, **kwargs)
+        return popt, np.full_like(np.asarray(pcov, dtype=np.float64), np.inf)
+
+    monkeypatch.setattr(wrapper, "curve_fit", curve_fit)
+
+    result = _build_laminar_fit()
+
+    assert result.nlsq_diagnostics["covariance_is_placeholder"] is True
+    _assert_covariance_matches_flag(result)
+
+
 def test_laminar_flow_end_to_end_golden():
     """Snapshot the public-path ``laminar_flow`` fit result: parameters,
     objective, uncertainties (shape + finite pattern), ``nlsq_diagnostics`` key
     set, anti-degeneracy activation flags, strategy/status, and covariance shape
-    + finite pattern. Params/objective compared at ``rtol=1e-10``; keys / flags /
-    shapes / patterns compared EXACTLY.
+    + finite pattern. Keys / flags / shapes are compared exactly everywhere;
+    params/objective (``rtol=1e-10``) and the finite patterns only under
+    ``XPCSJAX_RUN_ENGINE_PARITY``.
     """
     result = _build_laminar_fit()
 
@@ -373,8 +403,9 @@ def test_laminar_flow_end_to_end_golden():
     )
     # The rtol=1e-10 VALUE comparison is a maintainer-local bit-reproducibility
     # contract (CPU-microarchitecture-specific — see ``_RUN_ENGINE_PARITY`` above):
-    # opt-in via XPCSJAX_RUN_ENGINE_PARITY=1. The structural shape/key/flag/
-    # finite-pattern asserts below stay cross-platform and keep running on CI.
+    # opt-in via XPCSJAX_RUN_ENGINE_PARITY=1. The structural shape/key/flag
+    # asserts and the covariance/placeholder consistency check stay
+    # cross-platform; the exact finite/NaN pattern is opt-in like the values.
     #
     # NOTE (2026-08-05, PR #37): regenerating this golden for the
     # _post_process_results chi_squared fix also re-pinned ``parameters`` to
@@ -425,6 +456,8 @@ def test_laminar_flow_end_to_end_golden():
     # --- exact: uncertainty + covariance shapes ---
     assert tuple(uncertainties.shape) == tuple(int(x) for x in golden["uncertainties_shape"])
     assert tuple(covariance.shape) == tuple(int(x) for x in golden["covariance_shape"])
+
+    _assert_covariance_matches_flag(result)
 
     # --- finite/NaN pattern: maintainer-local, like the values ---
     # With nlsq 0.8.1 this rank-deficient fixture has a finite covariance only if
