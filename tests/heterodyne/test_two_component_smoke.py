@@ -128,6 +128,8 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     assert "chi2_per_angle" in diag, (
         "OptimizationResult must carry chi2_per_angle in nlsq_diagnostics"
     )
+    # f0 and f2 are both free here, so their sigmas must be flagged
+    assert diag["covariance_unidentified_parameters"] == ["f0", "f2"]
     assert np.asarray(diag["chi2_per_angle"]).shape == (len(_PHI_ANGLES),), (
         f"chi2_per_angle shape mismatch: "
         f"{np.asarray(diag['chi2_per_angle']).shape} "

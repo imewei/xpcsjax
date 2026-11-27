@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from xpcsjax.optimization.nlsq.covariance import finalize_covariance
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance, rank_deficient_covariance
 from xpcsjax.optimization.nlsq.heterodyne_data_prep import compute_degrees_of_freedom
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.utils.logging import get_logger
@@ -274,6 +274,32 @@ def build_result_from_arrays(
     )
 
 
+def label_unidentified_fraction_parameters(result: Any) -> Any:
+    """Record that ``f0`` and ``f2`` carry no individual uncertainty.
+
+    ``f0·exp(f1·(t−f2)) + f3`` determines only ``f0·exp(−f1·f2)``. With both
+    free, their reported sigmas are minimum-norm values of a pseudo-inverse, so
+    ``nlsq_diagnostics["covariance_unidentified_parameters"]`` names them.
+    """
+    diag = getattr(result, "nlsq_diagnostics", None)
+    if not isinstance(diag, dict):
+        return result
+    names = list(diag.get("parameter_names", ()))
+    if not {"f0", "f2"} <= set(names):
+        return result
+    sigma = np.asarray(result.uncertainties, dtype=np.float64)
+    if len(names) != len(sigma):
+        return result
+    pair = sigma[[names.index("f0"), names.index("f2")]]
+    if np.all(np.isfinite(pair) & (pair > 0.0)):
+        diag["covariance_unidentified_parameters"] = ["f0", "f2"]
+        logger.warning(
+            "f0 and f2 are not separately identifiable (only f0*exp(-f1*f2) is): "
+            "their individual uncertainties are not meaningful."
+        )
+    return result
+
+
 def build_result_from_nlsq(
     nlsq_result: Any,
     parameter_names: list[str],
@@ -419,6 +445,24 @@ def build_result_from_nlsq(
 
     # --- Build NLSQResult ---
     n_params = len(popt)
+
+    if pcov is not None:
+        # CurveFitResult is a dict; other result shapes expose attributes.
+        read = (
+            nlsq_result.get
+            if isinstance(nlsq_result, dict)
+            else lambda key: getattr(nlsq_result, key, None)
+        )
+        # None unless J is rank-deficient: nlsq then reports all-inf, or accepts
+        # a matrix whose degenerate entries can be wrong by orders of magnitude.
+        recomputed = rank_deficient_covariance(read("jac"), cost=read("cost"), n_data=n_data)
+        if recomputed is not None:
+            logger.info(
+                "Rank-deficient Jacobian: covariance computed as pinv(J^T J) from a "
+                "full-rank subset of its columns. Uncertainties of parameters in a "
+                "degenerate combination are not individually meaningful."
+            )
+            pcov = recomputed
 
     # Uncertainties from the covariance diagonal — ONE rule for every
     # heterodyne path (see covariance.finalize_covariance): nlsq's all-``inf``
