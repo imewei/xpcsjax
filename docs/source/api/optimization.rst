@@ -175,8 +175,9 @@ Heterodyne procedural-parity routes
 
    Routes in-memory, in-scope-mode (``constant`` / ``individual`` /
    ``averaged``) ``two_component`` fits through the *same* homodyne
-   stratification engine, giving procedural parity. Best-effort: any engine-route
-   exception falls back to ``fit_nlsq_multi_phi``.
+   stratification engine, giving procedural parity. Single-angle fits are
+   declined. Best-effort: any engine-route exception falls back to
+   ``fit_nlsq_multi_phi``.
 
 .. autofunction:: xpcsjax.optimization.nlsq.heterodyne_stratified_ls.fit_heterodyne_stratified_least_squares
 

@@ -1134,8 +1134,8 @@ def _fit_nlsq_heterodyne(
     # modes (constant / individual / averaged — production constant / individual /
     # auto-at-n_phi>=3) route through the SHARED stratification engine via
     # fit_two_component_via_engine (Task #16b). The engine route does its own
-    # frame-0 exclusion + stratification. Best-effort: any routing failure falls
-    # back to fit_nlsq_multi_phi so a fit never breaks.
+    # frame-0 exclusion + stratification. It declines single-angle fits. Best-effort:
+    # any routing failure falls back to fit_nlsq_multi_phi so a fit never breaks.
     #
     # NOTE: this CHANGES two_component in-memory in-scope-mode results by ~1e-3
     # vs the old direct fit_nlsq_multi_phi path — the accepted no-worse contract
@@ -1169,8 +1169,9 @@ def _fit_nlsq_heterodyne(
             het_result = fit_two_component_via_engine(model, c2, phi, nlsq_cfg, weights)
     except EngineRouteDeclined as _engine_skip:
         # By-design bail: the engine route raises EngineRouteDeclined for the
-        # cases it intentionally does not handle (masking or non-unit weights,
-        # duplicate phi, an out-of-scope ``per_angle_mode``). Any OTHER
+        # cases it intentionally does not handle (a single angle, masking or
+        # non-unit weights, duplicate phi, an out-of-scope ``per_angle_mode``,
+        # fixed or tied physics). Any OTHER
         # NotImplementedError comes from inside the solve and takes the
         # warning branch below. The "auto"/None max_nfev budget is
         # now handled in-route (passed through so nlsq auto-resolves

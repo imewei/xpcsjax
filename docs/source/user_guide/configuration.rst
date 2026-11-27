@@ -365,7 +365,7 @@ derived rather than independently estimated.
 — in-memory (``constant`` / ``averaged`` / ``individual`` per-angle scaling
 modes), hybrid-streaming, and stratified-LS (≥ 1M points). The one exception
 is the in-memory engine route (``fit_two_component_via_engine``, the default
-router for small in-scope-mode fits), which has no expansion mechanism for a
+router for small in-scope-mode fits with two or more angles), which has no expansion mechanism for a
 non-full-length physics vector: it detects any tied (or otherwise fixed)
 physics parameter and raises internally, and its caller catches that to fall
 back automatically to the tying-aware ``fit_nlsq_multi_phi`` path. This

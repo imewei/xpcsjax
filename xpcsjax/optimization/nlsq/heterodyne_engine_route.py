@@ -356,12 +356,13 @@ def fit_two_component_via_engine(
 
     Raises
     ------
-    NotImplementedError
-        For non-uniform weights (the engine solve is unweighted) or an
-        out-of-scope ``per_angle_mode``; the caller's best-effort guard falls
-        back to ``fit_nlsq_multi_phi``. An "auto" (None) ``max_nfev`` does NOT
-        raise — it is passed through so nlsq auto-resolves ``100*n_params``,
-        mirroring the production joint paths.
+    EngineRouteDeclined
+        A ``NotImplementedError`` subclass, for a single angle, duplicate phi
+        angles, masking or non-unit weights, an out-of-scope ``per_angle_mode``
+        or a fixed or tied physics parameter; the caller falls back to
+        ``fit_nlsq_multi_phi``. An "auto" (None) ``max_nfev`` does NOT raise —
+        it is passed through so nlsq auto-resolves ``100*n_params``, mirroring
+        the production joint paths.
     """
     import jax.numpy as jnp
 
@@ -405,6 +406,13 @@ def fit_two_component_via_engine(
             "fit_two_component_via_engine does not support duplicate phi angles; "
             "falling back to fit_nlsq_multi_phi."
         )
+    if n_phi == 1:
+        # From the default start this route's local solve can stop in a worse
+        # minimum that fit_nlsq_multi_phi does not (noiseless single-angle data).
+        raise EngineRouteDeclined(
+            "fit_two_component_via_engine does not support single-angle fits; "
+            "falling back to fit_nlsq_multi_phi."
+        )
 
     # The engine indexes per-angle scaling by SORTED phi. For ``individual`` mode
     # with non-ascending phi, solve on sorted data and restore the caller's angle
@@ -431,16 +439,8 @@ def fit_two_component_via_engine(
     q, dt = float(model.q), float(model.dt)
 
     # -- Normalize c2 / weights to the 3-D (n_phi, N, N) contract -----------
-    # The public dispatcher and the old fit_nlsq_multi_phi path accept a 2-D
-    # single-angle c2 matrix and add a leading axis (heterodyne_core.py:694).
-    # Mirror that here so the production-support scorer
-    # (compute_multi_angle_residuals, which vmaps over axis 0) never treats the
-    # leading TIME dimension as the angle batch — passing a raw 2-D array would
-    # otherwise raise "vmap got inconsistent sizes" against the length-1 phi /
-    # contrast / offset and silently fall back on the dispatcher's best-effort.
+    # A 2-D weights slab is shared by every angle.
     c2 = np.asarray(c2, dtype=np.float64)
-    if c2.ndim == 2:
-        c2 = c2[np.newaxis, ...]
     if weights is not None:
         weights = np.asarray(weights, dtype=np.float64)
         if weights.ndim == 2:

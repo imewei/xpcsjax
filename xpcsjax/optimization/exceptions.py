@@ -175,7 +175,8 @@ class NLSQNumericalError(NLSQOptimizationError):
 class EngineRouteDeclined(NotImplementedError):  # noqa: N818 - a routing signal, not an error
     """The two_component engine route deliberately does not handle this fit.
 
-    Raised before any solve starts (duplicate phi, masking or non-unit weights,
-    an out-of-scope per-angle mode). The dispatcher treats it as routine and uses
+    Raised before any solve starts (a single angle, duplicate phi, masking or
+    non-unit weights, an out-of-scope per-angle mode, a fixed or tied physics
+    parameter). The dispatcher treats it as routine and uses
     ``fit_nlsq_multi_phi``; any other ``NotImplementedError`` is a real failure.
     """

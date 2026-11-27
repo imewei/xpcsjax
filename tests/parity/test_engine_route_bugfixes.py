@@ -22,8 +22,9 @@ Bug 2 — single-angle 2D ``c2`` was accepted but mis-scored.
     ``compute_multi_angle_residuals``, which vmaps over axis 0 — treating the
     leading TIME dimension as the angle batch (inconsistent vmap sizes vs the
     length-1 ``phi``/contrast/offset → raises, swallowed by the dispatcher's
-    best-effort fallback). The fix normalizes ``c2`` (and 2D ``weights``) to
-    ``(1, N, N)`` at the top of ``fit_two_component_via_engine``.
+    best-effort fallback). The engine route now declines every single-angle fit
+    (its local solve stops in worse minima there), so these inputs reach
+    ``fit_nlsq_multi_phi``; the tests below go through the public dispatcher.
 
 These tests are fixture-robust: the well-posed fixture used elsewhere has
 UNIFORM true scaling, which hides Bug 1 numerically (the per-angle-DOF optimum
@@ -37,10 +38,13 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from tests.parity.test_engine_heterodyne_fit_parity import _make_well_posed_case
 from xpcsjax.config import ConfigManager
 from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+from xpcsjax.optimization.exceptions import EngineRouteDeclined
+from xpcsjax.optimization.nlsq import fit_nlsq
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig
 from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 from xpcsjax.optimization.nlsq.heterodyne_engine_route import (
@@ -232,7 +236,7 @@ _SA_TRUE_PERTURB = {
 }
 
 
-def _build_single_angle_model() -> HeterodyneModel:
+def _single_angle_config() -> ConfigManager:
     cfg_dict = {
         "analysis_mode": "two_component",
         "analyzer_parameters": {
@@ -250,8 +254,15 @@ def _build_single_angle_model() -> HeterodyneModel:
         "optimization": {
             "nlsq": {
                 "analysis_mode": "two_component",
-                "max_iterations": 30,
                 "enable_cmaes": False,
+                # the same solver settings as _make_config
+                "method": "trf",
+                "loss": "soft_l1",
+                "ftol": 1e-8,
+                "xtol": 1e-8,
+                "gtol": 1e-8,
+                "x_scale": "jac",
+                "max_nfev": _PER_SET_NFEV,
             }
         },
     }
@@ -260,7 +271,11 @@ def _build_single_angle_model() -> HeterodyneModel:
         import yaml
 
         cfg_path.write_text(yaml.safe_dump(cfg_dict))
-        cfg = ConfigManager(str(cfg_path))
+        return ConfigManager(str(cfg_path))
+
+
+def _build_single_angle_model() -> HeterodyneModel:
+    cfg = _single_angle_config()
     assert cfg.config is not None
     return HeterodyneModel.from_config(cfg.config)
 
@@ -291,45 +306,33 @@ def test_single_angle_2d_c2_equivalent_to_3d():
     """A 2D ``(N, N)`` single-angle ``c2`` must produce the SAME result as the
     explicit ``(1, N, N)`` stack — not raise and not silently mis-score."""
     phi = np.array([12.0], dtype=np.float64)
-    # Generate data once (deterministic), fit with fresh models (state mutates).
     c2_3d = _single_angle_c2(_build_single_angle_model(), float(phi[0]))
-    c2_2d = c2_3d[0]
 
-    eng_3d = fit_two_component_via_engine(
-        _build_single_angle_model(), c2_3d, phi, _make_config("auto"), None
-    )
-    eng_2d = fit_two_component_via_engine(
-        _build_single_angle_model(), c2_2d, phi, _make_config("auto"), None
-    )
+    res_3d = fit_nlsq({"c2": c2_3d, "phi": phi}, _single_angle_config())
+    res_2d = fit_nlsq({"c2": c2_3d[0], "phi": phi}, _single_angle_config())
 
-    assert np.isfinite(eng_2d.chi_squared)
-    assert np.asarray(eng_2d.nlsq_diagnostics["chi2_per_angle"]).shape == (1,)
-    assert np.isclose(eng_2d.chi_squared, eng_3d.chi_squared, rtol=1e-9, atol=1e-12), (
-        f"2D c2 chi2 {eng_2d.chi_squared!r} != 3D c2 chi2 {eng_3d.chi_squared!r}; "
+    assert np.isfinite(res_2d.chi_squared)
+    assert np.asarray(res_2d.nlsq_diagnostics["chi2_per_angle"]).shape == (1,)
+    assert np.isclose(res_2d.chi_squared, res_3d.chi_squared, rtol=1e-9, atol=1e-12), (
+        f"2D c2 chi2 {res_2d.chi_squared!r} != 3D c2 chi2 {res_3d.chi_squared!r}; "
         "a 2D single-angle input must be normalized to (1, N, N) (Bug 2)."
     )
-    np.testing.assert_allclose(eng_2d.parameters, eng_3d.parameters, rtol=1e-7, atol=1e-9)
+    np.testing.assert_allclose(res_2d.parameters, res_3d.parameters, rtol=1e-7, atol=1e-9)
 
 
-def test_single_angle_2d_c2_no_worse_than_production():
-    """2D single-angle parity against the old ``fit_nlsq_multi_phi`` path."""
+def test_single_angle_declines_engine_route_and_reaches_minimum():
+    """One angle is declined by the engine route; the dispatcher's production fit
+    reaches the noiseless minimum (~0), which the engine solve missed."""
     phi = np.array([12.0], dtype=np.float64)
     c2_2d = _single_angle_c2(_build_single_angle_model(), float(phi[0]))[0]
 
-    eng = fit_two_component_via_engine(
-        _build_single_angle_model(), c2_2d, phi, _make_config("auto"), None
-    )
-    ref = fit_nlsq_multi_phi(
-        _build_single_angle_model(), c2_2d, list(phi), _make_config("auto"), None
-    )
-    assert np.isfinite(eng.chi_squared) and np.isfinite(ref.chi_squared)
-    # Both reach the noiseless single-angle minimum (~machine zero), so the
-    # no-worse contract needs an absolute floor — a relative-only check is
-    # meaningless when production lands at ~1e-19. The atol still catches a
-    # genuinely worse engine (e.g. trapped at SSR ~1e-1).
-    assert eng.chi_squared <= ref.chi_squared * (1.0 + 1e-3) + 1e-9, (
-        f"engine 2D chi2 {eng.chi_squared!r} strictly worse than production {ref.chi_squared!r}"
-    )
+    with pytest.raises(EngineRouteDeclined, match="single"):
+        fit_two_component_via_engine(
+            _build_single_angle_model(), c2_2d, phi, _make_config("auto"), None
+        )
+
+    result = fit_nlsq({"c2": c2_2d, "phi": phi}, _single_angle_config())
+    assert result.chi_squared < 1e-6, f"single-angle chi2 {result.chi_squared!r}"
 
 
 # ===========================================================================
