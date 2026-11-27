@@ -422,17 +422,21 @@ def test_laminar_flow_end_to_end_golden():
             err_msg="laminar_flow chi_squared drifted from golden." + drift_hint,
         )
 
-    # --- exact: uncertainty shape + finite pattern ---
+    # --- exact: uncertainty + covariance shapes ---
     assert tuple(uncertainties.shape) == tuple(int(x) for x in golden["uncertainties_shape"])
-    assert np.array_equal(uncert_finite, golden["uncertainties_finite"]), (
-        "uncertainties finite/NaN pattern changed."
-    )
-
-    # --- exact: covariance shape + finite pattern ---
     assert tuple(covariance.shape) == tuple(int(x) for x in golden["covariance_shape"])
-    assert np.array_equal(cov_finite, golden["covariance_finite"]), (
-        "covariance finite/NaN pattern changed."
-    )
+
+    # --- finite/NaN pattern: maintainer-local, like the values ---
+    # With nlsq 0.8.1 this rank-deficient fixture has a finite covariance only if
+    # one of the retries resolves it, which depends on the CPU (all-NaN with
+    # covariance_is_placeholder on a Windows runner).
+    if _RUN_ENGINE_PARITY:
+        assert np.array_equal(uncert_finite, golden["uncertainties_finite"]), (
+            "uncertainties finite/NaN pattern changed."
+        )
+        assert np.array_equal(cov_finite, golden["covariance_finite"]), (
+            "covariance finite/NaN pattern changed."
+        )
 
     # --- exact: diagnostics key set ---
     golden_keys = [str(k) for k in golden["diag_keys"].tolist()]
