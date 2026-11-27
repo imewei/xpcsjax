@@ -40,9 +40,10 @@ the rendered documentation.
   are not meaningful.
 - Masked (zero-weight) pixels no longer count as observations in the sequential
   `two_component` covariance and reduced chi-squared, including the single-angle
-  CMA-ES path and data with no far-lag noise estimate; with no degrees of freedom
-  left both are `NaN`. A sequential fit with no usable covariance reports `NaN`
-  physics uncertainties instead of zero.
+  CMA-ES path and data with no far-lag noise estimate; when masking leaves no
+  degrees of freedom both are `NaN`, as is the single-angle chi-squared of data
+  with neither a noise estimate nor degrees of freedom. A sequential fit with no
+  usable covariance reports `NaN` physics uncertainties instead of zero.
 - A single-angle `two_component` solve that produced no fit can no longer win the
   comparison with a zero chi-squared; its chi-squared is `NaN`.
 - A homodyne fit that moved but has a non-finite solver covariance is reported as
