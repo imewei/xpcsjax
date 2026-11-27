@@ -49,9 +49,11 @@ the rendered documentation.
 - A homodyne fit that moved but has a non-finite solver covariance is reported as
   converged with an unknown (`NaN`) covariance instead of failed, after retrying;
   the attempt with the lowest solver cost is kept, also when a later retry raises.
-  A solve the solver reports as unsuccessful, including one that stops at its
-  evaluation limit, stays failed. `on_iteration` indices stay non-decreasing
-  across those retries.
+  With an unusable covariance, a solve the solver reports as unsuccessful,
+  including one that stops at its evaluation limit, is failed. This now also
+  covers a finite covariance with a zero variance, previously reported as
+  converged. An unsuccessful solve with a usable covariance is reported as
+  before. `on_iteration` indices stay non-decreasing across those retries.
 
 ## [0.1.8] - 2026-09-16
 
