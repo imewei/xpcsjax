@@ -11,6 +11,26 @@ the rendered documentation.
 
 ## [Unreleased]
 
+### Changed
+
+- **Single-angle `two_component` fits now use `fit_nlsq_multi_phi`** instead of
+  the in-memory engine route, which declines them. On noiseless single-angle data
+  the engine solve could stop in a worse minimum that the production solve did not,
+  so single-angle results can differ from earlier releases.
+
+### Fixed
+
+- **`two_component` covariance with jax 0.12.1 / nlsq 0.8.1.** For a
+  rank-deficient Jacobian nlsq either returns an all-`inf` covariance or accepts
+  one whose degenerate entries can be wrong by orders of magnitude. The
+  covariance is now computed as `pinv(J^T J)` from a full-rank subset of its columns. When
+  both `f0` and `f2` are free, `nlsq_diagnostics["covariance_unidentified_parameters"]`
+  names them: only `f0*exp(-f1*f2)` is identifiable, so their individual
+  uncertainties are not meaningful.
+- A homodyne fit that moved but has a non-finite solver covariance is reported as
+  converged with an unknown (`NaN`) covariance instead of failed, after retrying.
+  `on_iteration` indices stay increasing across those retries.
+
 ## [0.1.8] - 2026-09-16
 
 ### Added
