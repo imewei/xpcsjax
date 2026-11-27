@@ -1086,9 +1086,9 @@
     "semantic_hash": "5cf3b3ad32d55d46d0d9e1bbf1937ecb"
   },
   "xpcsjax/optimization/nlsq/recovery.py": {
-    "mtime": 1795756956.2181742,
-    "seen": 1795795376.860132,
-    "ast_hash": "30c828a2c663f57f62142dee6689e005",
+    "mtime": 1795799153.816793,
+    "seen": 1795800398.0598154,
+    "ast_hash": "f97462524b13f94a8ae1c30bd4908883",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_multistart.py": {
@@ -1176,9 +1176,9 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/heterodyne_core.py": {
-    "mtime": 1795757134.0777442,
-    "seen": 1795795376.8600972,
-    "ast_hash": "d15b014d91d6be5944c5867014a9efc1",
+    "mtime": 1795800309.5072005,
+    "seen": 1795800398.0597668,
+    "ast_hash": "e10e581adaeb02eb4533360c60092591",
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/result_builder.py": {
@@ -3690,9 +3690,9 @@
     "semantic_hash": ""
   },
   "xpcsjax/optimization/nlsq/covariance.py": {
-    "mtime": 1795795664.3406951,
-    "seen": 1795798644.6757486,
-    "ast_hash": "8d7f5006d19139dd83162722bcdabd78",
+    "mtime": 1795799113.1579177,
+    "seen": 1795800398.0597458,
+    "ast_hash": "0e70d6145f110f515ad655a2f425a9a3",
     "semantic_hash": ""
   },
   "tests/optimization/test_homodyne_covariance_contract.py": {
@@ -4134,15 +4134,15 @@
     "semantic_hash": ""
   },
   "tests/optimization/test_heterodyne_sequential_covariance.py": {
-    "mtime": 1795757116.5827827,
-    "seen": 1795795376.859622,
-    "ast_hash": "12831bea49f4c81db1ac77d77677b0cc",
+    "mtime": 1795800309.5072005,
+    "seen": 1795800398.0591915,
+    "ast_hash": "8045c0708205c16caef35f6fd5a20920",
     "semantic_hash": ""
   },
   "tests/optimization/test_recovery_unknown_covariance.py": {
-    "mtime": 1795756925.6612582,
-    "seen": 1795795376.85971,
-    "ast_hash": "6fd6f2d02de57af494629860952a6e84",
+    "mtime": 1795799096.4389706,
+    "seen": 1795800398.0592835,
+    "ast_hash": "5f35216ca87dba99c720f4e820ce6898",
     "semantic_hash": ""
   }
 }
