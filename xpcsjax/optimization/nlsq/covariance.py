@@ -85,15 +85,16 @@ def finalize_covariance(
 
 _EPS = float(np.finfo(np.float64).eps)
 
-# Coefficient (unit-norm columns) below this is round-off, not part of a dependency.
-_DEPENDENCY_TOL = 1e-6
+# A coefficient (unit-norm columns) is part of a dependency when it exceeds this
+# many times its error bound; round-off stays below the bound.
+_DEPENDENCY_SNR = 10.0
 # A dependency rebuilt from those coefficients must reproduce its column this well.
 _DEPENDENCY_RESIDUAL_TOL = 1e-8
 
 
 def rank_deficient_covariance(
     J: np.ndarray | None, *, cost: float | None, n_data: int
-) -> np.ndarray | None:
+) -> tuple[np.ndarray, np.ndarray] | None:
     """Covariance ``pinv(JᵀJ) · 2·cost / (n − p)`` of a rank-deficient fit.
 
     nlsq >= 0.8 reports all-``inf`` when the pseudo-inverse it builds from a
@@ -115,17 +116,18 @@ def rank_deficient_covariance(
 
     Returns
     -------
-    np.ndarray or None
-        ``(p, p)`` covariance. Entries of parameters inside a degenerate
-        combination are the minimum-norm values and are not individually
-        meaningful. ``None`` when ``J`` is not rank-deficient (an all-``inf``
-        covariance then has another cause), the inputs are unusable, or a
-        dependency cannot be isolated cleanly.
+    tuple of np.ndarray, or None
+        ``(pcov, unidentified)``: the ``(p, p)`` covariance and a ``(p,)`` mask of
+        the parameters inside a degenerate combination, whose entries are the
+        minimum-norm values and are not individually meaningful. ``None`` when
+        ``J`` is not rank-deficient (an all-``inf`` covariance then has another
+        cause), the inputs are unusable, or a dependency cannot be isolated
+        cleanly.
     """
     if J is None or cost is None or not (np.isfinite(cost) and cost >= 0):
         return None
     J = np.asarray(J, dtype=np.float64)
-    if J.ndim != 2 or n_data <= J.shape[1] or not np.all(np.isfinite(J)):
+    if J.ndim != 2 or not 0 < J.shape[1] < n_data or not np.all(np.isfinite(J)):
         return None
     p = J.shape[1]
     R = np.linalg.qr(J, mode="r")  # RᵀR = JᵀJ, so everything below is (p, p)
@@ -140,10 +142,14 @@ def rank_deficient_covariance(
     # Columns that best span the null space are the dependent ones.
     order = qr(vt[rank:], mode="r", pivoting=True)[1]
     dependent, free = order[: p - rank], np.sort(order[p - rank :])
+    u_free, s_free, vt_free = np.linalg.svd(Q[:, free], full_matrices=False)
+    pinv_free = (vt_free.T / s_free) @ u_free.T
+    gain = np.linalg.norm(pinv_free, axis=1)  # coefficient error per unit column error
     null = np.zeros((p, p - rank))
     for k, col in enumerate(dependent):
-        coef = np.linalg.lstsq(Q[:, free], Q[:, col], rcond=None)[0]
-        used = np.flatnonzero(np.abs(coef) > _DEPENDENCY_TOL)
+        coef = pinv_free @ Q[:, col]
+        error = max(np.linalg.norm(Q[:, free] @ coef - Q[:, col]), _EPS * max(n_data, p))
+        used = np.flatnonzero(np.abs(coef) > _DEPENDENCY_SNR * error * gain)
         coef = np.linalg.lstsq(Q[:, free[used]], Q[:, col], rcond=None)[0]
         if np.linalg.norm(Q[:, free[used]] @ coef - Q[:, col]) > _DEPENDENCY_RESIDUAL_TOL:
             return None
@@ -155,9 +161,10 @@ def rank_deficient_covariance(
     basis = np.linalg.qr(null[involved])[0]
     projector = np.eye(p)
     projector[np.ix_(involved, involved)] -= basis @ basis.T
-    _, s_free, vt_free = np.linalg.svd(Q[:, free], full_matrices=False)
     factor = projector[:, free] @ ((vt_free.T / s_free) / norm[free, None])
-    return factor @ factor.T * (2.0 * float(cost) / (n_data - p))
+    unidentified = np.zeros(p, dtype=bool)
+    unidentified[involved] = True
+    return factor @ factor.T * (2.0 * float(cost) / (n_data - p)), unidentified
 
 
 def _rho(loss: str, z: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

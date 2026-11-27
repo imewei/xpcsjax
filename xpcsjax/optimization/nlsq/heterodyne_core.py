@@ -29,6 +29,7 @@ from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
 )
 from xpcsjax.optimization.nlsq.heterodyne_config import NLSQConfig, ResolvedPerAngleMode
 from xpcsjax.optimization.nlsq.heterodyne_constant_mode import _decompose_chi2_per_angle
+from xpcsjax.optimization.nlsq.heterodyne_result_builder import record_unidentified
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.optimization.nlsq.results import OptimizationResult
 from xpcsjax.optimization.nlsq.validation import classify_quality_flag
@@ -774,6 +775,7 @@ def _aggregate_individual_results(
         per_angle_success=per_angle_success,
         **hierarchical_extras,
     )
+    record_unidentified(diagnostics, *per_angle_results)
 
     if param_manager.tied_idx_pairs:
         diagnostics["tied_parameters"] = dict(param_manager.space.tied)
@@ -1830,6 +1832,7 @@ def _fit_joint_averaged_multi_phi(
         **regularization_extras,
         **gradient_monitor_extras,
     )
+    record_unidentified(diagnostics, None if is_escape else joint_result)
     # Tag a global-escape assembly so callers can distinguish it from a plain
     # joint fit (the plain fit leaves this key absent).
     if global_escape_tag is not None:
@@ -3993,6 +3996,7 @@ def _build_joint_result(
         **regularization_extras,
         **gradient_monitor_extras,
     )
+    record_unidentified(diagnostics, joint_result)
 
     # Tag a global-escape assembly so callers can distinguish it from a plain
     # joint fit (the plain fit leaves this key absent).
