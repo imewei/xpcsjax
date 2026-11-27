@@ -305,27 +305,31 @@ def execute_with_recovery(
             # report failure, parameters and objective finite) is converged with
             # UNKNOWN covariance, not failed: nlsq >= 0.8 returns all-inf whenever
             # a rank-deficient Jacobian's pseudo-inverse cannot be trusted.
-            pcov_non_finite = not np.all(np.isfinite(pcov))
-            stagnated = params_unchanged or identity_covariance
             # Not stored in ``info``: it only decides what may be accepted below.
             solver_success = bool(getattr(result, "success", info.get("success", True)))
-            if pcov_non_finite and not stagnated and solver_success and np.all(np.isfinite(popt)):
+            # A failed solve with a zero variance has no covariance either: the
+            # public result discards such a matrix (``finalize_covariance``).
+            pcov_unusable = not np.all(np.isfinite(pcov)) or (
+                not solver_success and not np.all(np.diag(pcov) > 0.0)
+            )
+            stagnated = params_unchanged or identity_covariance
+            if pcov_unusable and not stagnated and solver_success and np.all(np.isfinite(popt)):
                 cost = _objective(popt, result)
                 if np.isfinite(cost) and (best_unknown is None or cost < best_unknown[0]):
                     best_unknown = (cost, popt, pcov, info)
             if (
                 attempt >= max_retries - 1
                 and best_unknown is not None
-                and (pcov_non_finite or stagnated)
+                and (pcov_unusable or stagnated)
             ):
                 return _accept_unknown()
 
-            if params_unchanged or identity_covariance or pcov_non_finite:
+            if params_unchanged or identity_covariance or pcov_unusable:
                 log.warning(
                     f"Potential optimization failure detected:\n"
                     f"  Parameters unchanged: {params_unchanged}\n"
                     f"  Identity covariance: {identity_covariance}\n"
-                    f"  Non-finite covariance: {pcov_non_finite}\n"
+                    f"  Unusable covariance: {pcov_unusable}\n"
                     f"  This may indicate NLSQ streaming bug or failed optimization"
                 )
 
