@@ -16,8 +16,7 @@ import pytest
 from xpcsjax.optimization.nlsq.covariance import rank_deficient_covariance
 from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
     build_result_from_nlsq,
-    label_unidentified_parameters,
-    record_unidentified,
+    label_unidentified_fraction_parameters,
 )
 
 
@@ -105,25 +104,27 @@ def test_result_builder_keeps_the_solver_covariance_when_full_rank() -> None:
     np.testing.assert_array_equal(result.covariance, 7.0 * np.eye(3))
 
 
-def test_result_builder_names_every_degenerate_parameter() -> None:
+@pytest.mark.parametrize("solver_pcov", ["rejected", "accepted"])
+@pytest.mark.parametrize(
+    ("names", "known"),
+    [(["f0", "b", "f2"], True), (["x", "y", "z"], False)],
+    ids=["labelled-pair", "other-parameters"],
+)
+def test_result_builder_reports_only_the_labelled_degeneracy(solver_pcov, names, known) -> None:
     u, v = np.eye(4)[:2]
-    J = np.column_stack([u, v, u + v])
-    result = build_result_from_nlsq(_solver_result(J, jac=J, cost=0.5), ["x", "y", "z"], 4)
-    assert result.metadata["covariance_unidentified_parameters"] == ["x", "y", "z"]
+    J = np.column_stack([u, v, u])  # first and last columns are inseparable
+    pcov = np.eye(3) if solver_pcov == "accepted" else np.full((3, 3), np.inf)
+    solve = _solver_result(J, pcov=pcov, jac=J, cost=0.5)
 
+    result = build_result_from_nlsq(solve, names, 4)
 
-def test_label_lists_recorded_degeneracies_that_report_a_sigma() -> None:
-    result = SimpleNamespace(
-        uncertainties=np.array([0.1, np.nan, 0.2, 0.3, 0.4]),
-        nlsq_diagnostics={"parameter_names": ["D0", "alpha", "f0", "f1", "f2"]},
-    )
-    record_unidentified(
-        result.nlsq_diagnostics,
-        SimpleNamespace(metadata={"covariance_unidentified_parameters": ["alpha", "D0"]}),
-        None,
-    )
-    labelled = label_unidentified_parameters(result)
-    assert labelled.nlsq_diagnostics["covariance_unidentified_parameters"] == ["D0", "f0", "f2"]
+    if known:
+        np.testing.assert_allclose(result.covariance, np.linalg.pinv(J.T @ J))
+        assert result.metadata["covariance_is_placeholder"] is False
+    else:
+        assert np.all(np.isnan(result.covariance))
+        assert np.all(np.isnan(result.uncertainties))
+        assert result.metadata["covariance_is_placeholder"] is True
 
 
 @pytest.mark.parametrize(
@@ -135,7 +136,7 @@ def test_free_fraction_pair_is_labelled_unidentified(f2_sigma, expected) -> None
         uncertainties=np.array([0.1, 0.03, 0.001, f2_sigma]),
         nlsq_diagnostics={"parameter_names": ["contrast_avg", "f0", "f1", "f2"]},
     )
-    labelled = label_unidentified_parameters(result)
+    labelled = label_unidentified_fraction_parameters(result)
     assert labelled.nlsq_diagnostics.get("covariance_unidentified_parameters") == expected
 
 

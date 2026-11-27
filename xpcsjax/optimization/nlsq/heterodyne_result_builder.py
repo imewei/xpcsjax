@@ -274,50 +274,32 @@ def build_result_from_arrays(
     )
 
 
-_UNIDENTIFIED = "covariance_unidentified_parameters"
+# ``f0*exp(-f1*f2)``: the one degeneracy whose sigmas are reported, with a label.
+_LABELLED_DEGENERACY = frozenset({"f0", "f2"})
 
 
-def record_unidentified(diagnostics: dict[str, Any] | None, *solver_results: Any) -> None:
-    """Copy the unidentified parameter names of the kept solve(s) into ``diagnostics``."""
-    names = dict.fromkeys(
-        name
-        for solve in solver_results
-        if solve is not None
-        for name in (solve.metadata or {}).get(_UNIDENTIFIED, ())
-    )
-    if names and diagnostics is not None:
-        diagnostics[_UNIDENTIFIED] = list(names)
+def label_unidentified_fraction_parameters(result: Any) -> Any:
+    """Record that ``f0`` and ``f2`` carry no individual uncertainty.
 
-
-def label_unidentified_parameters(result: Any) -> Any:
-    """Name the parameters whose reported sigmas are not individually meaningful.
-
-    Those are the members of a rank-deficient Jacobian's dependencies (recorded by
-    :func:`record_unidentified`) and, whenever both are free, ``f0`` and ``f2``:
-    ``f0·exp(f1·(t−f2)) + f3`` determines only ``f0·exp(−f1·f2)``. Their sigmas are
-    minimum-norm values of a pseudo-inverse, so
-    ``nlsq_diagnostics["covariance_unidentified_parameters"]`` lists them.
+    ``f0·exp(f1·(t−f2)) + f3`` determines only ``f0·exp(−f1·f2)``. With both
+    free, their reported sigmas are minimum-norm values of a pseudo-inverse, so
+    ``nlsq_diagnostics["covariance_unidentified_parameters"]`` names them.
     """
     diag = getattr(result, "nlsq_diagnostics", None)
     if not isinstance(diag, dict):
         return result
-    recorded = set(diag.pop(_UNIDENTIFIED, ()))
     names = list(diag.get("parameter_names", ()))
-    if not recorded and not {"f0", "f2"} <= set(names):
+    if not {"f0", "f2"} <= set(names):
         return result
     sigma = np.asarray(result.uncertainties, dtype=np.float64)
     if len(names) != len(sigma):
         return result
-    # A NaN or zero sigma (unknown, or a fixed parameter) is not read as measured.
-    measured = {n for n, s in zip(names, sigma, strict=True) if np.isfinite(s) and s > 0.0}
-    if {"f0", "f2"} <= measured:
-        recorded |= {"f0", "f2"}
-    flagged = [n for n in names if n in recorded and n in measured]
-    if flagged:
-        diag[_UNIDENTIFIED] = flagged
+    pair = sigma[[names.index("f0"), names.index("f2")]]
+    if np.all(np.isfinite(pair) & (pair > 0.0)):
+        diag["covariance_unidentified_parameters"] = ["f0", "f2"]
         logger.warning(
-            "Not separately identifiable: %s. Their individual uncertainties are not meaningful.",
-            ", ".join(flagged),
+            "f0 and f2 are not separately identifiable (only f0*exp(-f1*f2) is): "
+            "their individual uncertainties are not meaningful."
         )
     return result
 
@@ -481,14 +463,20 @@ def build_result_from_nlsq(
         if recomputed is not None:
             cov, unidentified = recomputed
             degenerate = [parameter_names[i] for i in np.flatnonzero(unidentified)]
-            logger.info(
-                "Rank-deficient Jacobian: covariance computed as pinv(J^T J) from a "
-                "full-rank subset of its columns. Uncertainties of %s are not "
-                "individually meaningful.",
-                ", ".join(degenerate),
-            )
-            merged_meta[_UNIDENTIFIED] = degenerate
-            pcov = cov
+            if set(degenerate) <= _LABELLED_DEGENERACY:
+                logger.info(
+                    "Rank-deficient Jacobian (%s): covariance computed as pinv(J^T J) "
+                    "from a full-rank subset of its columns.",
+                    ", ".join(degenerate),
+                )
+                pcov = cov
+            else:
+                # Anything else must not look measured.
+                logger.warning(
+                    "Rank-deficient Jacobian involving %s: covariance unknown.",
+                    ", ".join(degenerate),
+                )
+                pcov = None
 
     # Uncertainties from the covariance diagonal — ONE rule for every
     # heterodyne path (see covariance.finalize_covariance): nlsq's all-``inf``

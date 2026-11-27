@@ -30,10 +30,7 @@ from xpcsjax.optimization.nlsq.heterodyne_memory import (
     NLSQStrategy,
     select_nlsq_strategy,
 )
-from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
-    build_failed_result,
-    record_unidentified,
-)
+from xpcsjax.optimization.nlsq.heterodyne_result_builder import build_failed_result
 from xpcsjax.optimization.nlsq.strategies.chunking import (
     compute_stratification_diagnostics,
     create_angle_stratified_indices,
@@ -1479,7 +1476,7 @@ def fit_heterodyne_stratified_least_squares(
     if ad_controller is not None:
         _ad_block["controller_diagnostics"] = ad_controller.get_diagnostics()
     info["anti_degeneracy"] = _ad_block
-    result = build_hybrid_streaming_result(
+    return build_hybrid_streaming_result(
         model=model,
         popt=popt,
         pcov=pcov,
@@ -1495,6 +1492,3 @@ def fit_heterodyne_stratified_least_squares(
         stratification_diagnostics=strat_diag,
         parameter_names=joint_param_names,
     )
-    # The adapter's labels apply only where its covariance is the one reported.
-    record_unidentified(result.nlsq_diagnostics, fit if _pcov_from_adapter is not None else None)
-    return result

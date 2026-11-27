@@ -36,10 +36,9 @@ _NOISE_SIGMA = 1e-3
 def _smoke_config_dict() -> dict:
     """Self-contained heterodyne config sufficient for HeterodyneModel.from_config.
 
-    Uses registry defaults for all 14 physics parameters; only the analyzer /
-    optimizer sections are populated. The ``parameters`` block is intentionally
-    empty so :meth:`ParameterSpace.from_config` falls back to defaults — this
-    keeps the test insulated from registry-default drift.
+    Registry defaults except where they make the model structurally singular:
+    equal reference and sample transport, ``alpha = 0`` (``D0`` and ``D_offset``
+    inseparable) and ``f1 = 0``. Covariance is unknown at such a point.
     """
     return {
         "analysis_mode": "two_component",
@@ -54,6 +53,19 @@ def _smoke_config_dict() -> dict:
             "mode": "constant",
             "initial_contrast": 0.3,
             "initial_offset": 1.0,
+        },
+        "parameters": {
+            "reference": {
+                "D0_ref": {"value": 5.0e3},
+                "alpha_ref": {"value": 0.3},
+                "D_offset_ref": {"value": 100.0},
+            },
+            "sample": {
+                "D0_sample": {"value": 8.0e3},
+                "alpha_sample": {"value": 0.2},
+                "D_offset_sample": {"value": 200.0},
+            },
+            "fraction": {"f1": {"value": 0.02}},
         },
         "optimization": {
             "nlsq": {
@@ -128,9 +140,8 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     assert "chi2_per_angle" in diag, (
         "OptimizationResult must carry chi2_per_angle in nlsq_diagnostics"
     )
-    # f0 and f2 are both free here, so their sigmas must be flagged (as must any
-    # other degeneracy the solver's Jacobian shows)
-    assert {"f0", "f2"} <= set(diag["covariance_unidentified_parameters"])
+    # f0 and f2 are both free here, so their sigmas are reported and flagged
+    assert diag["covariance_unidentified_parameters"] == ["f0", "f2"]
     assert np.asarray(diag["chi2_per_angle"]).shape == (len(_PHI_ANGLES),), (
         f"chi2_per_angle shape mismatch: "
         f"{np.asarray(diag['chi2_per_angle']).shape} "

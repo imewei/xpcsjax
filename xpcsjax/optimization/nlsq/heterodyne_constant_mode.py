@@ -475,9 +475,6 @@ def _fit_joint_constant_multi_phi(
     diagnostics["covariance_is_placeholder"] = (not is_escape) and not bool(
         np.all(np.isfinite(uncertainties))
     )
-    from xpcsjax.optimization.nlsq.heterodyne_result_builder import record_unidentified
-
-    record_unidentified(diagnostics, None if is_escape else nlsq_result)
     diagnostics["covariance_dof"] = {
         "n_rows_solver": int(final_residual.size),
         "n_valid": n_valid,

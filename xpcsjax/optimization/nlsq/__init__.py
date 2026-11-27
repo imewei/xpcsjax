@@ -558,10 +558,10 @@ def fit_nlsq(
     mode = str(mode).lower().replace("-", "_")
     if mode in ("two_component", "heterodyne"):
         from xpcsjax.optimization.nlsq.heterodyne_result_builder import (
-            label_unidentified_parameters,
+            label_unidentified_fraction_parameters,
         )
 
-        return label_unidentified_parameters(_fit_nlsq_heterodyne(data, config))
+        return label_unidentified_fraction_parameters(_fit_nlsq_heterodyne(data, config))
 
     # Homodyne path — passes on_iteration to the core engine.
     return fit_nlsq_jax(data, config, on_iteration=on_iteration)

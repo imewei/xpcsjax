@@ -378,7 +378,6 @@ def fit_two_component_via_engine(
     from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
         noise_normalized_reduced_chi2,
     )
-    from xpcsjax.optimization.nlsq.heterodyne_result_builder import record_unidentified
     from xpcsjax.optimization.nlsq.heterodyne_stratified_data import (
         build_heterodyne_stratified_data,
     )
@@ -626,7 +625,7 @@ def fit_two_component_via_engine(
         max_nfev=(config.max_nfev * n_phi if config.max_nfev is not None else None),
         n_params=len(x0_opt),
     )
-    # Real names: the covariance code reports unidentified parameters by name.
+    # Real names: the covariance code tells degeneracies apart by name.
     joint_param_names = _joint_param_names_scaling_first(
         mode=mode, physics_names=phys_names, n_phi=n_phi
     )
@@ -762,7 +761,6 @@ def fit_two_component_via_engine(
         "n_params": n_total_params,
     }
     diagnostics["covariance_is_placeholder"] = bool(_cov_placeholder)
-    record_unidentified(diagnostics, res)
 
     return OptimizationResult(
         parameters=popt_sf,
