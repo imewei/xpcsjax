@@ -1830,9 +1830,9 @@
     "semantic_hash": "188ea77e2d3b6f7b491254489a6bd2fd"
   },
   "docs/source/user_guide/interpreting_results.rst": {
-    "mtime": 1789428218.8765097,
-    "seen": 1789453660.4954848,
-    "ast_hash": "576a9f6d28edc40d340ab43e7e3142b2",
+    "mtime": 1795802050.862243,
+    "seen": 1795808953.9350767,
+    "ast_hash": "5115ed705dc60f6b8518e03452243c59",
     "semantic_hash": ""
   },
   "docs/source/user_guide/cli.rst": {
@@ -3828,9 +3828,9 @@
     "semantic_hash": ""
   },
   "tests/optimization/test_rank_deficient_covariance.py": {
-    "mtime": 1795795664.341695,
-    "seen": 1795798644.6753047,
-    "ast_hash": "db5c54da56c8c270d2789add5470b69b",
+    "mtime": 1795808933.5930967,
+    "seen": 1795808953.9343774,
+    "ast_hash": "348cef9d6bc5fbf9b7120e0dd5298e19",
     "semantic_hash": ""
   },
   "tests/review_r1/__init__.py": {
