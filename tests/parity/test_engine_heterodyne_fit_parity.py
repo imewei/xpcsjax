@@ -72,9 +72,10 @@ RESULTS ON THE WELL-POSED FIXTURE (the honest contract)
   and assert the directional contract: the engine objective is **no worse** than
   production's AND the engine reaches **near-zero SSR**. In ``individual``
   production reaches ~0 as well, so "no worse" carries a 1e-9 absolute floor. In
-  ``averaged`` production stops at a higher local minimum while the engine, which
-  broadcasts the 2 averaged scalars to per-angle ``2*n_phi`` scaling (see the
-  scaling-first layout oracle), reaches ~0. From the config defaults neither mode
+  ``averaged`` production stops at a higher local minimum while this file's engine
+  run reaches ~0. That run only starts from the broadcast scalars and then fits
+  all ``2*n_phi`` scaling slots, so it is less constrained than the production
+  engine route, which shares two scalars. From the config defaults neither mode
   is reliable: round-off decides which minimum the local solve ends in. A
   STRICTLY-worse engine objective, or an engine that FAILS to reach ~0 from this
   start, WOULD be a real residual/scaling/layout/solver bug. Do NOT loosen these
@@ -312,9 +313,10 @@ def _engine_scaling_first_bounds(
     ``constant``). Phase 4 made x0 scaling-first natively, so the bounds are built
     directly in the engine layout (no physics-first -> scaling-first conversion).
 
-    For ``averaged`` the engine has no compressed scaling mode — it consumes the
-    broadcast ``2*n_phi`` per-angle block — so the bounds use ``2*n_phi`` slots
-    (matching ``expand_to_engine_scaling_first``'s broadcast of the x0 head)."""
+    For ``averaged`` the raw engine consumes a ``2*n_phi`` per-angle block, which
+    this harness fits freely, so the bounds use ``2*n_phi`` slots (matching
+    ``expand_to_engine_scaling_first``'s broadcast of the x0 head). The production
+    engine route instead shares two scalars inside its residual."""
     cb = (SCALING_PARAMS["contrast"].min_bound, SCALING_PARAMS["contrast"].max_bound)
     ob = (SCALING_PARAMS["offset"].min_bound, SCALING_PARAMS["offset"].max_bound)
     physics_lower = np.asarray(physics_lower, dtype=np.float64)
@@ -489,10 +491,10 @@ def test_engine_route_individual_reaches_true_minimum():
 def test_engine_route_averaged_reaches_true_minimum_production_misses():
     """``averaged`` — from ``_SYMMETRY_BROKEN_START`` the engine reaches the
     TRUE global minimum (SSR ~0) while production's averaged joint solver is
-    trapped (SSR ~1.4, recovered avg_contrast ~0.24 vs true 0.30). The layout
-    broadcasts the 2 averaged scalars to per-angle ``2*n_phi`` scaling on the
-    engine; with uniform true scaling the averaged solve *should* still reach 0,
-    so the gap is production solver sub-optimality. Engine is correct + better.
+    trapped (SSR ~1.4, recovered avg_contrast ~0.24 vs true 0.30). The engine run
+    here starts from the broadcast scalars but fits all ``2*n_phi`` scaling slots.
+    With uniform true scaling the shared-scalar solve *should* still reach 0, so
+    the gap is read as production solver sub-optimality.
     """
     out = _run_reference_and_engine("averaged", start=_SYMMETRY_BROKEN_START)
     _assert_engine_reaches_minimum_no_worse("averaged", out)
