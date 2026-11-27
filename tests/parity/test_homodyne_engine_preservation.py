@@ -532,7 +532,7 @@ def test_explicit_individual_unaffected_by_threshold_at_high_nphi():
             "method": "nlsq",
             "nlsq": {
                 "analysis_mode": "laminar_flow",
-                "max_iterations": 30,
+                "max_iterations": 100,  # this fit needs up to 67 evaluations
                 "loss": "linear",
                 "cmaes": {"enable": False, "auto_select": False},
                 "multi_start": {"enable": False},

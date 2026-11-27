@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 
+from xpcsjax.optimization.nlsq.covariance import _rho
 from xpcsjax.optimization.nlsq.fallback_chain import OptimizationStrategy
 from xpcsjax.utils.logging import get_logger, log_exception
 
@@ -112,7 +113,7 @@ def execute_with_recovery(
         If optimization fails after all retry attempts or the error is
         diagnosed as unrecoverable.
     """
-    recovery_actions = []
+    recovery_actions: list[str] = []
     max_retries = 3
     current_params = initial_params.copy()
 
@@ -137,10 +138,14 @@ def execute_with_recovery(
     # -- goes through the same diagnose_error()/retry machinery as every other
     # failure in this function, instead of crashing before the loop even starts.
     initial_cost: float | None = None
-    # Lowest-objective usable solve whose covariance came back NaN/Inf.
+    # Lowest-cost usable solve whose covariance came back NaN/Inf.
     best_unknown: tuple[float, np.ndarray, np.ndarray, dict] | None = None
 
-    def _objective(params: np.ndarray) -> float:
+    def _objective(params: np.ndarray, result: Any) -> float:
+        """Return the solver cost ``0.5 · Σρ``, computing it when none is reported."""
+        cost = getattr(result, "cost", None)
+        if cost is not None:
+            return float(cost)
         probe = getattr(residual_fn, "fn", residual_fn)
         if hasattr(probe, "n_total_points"):
             residuals = np.asarray(residual_fn(params))
@@ -148,7 +153,18 @@ def execute_with_recovery(
             residuals = np.asarray(residual_fn(xdata, *params)) - np.asarray(ydata)
             if sigma is not None:
                 residuals = residuals / np.asarray(sigma)
-        return float(np.sum(residuals**2))
+        return float(0.5 * np.sum(_rho(loss_name, residuals**2)[0]))
+
+    def _accept_unknown() -> tuple[np.ndarray, np.ndarray, dict, list[str], str]:
+        assert best_unknown is not None
+        _, popt, pcov, info = best_unknown
+        log.warning(
+            "No attempt returned a finite covariance; accepting the lowest-cost "
+            "solve with covariance unknown (NaN, covariance_is_placeholder=True)."
+        )
+        info["covariance_is_placeholder"] = True
+        unknown = np.full_like(np.asarray(pcov, dtype=float), np.nan)
+        return popt, unknown, info, recovery_actions, "converged"
 
     # Determine if we should use large dataset functions
     use_large = strategy != OptimizationStrategy.STANDARD
@@ -250,13 +266,14 @@ def execute_with_recovery(
                 _dbg_cb = _get_debug_curvefit_callback()
                 if _dbg_cb is not None and "callback" not in _std_kwargs:
                     _std_kwargs["callback"] = _dbg_cb
-                popt, pcov = curve_fit_fn(
+                result = curve_fit_fn(
                     residual_fn,
                     xdata,
                     ydata,
                     p0=current_params.tolist(),
                     **_std_kwargs,
                 )
+                popt, pcov = result
                 info = {"initial_cost": initial_cost}
 
                 log.info("=" * 80)
@@ -290,13 +307,10 @@ def execute_with_recovery(
             # a rank-deficient Jacobian's pseudo-inverse cannot be trusted.
             pcov_non_finite = not np.all(np.isfinite(pcov))
             stagnated = params_unchanged or identity_covariance
-            if (
-                pcov_non_finite
-                and not stagnated
-                and bool(info.get("success", True))
-                and np.all(np.isfinite(popt))
-            ):
-                cost = _objective(popt)
+            # Not stored in ``info``: it only decides what may be accepted below.
+            solver_success = bool(getattr(result, "success", info.get("success", True)))
+            if pcov_non_finite and not stagnated and solver_success and np.all(np.isfinite(popt)):
+                cost = _objective(popt, result)
                 if np.isfinite(cost) and (best_unknown is None or cost < best_unknown[0]):
                     best_unknown = (cost, popt, pcov, info)
             if (
@@ -304,14 +318,7 @@ def execute_with_recovery(
                 and best_unknown is not None
                 and (pcov_non_finite or stagnated)
             ):
-                _, popt, pcov, info = best_unknown
-                log.warning(
-                    "No attempt returned a finite covariance; accepting the lowest-objective "
-                    "solve with covariance unknown (NaN, covariance_is_placeholder=True)."
-                )
-                pcov = np.full_like(np.asarray(pcov, dtype=float), np.nan)
-                info["covariance_is_placeholder"] = True
-                params_unchanged = identity_covariance = pcov_non_finite = False
+                return _accept_unknown()
 
             if params_unchanged or identity_covariance or pcov_non_finite:
                 log.warning(
@@ -393,7 +400,12 @@ def execute_with_recovery(
             log.info(f"Diagnostic: {diagnostic['message']}")
 
             recovery_strategy = diagnostic["recovery_strategy"]
-            if recovery_strategy.get("action") == "no_recovery_available":
+            unrecoverable = recovery_strategy.get("action") == "no_recovery_available"
+            if best_unknown is not None and (unrecoverable or attempt >= max_retries - 1):
+                # An earlier attempt solved the problem; a failed retry does not undo it.
+                recovery_actions.append(f"retry_raised_{diagnostic['error_type']}")
+                return _accept_unknown()
+            if unrecoverable:
                 error_msg = (
                     f"Optimization failed: {diagnostic['error_type']} (unrecoverable)\n"
                     f"Diagnostic: {diagnostic['message']}\n"
