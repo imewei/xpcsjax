@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -101,3 +103,56 @@ def test_aggregate_without_any_covariance_reports_unknown_physics_sigmas():
     physics = result.uncertainties[2:]  # [contrast | offset | 14 physics]
     assert np.all(np.isnan(physics[model.param_manager.varying_indices]))
     assert result.nlsq_diagnostics["covariance_is_placeholder"] is True
+
+
+def test_noiseless_data_still_counts_only_observations(monkeypatch):
+    """Without a far-lag noise estimate chi-squared is the MSE per observed dof."""
+    model, c2, phi = make_synthetic_two_component(n_phi=1, n_t=_N_T)
+    p = model.param_manager.n_varying
+
+    def solve(_self, jax_residual_fn, initial_params, n_data, **_kwargs):  # called by keyword
+        return NLSQResult(
+            parameters=np.asarray(initial_params),
+            parameter_names=list(model.param_manager.varying_names),
+            success=True,
+            message="ok",
+            final_cost=0.5,
+            reduced_chi_squared=1.0 / (n_data - p),
+        )
+
+    monkeypatch.setattr(heterodyne_core.NLSQAdapter, "fit_jax", solve)
+
+    result = heterodyne_core._fit_local(
+        model, np.ones_like(c2[0]), float(phi[0]), NLSQConfig(), _weights(60), True
+    )
+
+    np.testing.assert_allclose(result.reduced_chi_squared, 1.0 / (60 - p))
+
+
+def test_cmaes_path_keeps_the_observation_count(monkeypatch):
+    model, c2, phi = make_synthetic_two_component(n_phi=1, n_t=_N_T)
+
+    def solve(_self, jax_residual_fn, initial_params, n_data, **_kwargs):  # called by keyword
+        return NLSQResult(
+            parameters=np.asarray(initial_params),
+            parameter_names=list(model.param_manager.varying_names),
+            success=True,
+            message="ok",
+            final_cost=0.5,
+        )
+
+    monkeypatch.setattr(heterodyne_core.NLSQAdapter, "fit_jax", solve)
+    # CMA-ES finds nothing better, so the warm start wins
+    monkeypatch.setattr(
+        heterodyne_core,
+        "fit_with_cmaes",
+        lambda p0, **_kwargs: SimpleNamespace(parameters=p0, success=True),
+    )
+    config = NLSQConfig(cmaes_warmstart_auto_skip=False)
+    args = (c2[0], float(phi[0]), config, _weights(60))
+
+    expected = heterodyne_core._fit_local(model, *args, True)
+    result = heterodyne_core._fit_cmaes(model, *args)
+
+    assert result.metadata["cmaes_winner"] == "nlsq"
+    np.testing.assert_allclose(result.reduced_chi_squared, expected.reduced_chi_squared)
