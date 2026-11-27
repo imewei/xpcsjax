@@ -642,8 +642,10 @@ def _aggregate_individual_results(
             physics_cov_blocks.append(cov_arr)
         elif cov_arr.shape[0] >= n_physics:
             physics_cov_blocks.append(cov_arr[:n_physics, :n_physics])
-    if physics_cov_blocks:
-        covariance[:n_physics, :n_physics] = np.mean(physics_cov_blocks, axis=0)
+    # No angle produced a covariance: the physics block is unknown, not zero.
+    covariance[:n_physics, :n_physics] = (
+        np.mean(physics_cov_blocks, axis=0) if physics_cov_blocks else np.nan
+    )
     uncertainties = np.sqrt(np.clip(np.diag(covariance), 0.0, None))
 
     # ------------------------------------------------------------------
@@ -714,11 +716,18 @@ def _aggregate_individual_results(
     # copy of the varying physics with BOTH scaling terms held fixed. The
     # reporting vector ([mean physics | contrasts | offsets], ``total_dim``) is a
     # summary, not the fitted parameter set.
+    # A zero-weight pixel is not an observation.
+    n_data_valid = n_data_total
+    if weights is not None and c2_arr.ndim == 3:
+        from xpcsjax.optimization.nlsq.heterodyne_data_prep import n_contributing_rows
+
+        n_data_valid = n_contributing_rows(np.broadcast_to(weights, c2_arr.shape))
     reduced_chi2 = noise_normalized_reduced_chi2(
         ssr=ssr,
         c2_data=c2_arr,
-        n_data_valid=n_data_total,
+        n_data_valid=n_data_valid,
         n_params=n_phi * n_physics,
+        n_rows=n_data_total,
     )
 
     # ------------------------------------------------------------------
@@ -776,6 +785,8 @@ def _aggregate_individual_results(
         **hierarchical_extras,
     )
     record_unidentified(diagnostics, *per_angle_results)
+    if not physics_cov_blocks:
+        diagnostics["covariance_is_placeholder"] = True
 
     if param_manager.tied_idx_pairs:
         diagnostics["tied_parameters"] = dict(param_manager.space.tied)
@@ -4732,6 +4743,24 @@ def _fit_local(
             "Ensure heterodyne.optimization.nlsq.adapter is importable."
         )
 
+    # A zero-weight pixel still occupies a residual row but is not an observation.
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        covariance_on_valid_rows,
+        n_contributing_rows,
+    )
+
+    n_observed = n_data if weights_jax is None else n_contributing_rows(weights_jax)
+    if result.covariance is not None and result.uncertainties is not None:
+        result.covariance, result.uncertainties = covariance_on_valid_rows(
+            result.covariance,
+            result.uncertainties,
+            n_rows_solver=n_data,
+            n_valid=n_observed,
+            n_params=n_varying,
+        )
+        if not np.all(np.isfinite(result.uncertainties)):
+            result.metadata["covariance_is_placeholder"] = True
+
     # ------------------------------------------------------------------
     # Post-fit: compute fitted correlation, update model
     # ------------------------------------------------------------------
@@ -4773,7 +4802,8 @@ def _fit_local(
         # Residual mask excludes the t=0 boundary row/column AND the diagonal,
         # so the valid count is (n-1)*(n-2), matching _compute_per_angle_chi2 —
         # not the N^2 - N that `size - n_matrix` (diagonal-only) would give.
-        n_valid = (n_matrix - 1) * (n_matrix - 2)
+        n_rows = (n_matrix - 1) * (n_matrix - 2)
+        n_valid = n_rows if weights_jax is None else n_observed
         n_dof_valid = max(n_valid - n_varying, 1)
 
         c2_np = np.asarray(c2_jax)
@@ -4801,6 +4831,8 @@ def _fit_local(
                 "chi2 noise estimate near-zero (σ²=%.2e); reporting uncorrected MSE chi2",
                 sigma2_noise,
             )
+        if n_valid != n_rows and n_valid <= n_varying:
+            result.reduced_chi_squared = float("nan")
 
     result.metadata["fallback_occurred"] = fallback_occurred
     if adapter_error is not None:
