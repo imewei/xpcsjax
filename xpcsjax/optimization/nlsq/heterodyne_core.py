@@ -2656,7 +2656,11 @@ def _multistart_joint_candidate(
 
 
 def _escape_keeps_candidate(ssr_warm: float, ssr_cand: float) -> bool:
-    """Keep-better decision for the joint global escape, NaN-safe.
+    """Whether a candidate fit replaces the incumbent (keep-better), NaN-safe.
+
+    ``ssr_warm`` is the incumbent and ``ssr_cand`` the challenger: warm start and
+    escape result in the joint global escapes, engine route and
+    ``fit_nlsq_multi_phi`` in the single-angle comparison.
 
     A non-finite warm-start SSR must NEVER win over a finite candidate: the
     naive ``ssr_cand <= ssr_warm * (1 + eps)`` evaluates to ``False`` when
@@ -4805,25 +4809,6 @@ def _fit_local(
         result.fitted_correlation = np.asarray(fitted_c2)
         model.set_params(full_fitted)
 
-    # ------------------------------------------------------------------
-    # Post-fit: correct reduced chi-squared
-    #
-    # The raw chi2 from adapter.fit_jax is SSR / (N² − n_params), where
-    # SSR = Σ r² over the full N×N residual vector.  Two corrections:
-    #
-    #   1. DOF: the N diagonal residuals are forced to 0 by the
-    #      non_diagonal mask in compute_residuals — they should be
-    #      excluded from the degrees-of-freedom count.
-    #      n_valid = N*(N−1) instead of N².
-    #
-    #   2. σ² normalization: without dividing by measurement noise,
-    #      chi2 = MSE ≪ 1 for normalized C2 data (C2 ~ 1, residuals ~ 5%).
-    #      We estimate σ²_noise from the far-lag plateau of the C2 matrix
-    #      (|t2−t1| ≥ N/2), where correlations have fully decayed and
-    #      the remaining variance is photon-counting noise.
-    #
-    # chi2_corrected = SSR / (σ²_noise × n_dof_valid)  →  ~1 for good fits
-    # ------------------------------------------------------------------
     _normalize_chi2_by_noise(result, c2_jax, weights_jax, n_varying)
 
     result.metadata["fallback_occurred"] = fallback_occurred

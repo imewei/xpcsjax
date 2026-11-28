@@ -358,9 +358,9 @@ def fit_two_component_via_engine(
     ------
     EngineRouteDeclined
         A ``NotImplementedError`` subclass, for duplicate phi angles, masking or
-        non-unit weights, an out-of-scope ``per_angle_mode`` or a fixed or tied
-        physics parameter; the caller falls back to
-        ``fit_nlsq_multi_phi``. An "auto" (None) ``max_nfev`` does NOT raise —
+        non-uniform weights, non-unit weights under a robust loss, an
+        out-of-scope ``per_angle_mode`` or a fixed or tied physics parameter;
+        the caller falls back to ``fit_nlsq_multi_phi``. An "auto" (None) ``max_nfev`` does NOT raise —
         it is passed through so nlsq auto-resolves ``100*n_params``, mirroring
         the production joint paths.
     """

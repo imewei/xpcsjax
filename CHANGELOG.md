@@ -19,7 +19,8 @@ the rendered documentation.
   noiseless single-angle data either one could stop in a worse minimum,
   depending on the CPU. Such fits take longer, results can differ from earlier
   releases, and the kept fit reports its own convergence status. Fits the route
-  declines (masked or non-unit weights, fixed or tied physics) use
+  declines (masked or non-uniform weights, non-unit weights under a robust
+  loss, fixed or tied physics) use
   `fit_nlsq_multi_phi` alone, as before.
 
 ### Fixed

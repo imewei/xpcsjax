@@ -490,8 +490,8 @@ def test_engine_route_individual_reaches_true_minimum():
 @_MAINTAINER_ONLY
 def test_engine_route_averaged_reaches_true_minimum_production_misses():
     """``averaged`` — from ``_SYMMETRY_BROKEN_START`` the engine reaches the
-    TRUE global minimum (SSR ~0) while production's averaged joint solver is
-    trapped (SSR ~1.4, recovered avg_contrast ~0.24 vs true 0.30). The engine run
+    TRUE global minimum (SSR ~0) while production's averaged joint solver stops
+    far from it (SSR of order 1 on the maintainer machine). The engine run
     here starts from the broadcast scalars but fits all ``2*n_phi`` scaling slots.
     With uniform true scaling the shared-scalar solve *should* still reach 0, so
     the gap is read as production solver sub-optimality.

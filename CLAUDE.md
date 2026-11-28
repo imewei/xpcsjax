@@ -335,7 +335,7 @@ Key facts:
 Dispositions and evidence: `docs/reviews/2026-11-25-maintainer-decisions.md`. Items listed there as "closed as intended" are decisions — do not re-flag them.
 
 - **A zero-weight pixel is not an observation.** Heterodyne DOF comes from `n_contributing_rows` / `covariance_on_valid_rows` (`heterodyne_data_prep.py`), never from residual length. In `info`, `n_data_points` = observations and `n_data_rows` = residual length. With no data DOF left: NaN covariance and reduced χ², `covariance_is_placeholder=True`, `quality_flag="unknown"`.
-- **The engine route declines with `EngineRouteDeclined`** (`optimization/exceptions.py`; duplicate phi, masking or non-unit weights, `fourier`, fixed or tied physics). The dispatcher treats only that as routine; a bare `NotImplementedError` is a real failure and logs a warning.
+- **The engine route declines with `EngineRouteDeclined`** (`optimization/exceptions.py`; duplicate phi, masking or non-uniform weights, non-unit weights under a robust loss, `fourier`, fixed or tied physics). The dispatcher treats only that as routine; a bare `NotImplementedError` is a real failure and logs a warning.
 - **Layer 3 off switch:** `regularization.enable: false` or `mode: "none"` means off on every path (shared gate `l3_is_enabled`); nested `enable: false` beats a flat `regularization_mode`. Templates ship `enable: true`. Heterodyne hybrid streaming additionally treats `enable: null` as off.
 - **Cache location is `experimental_data.cache_file_path`** (a directory; default: the data folder). `cache_directory` was never read and is removed; old configs get a warning.
 - **`NLSQAdapter` (opt-in) rejects times beyond `(FALLBACK_TIME_GRID_SIZE - 1) * dt`**; `fit_nlsq_jax` then falls back to `NLSQWrapper` with a warning.
