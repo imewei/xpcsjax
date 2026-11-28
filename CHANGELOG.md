@@ -54,8 +54,9 @@ the rendered documentation.
   chi-squared of such a solve with neither a noise estimate nor degrees of
   freedom. A sequential fit with no usable covariance reports `NaN` physics
   uncertainties instead of zero.
-- A single-angle `two_component` solve that produced no fit can no longer win the
-  comparison with a zero chi-squared; its chi-squared is `NaN`.
+- A sequential `two_component` solve that produced no fit reports a `NaN`
+  chi-squared instead of zero. In the one-angle comparison, a second solver that
+  fails leaves the engine-route result in place.
 - A homodyne fit that moved but has a non-finite solver covariance is reported as
   converged with an unknown (`NaN`) covariance instead of failed, after retrying;
   the attempt with the lowest solver cost is kept, also when a later retry raises.
