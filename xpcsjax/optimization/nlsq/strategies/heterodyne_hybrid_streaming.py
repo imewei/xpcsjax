@@ -25,7 +25,10 @@ from xpcsjax.optimization.nlsq.anti_degeneracy_diagnostics import (
     assemble_anti_degeneracy_diagnostics,
 )
 from xpcsjax.optimization.nlsq.covariance import finalize_covariance
-from xpcsjax.optimization.nlsq.data_prep import sigma_in_sorted_phi_order
+from xpcsjax.optimization.nlsq.data_prep import (
+    observed_equal_sigma_rows,
+    sigma_in_sorted_phi_order,
+)
 from xpcsjax.optimization.nlsq.gradient_monitor import (
     GradientCollapseMonitor,
     GradientMonitorConfig,
@@ -188,6 +191,30 @@ def build_heterodyne_pointwise_model(
     t2_idx_arr = _bin_to_grid(all_t2, t_unique, "t2")
 
     # ------------------------------------------------------------------
+    # Per-row sigma, aligned 1:1 with the unfiltered flat arrays. None when the
+    # data carries no sigma.
+    # ------------------------------------------------------------------
+    row_sigma: np.ndarray | None = None
+    if hasattr(stratified_data, "sigma") and stratified_data.sigma is not None:
+        # sigma's angle axis follows the input phi order (stratified_data.phi_raw);
+        # phi_idx_arr is a SORTED-phi index. No-op for ascending phi.
+        sigma_raw = np.asarray(stratified_data.sigma, dtype=np.float64)
+        phi_raw = getattr(stratified_data, "phi_raw", None)
+        if (
+            phi_raw is not None
+            and len(np.unique(phi_raw)) != len(phi_raw)
+            and sigma_raw.size == len(all_phi)
+        ):
+            # Duplicate angles share one phi slot but each measurement has its own
+            # sigma slab, so a phi-slot gather would hand one row's mask to the
+            # other. The flat arrays are the input rows raveled in order
+            # (build_heterodyne_stratified_data), so take sigma the same way.
+            row_sigma = sigma_raw.reshape(-1)
+        else:
+            sigma_3d = sigma_in_sorted_phi_order(sigma_raw, phi_raw)
+            row_sigma = sigma_3d[phi_idx_arr, t1_idx_arr, t2_idx_arr]
+
+    # ------------------------------------------------------------------
     # 4. Filter diagonal AND t=0 boundary (mirrors _compute_residuals_jit)
     #
     # _compute_residuals_jit in heterodyne_jax_backend.py excludes BOTH:
@@ -201,6 +228,7 @@ def build_heterodyne_pointwise_model(
     t1_idx_arr = t1_idx_arr[keep]
     t2_idx_arr = t2_idx_arr[keep]
     g2_flat = g2_flat[keep]
+    meta_sigma = None if row_sigma is None else row_sigma[keep]
 
     x_data = np.column_stack(
         [phi_idx_arr.astype(np.int32), t1_idx_arr.astype(np.int32), t2_idx_arr.astype(np.int32)]
@@ -214,7 +242,13 @@ def build_heterodyne_pointwise_model(
     # order from stratified_data, which is the original phi order (may differ
     # from sorted phi_unique). We build a phi_val → sorted_index mapping and
     # reorder the returned arrays so element k ↔ phi_unique[k].
-    contrast_raw, offset_raw = compute_quantile_per_angle_scaling(stratified_data)
+    # A masked row (non-finite or non-positive sigma) is not an observation.
+    observed_rows = None
+    if row_sigma is not None:
+        observed_rows = np.isfinite(row_sigma) & (row_sigma > 0)
+    contrast_raw, offset_raw = compute_quantile_per_angle_scaling(
+        stratified_data, observed=observed_rows
+    )
 
     # Determine the phi value that owns each output slot in contrast_raw /
     # offset_raw.  The function internally iterates phi_unique in sorted order
@@ -350,38 +384,6 @@ def build_heterodyne_pointwise_model(
             offset=offsets,
         )
         return jnp.squeeze(result)
-
-    # ------------------------------------------------------------------
-    # Pre-compute masked sigma aligned 1:1 with x_data/y_data.
-    # We store the raw sigma_3d lookup here (before sigma uniformity check)
-    # so the wrapper does not need to re-derive the keep mask.  If sigma is
-    # not available on stratified_data the entry is None.
-    # ------------------------------------------------------------------
-    meta_sigma: np.ndarray | None = None
-    if hasattr(stratified_data, "sigma") and stratified_data.sigma is not None:
-        # sigma's angle axis follows the input phi order (stratified_data.phi_raw);
-        # phi_idx_pre below is a SORTED-phi index. No-op for ascending phi.
-        sigma_raw = np.asarray(stratified_data.sigma, dtype=np.float64)
-        phi_raw = getattr(stratified_data, "phi_raw", None)
-        if (
-            phi_raw is not None
-            and len(np.unique(phi_raw)) != len(phi_raw)
-            and sigma_raw.size == len(all_phi)
-        ):
-            # Duplicate angles share one phi slot but each measurement has its own
-            # sigma slab, so a phi-slot gather would hand one row's mask to the
-            # other. The flat arrays are the input rows raveled in order
-            # (build_heterodyne_stratified_data), so take sigma the same way.
-            meta_sigma = sigma_raw.reshape(-1)[keep]
-        else:
-            sigma_3d = sigma_in_sorted_phi_order(sigma_raw, phi_raw)
-            # Reuse the pre-keep phi/t indices from the PRE-filter arrays so the
-            # mask aligns with the flat order we started from.
-            phi_idx_pre = _bin_to_grid(all_phi, phi_unique, "phi_sigma_pre")
-            t1_idx_pre = _bin_to_grid(all_t1, t_unique, "t1_sigma_pre")
-            t2_idx_pre = _bin_to_grid(all_t2, t_unique, "t2_sigma_pre")
-            # `keep` was built from the same pre-filter arrays, so this is aligned.
-            meta_sigma = sigma_3d[phi_idx_pre[keep], t1_idx_pre[keep], t2_idx_pre[keep]]
 
     # ------------------------------------------------------------------
     # Scaling-tail parameter bounds (used by later tasks for joint bounds array)
@@ -724,9 +726,15 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
             per_angle_indices=per_angle_indices,
         )
 
+        # A masked row's stored value must not enter the monitored loss.
+        l4_x, l4_y = x_data, y_data
+        if meta.get("sigma") is not None:
+            seen = np.isfinite(meta["sigma"]) & (meta["sigma"] > 0)
+            l4_x, l4_y = x_data[seen], y_data[seen]
+
         def _loss(p: jnp.ndarray) -> jnp.ndarray:
-            pred = model_fn(x_data, *p)
-            return 0.5 * jnp.sum((jnp.asarray(y_data) - pred) ** 2)
+            pred = model_fn(l4_x, *p)
+            return 0.5 * jnp.sum((jnp.asarray(l4_y) - pred) ** 2)
 
         grad_fn = jax.jit(jax.grad(_loss))
         l4_callback = build_gradient_collapse_callback(monitor, grad_fn)
@@ -1020,13 +1028,19 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         )
 
     else:
-        # Plain hybrid-streaming path (averaged / constant)
+        # Plain hybrid-streaming path (averaged / constant). The optimizer takes
+        # no sigma: fit the observed rows, declining uneven weights. The code
+        # below keeps the full arrays.
+        x_fit, y_fit = x_data, y_data
+        if sigma is not None:
+            observed = observed_equal_sigma_rows(sigma)
+            if not observed.all():
+                x_fit, y_fit = x_data[observed], y_data[observed]
         result: dict[str, Any] = optimizer.fit(
-            data_source=(x_data, y_data),
+            data_source=(x_fit, y_fit),
             func=model_fn,
             p0=p0_arr,
             bounds=bounds_arg,
-            sigma=sigma,
             callback=l4_callback,
         )
 
@@ -1041,15 +1055,24 @@ def fit_with_stratified_hybrid_streaming_heterodyne(
         # identity. Both are the "confidently wrong" cases every other
         # heterodyne path already rejects — apply the same rule here (all-NaN +
         # ``covariance_is_placeholder``, honoured by the result builder).
-        _raw_pcov = result.get("pcov")
+        # shortcut: no covariance for fits that carry sigma, publish it once the
+        # streaming covariance has a rank check (#86 work). The solver's pcov
+        # passes finalize_covariance with ~1e-17 uncertainties on a rank-deficient fit.
+        _raw_pcov = result.get("pcov") if sigma is None else None
         pcov, _, _plain_cov_placeholder = finalize_covariance(
             None if _raw_pcov is None else np.asarray(_raw_pcov, dtype=np.float64), n
         )
         if _plain_cov_placeholder:
+            if sigma is not None:
+                _cov_state = "withheld (sigma-bearing fit, no rank check yet)"
+            elif _raw_pcov is None:
+                _cov_state = "absent"
+            else:
+                _cov_state = "singular or non-positive"
             logger.warning(
                 "Hybrid-streaming covariance is %s; reporting NaN uncertainties "
                 "(covariance_is_placeholder=True).",
-                "absent" if _raw_pcov is None else "singular or non-positive",
+                _cov_state,
             )
 
         # Build info dict: everything except x and pcov

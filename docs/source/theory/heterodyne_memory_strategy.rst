@@ -180,17 +180,38 @@ Layer activation on the STREAMING path
   ``regularization.mode`` is ``"none"``. Uses group-variance config on the
   plain branch and ``compute_regularization_jax`` inside the hierarchical
   loss.
-- **L4** — the monitor is *constructed* whenever
+- **L4** — the monitor is constructed whenever
   ``gradient_monitoring.enable`` (default ``True``) and there is a scaling
-  tail, but it is only ever *checked* on the L2 (hierarchical) branch's
-  ``grad_fn`` closure. **The plain (non-hierarchical) branch's
-  ``optimizer.fit(...)`` call passes no ``callback=`` at all**, so on that
-  branch the constructed monitor sits unused for the whole solve --
-  "always active" describes construction, not observation. Strictly
-  observational where it does run: monitor-on ==
-  monitor-off objective.
+  tail. The plain (non-hierarchical) branch passes it to ``optimizer.fit(...)``
+  as ``callback=``; the L2 branch checks it from its ``grad_fn`` closure.
+  Strictly observational: monitor-on == monitor-off objective.
 - **L5** — omitted by design (``laminar_flow``-only); the diagnostics block
   reports the ``'laminar_flow_inactive'`` sentinel.
+
+Uncertainties (``sigma``) on the streaming path
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+NLSQ's streaming optimizer takes no ``sigma``. The plain (non-hierarchical)
+``two_component`` branch handles it as follows.
+
+- Masked pixels (zero weights) are left out of the data given to the
+  optimizer.
+- If every remaining ``sigma`` is exactly equal, plain least squares over
+  those pixels is the weighted fit, and no ``sigma`` is passed.
+- Otherwise the solve is declined with ``NotImplementedError``. This path has
+  no fallback, so the error reaches the caller.
+- A fit that carries ``sigma`` reports NaN uncertainties with
+  ``covariance_is_placeholder``: the streaming covariance has no rank check
+  yet. Weights that are all one count as no ``sigma``.
+
+The hierarchical (L2) branch weights its own loss and accepts uneven
+``sigma``. On both branches the quantile scaling estimate skips masked pixels,
+and on the plain branch the gradient monitor does too.
+
+``laminar_flow`` always carries ``sigma`` (0.01 is filled in when the data has
+none), so its plain streaming solve is refused and the fit runs on stratified
+least-squares. ``device_info`` records ``fallback_occurred`` and
+``fallback_reason``.
 
 Diagnostics
 ~~~~~~~~~~~

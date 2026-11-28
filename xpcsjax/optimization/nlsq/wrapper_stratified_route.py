@@ -350,6 +350,9 @@ def run_stratified_ls_route(
             "Proceeding with in-memory stratified least-squares."
         )
 
+    # Set when the requested streaming solve did not produce the result.
+    streaming_fallback_reason: str | None = None
+
     # Use streaming optimizer if needed
     if use_streaming_mode:
         # Prefer AdaptiveHybridStreamingOptimizer when available
@@ -492,9 +495,11 @@ def run_stratified_ls_route(
                     f"Hybrid streaming optimization failed: {e}\n"
                     f"Falling back to stratified least-squares..."
                 )
+                streaming_fallback_reason = f"hybrid streaming: {type(e).__name__}: {e}"
                 # Fall through to stratified least-squares
 
         if not STREAMING_AVAILABLE:
+            streaming_fallback_reason = "hybrid streaming: optimizer not available"
             # AdaptiveHybridStreamingOptimizer not available
             logger.error(
                 "Streaming mode requested but AdaptiveHybridStreamingOptimizer "
@@ -622,6 +627,12 @@ def run_stratified_ls_route(
         )
 
         result.uncertainties = zero_fixed_uncertainties(result.uncertainties, resolved_physical)
+
+        # shortcut: if this solve fails too, the standard path below drops the
+        # reason; carry it through NLSQWrapper.fit if that double failure matters.
+        if streaming_fallback_reason is not None:
+            result.device_info["fallback_occurred"] = True
+            result.device_info["fallback_reason"] = streaming_fallback_reason
 
         logger.info("=" * 80)
         logger.info("STRATIFIED LEAST-SQUARES COMPLETE")

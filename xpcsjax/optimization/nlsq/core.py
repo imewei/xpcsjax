@@ -610,10 +610,17 @@ def fit_nlsq_jax(
                 resolved_physical=resolved_physical,
             )
 
-            # T023: Add fallback info to device_info
+            # T023: Add fallback info to device_info. The wrapper may have
+            # recorded a fallback of its own (streaming), which must survive.
             result.device_info["adapter"] = "NLSQWrapper"
-            result.device_info["fallback_occurred"] = fallback_occurred
-            result.device_info["fallback_reason"] = str(adapter_error) if adapter_error else None
+            reasons = [
+                str(adapter_error) if adapter_error else None,
+                result.device_info.get("fallback_reason"),
+            ]
+            result.device_info["fallback_occurred"] = fallback_occurred or bool(
+                result.device_info.get("fallback_occurred")
+            )
+            result.device_info["fallback_reason"] = "; ".join(r for r in reasons if r) or None
             if fallback_occurred:
                 logger.info("NLSQWrapper fallback optimization succeeded")
             else:
