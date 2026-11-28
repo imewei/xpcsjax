@@ -203,7 +203,9 @@ def test_heterodyne_public_fit_accepts_a_mask_on_the_streaming_tier(monkeypatch,
     monkeypatch.setattr(het_memory, "select_nlsq_strategy", streaming)
     calls = _spy_on_real_fit(monkeypatch)
     template = yaml.safe_load(
-        (Path(xpcsjax.__file__).parent / "config/templates/xpcsjax_two_component.yaml").read_text()
+        (Path(xpcsjax.__file__).parent / "config/templates/xpcsjax_two_component.yaml").read_text(
+            encoding="utf-8"
+        )
     )
     block = copy.deepcopy(template["optimization"]["nlsq"])
     block["analysis_mode"] = "two_component"
@@ -216,7 +218,7 @@ def test_heterodyne_public_fit_accepts_a_mask_on_the_streaming_tier(monkeypatch,
     config = het._config_dict(_N_PHI, 14)
     config["optimization"]["nlsq"] = block
     path = tmp_path / "config.yaml"
-    path.write_text(yaml.safe_dump(config))
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
     _, c2, phi = het.make_synthetic_two_component(n_phi=_N_PHI, n_t=14)
 
     result = fit_nlsq(
