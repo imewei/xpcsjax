@@ -141,8 +141,9 @@ Single-angle fits
 If the dataset contains a single phi angle, the per-angle
 reparameterisation collapses to "constant contrast, constant offset",
 i.e. the two scaling parameters revert to ordinary unknowns. The fit
-proceeds as a sixteen-parameter problem at that one angle and still
-returns a single ``OptimizationResult``:
+proceeds as a sixteen-parameter problem at that one angle (fourteen
+under ``per_angle_mode: constant``, which freezes the quantile estimates)
+and still returns a single ``OptimizationResult``:
 
 .. code-block:: python
 

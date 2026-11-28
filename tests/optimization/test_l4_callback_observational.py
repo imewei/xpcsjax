@@ -44,7 +44,9 @@ def test_heterodyne_curve_fit_callback_is_observational_and_per_iteration():
     # not a parity pass.
     assert base.nlsq_diagnostics["covariance_is_placeholder"] is False
     assert withcb.nlsq_diagnostics["covariance_is_placeholder"] is False
-    assert np.array_equal(np.asarray(base.covariance), np.asarray(withcb.covariance))
+    assert np.array_equal(
+        np.asarray(base.covariance), np.asarray(withcb.covariance), equal_nan=True
+    )
     assert len(seen) == 0 or len(seen) >= 2  # per-iteration, or fallback-only
 
 
@@ -150,7 +152,7 @@ def test_homodyne_curve_fit_callback_is_observational_and_per_iteration():
     cov_a = getattr(base, "covariance", None)
     cov_b = getattr(withcb, "covariance", None)
     if cov_a is not None and cov_b is not None:
-        assert np.array_equal(np.asarray(cov_a), np.asarray(cov_b))
+        assert np.array_equal(np.asarray(cov_a), np.asarray(cov_b), equal_nan=True)
     assert len(seen) == 0 or len(seen) >= 2  # per-iteration, or fallback-only
 
 

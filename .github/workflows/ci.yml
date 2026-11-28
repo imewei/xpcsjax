@@ -29,12 +29,12 @@ jobs:
         with:
           enable-cache: true
       - name: Sync deps
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra gui
       - name: Export locked requirements for audit
         # uv run pip-audit by itself audits the active venv; exporting first
         # makes the audited set explicit and lets pip-audit cross-reference
         # against the uv.lock-pinned versions rather than any installed state.
-        run: uv export --format requirements-txt --no-hashes -o requirements-audit.txt
+        run: uv export --format requirements-txt --no-hashes --extra dev --extra gui -o requirements-audit.txt
       - name: Dependency vulnerability scan
         run: uv run pip-audit --requirement requirements-audit.txt --desc
       - name: Lint
@@ -99,7 +99,7 @@ jobs:
         with:
           enable-cache: true
       - name: Install Qt system libraries (headless PySide6)
-        # PySide6 (pulled in via the pytest-qt plugin) links libEGL/libGL at
+        # PySide6 (from the gui extra) links libEGL/libGL at
         # import time, which the bare ubuntu runner lacks -> pytest aborts with
         # `ImportError: libEGL.so.1`. The minimal runtime set lets Qt run under
         # the offscreen platform (QT_QPA_PLATFORM below).
@@ -133,7 +133,7 @@ jobs:
         # fixed here -- flagged so a future reader doesn't mistake a
         # 3-of-4-shards-green py3.14 run for full coverage.
         continue-on-error: ${{ matrix.python-version == '3.14' }}
-        run: uv sync --extra dev --python ${{ matrix.python-version }}
+        run: uv sync --extra dev --extra gui --python ${{ matrix.python-version }}
       - name: Test
         id: test
         # Skip testing entirely when install failed on 3.14 (missing
@@ -299,7 +299,7 @@ jobs:
         # this scoping and the 3.14 matrix entry once 3.14 is a supported
         # target with real wheels.
         continue-on-error: ${{ matrix.python-version == '3.14' }}
-        run: uv sync --extra dev --python ${{ matrix.python-version }}
+        run: uv sync --extra dev --extra gui --python ${{ matrix.python-version }}
       - name: Test
         id: test
         # Skip testing entirely when install failed on 3.14 (missing

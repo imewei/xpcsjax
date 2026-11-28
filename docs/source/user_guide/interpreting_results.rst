@@ -187,6 +187,12 @@ Typical tags are:
 * ``"detected_parameter_stagnation"`` — the controller saw the solver
   stall.
 * ``"stagnation_after_all_retries"`` — retries did not break the stall.
+* ``"retry_non_finite_covariance"``, ``"retry_non_positive_variance"`` — a
+  retry started because the covariance was unusable.
+* ``"unusable_covariance_after_all_retries"`` — the retries ran out without
+  an acceptable fit.
+* ``"retry_raised_<error_type>"`` — a retry raised, and an earlier fit with
+  unknown covariance was kept.
 * ``"strategy_fallback_to_<strategy>"`` — the strategy router fell back
   to another strategy mid-fit (e.g. ``strategy_fallback_to_out_of_core``).
 

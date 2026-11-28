@@ -200,3 +200,26 @@ def test_two_component_accepts_on_iteration_and_never_calls_it():
     assert result is not None
     # Heterodyne ignores the observer — it must NOT be called
     assert call_count == 0, f"two_component unexpectedly called on_iteration {call_count} time(s)"
+
+
+def test_a_retry_restart_keeps_the_observed_index_increasing():
+    """A recovery retry restarts the solver count at 1; the observer's index goes on."""
+    from xpcsjax.optimization.nlsq.wrapper import _build_homodyne_l4_callback
+
+    seen: list[int] = []
+    # frozen scaling disables L4, so the returned callback only forwards
+    _, callback = _build_homodyne_l4_callback(
+        None,
+        None,
+        None,
+        None,
+        np.zeros(3),
+        True,
+        1,
+        3,
+        on_iteration=lambda iteration, cost: seen.append(iteration),
+    )
+    for raw in (1, 2, 3, 1, 2):
+        callback(raw, 0.0, None)
+
+    assert seen == [1, 2, 3, 4, 5]

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from xpcsjax.optimization.nlsq.covariance import finalize_covariance
+from xpcsjax.optimization.nlsq.covariance import finalize_covariance, rank_deficient_covariance
 from xpcsjax.optimization.nlsq.heterodyne_data_prep import compute_degrees_of_freedom
 from xpcsjax.optimization.nlsq.heterodyne_results import NLSQResult
 from xpcsjax.utils.logging import get_logger
@@ -274,6 +274,36 @@ def build_result_from_arrays(
     )
 
 
+# ``f0*exp(-f1*f2)``: the one degeneracy whose sigmas are reported, with a label.
+_LABELLED_DEGENERACY = frozenset({"f0", "f2"})
+
+
+def label_unidentified_fraction_parameters(result: Any) -> Any:
+    """Record that ``f0`` and ``f2`` carry no individual uncertainty.
+
+    ``f0·exp(f1·(t−f2)) + f3`` determines only ``f0·exp(−f1·f2)``. With both
+    free, their reported sigmas are minimum-norm values of a pseudo-inverse, so
+    ``nlsq_diagnostics["covariance_unidentified_parameters"]`` names them.
+    """
+    diag = getattr(result, "nlsq_diagnostics", None)
+    if not isinstance(diag, dict):
+        return result
+    names = list(diag.get("parameter_names", ()))
+    if not {"f0", "f2"} <= set(names):
+        return result
+    sigma = np.asarray(result.uncertainties, dtype=np.float64)
+    if len(names) != len(sigma):
+        return result
+    pair = sigma[[names.index("f0"), names.index("f2")]]
+    if np.all(np.isfinite(pair) & (pair > 0.0)):
+        diag["covariance_unidentified_parameters"] = ["f0", "f2"]
+        logger.warning(
+            "f0 and f2 are not separately identifiable (only f0*exp(-f1*f2) is): "
+            "their individual uncertainties are not meaningful."
+        )
+    return result
+
+
 def build_result_from_nlsq(
     nlsq_result: Any,
     parameter_names: list[str],
@@ -419,6 +449,34 @@ def build_result_from_nlsq(
 
     # --- Build NLSQResult ---
     n_params = len(popt)
+
+    if pcov is not None:
+        # CurveFitResult is a dict; other result shapes expose attributes.
+        read = (
+            nlsq_result.get
+            if isinstance(nlsq_result, dict)
+            else lambda key: getattr(nlsq_result, key, None)
+        )
+        # None unless J is rank-deficient: nlsq then reports all-inf, or accepts
+        # a matrix whose degenerate entries can be wrong by orders of magnitude.
+        names = list(parameter_names)
+        pair = None
+        if _LABELLED_DEGENERACY <= set(names):
+            pair = (names.index("f0"), names.index("f2"))
+        jac = read("jac")
+        if jac is not None and np.shape(jac)[1:] != (len(names),):
+            jac = None  # the columns cannot be matched to parameter names
+        recomputed = rank_deficient_covariance(jac, cost=read("cost"), n_data=n_data, pair=pair)
+        if recomputed is not None:
+            if np.isfinite(recomputed).all():
+                logger.info(
+                    "Rank-deficient Jacobian (f0, f2): covariance computed as "
+                    "pinv(J^T J) from the other columns."
+                )
+            else:
+                # Anything but a clean f0/f2 pair must not look measured.
+                logger.warning("Rank-deficient Jacobian beyond the f0/f2 pair: covariance unknown.")
+            pcov = recomputed
 
     # Uncertainties from the covariance diagonal — ONE rule for every
     # heterodyne path (see covariance.finalize_covariance): nlsq's all-``inf``

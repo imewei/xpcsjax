@@ -164,6 +164,27 @@ def test_single_angle_tied_fit_reports_full_physics(tmp_path):
     _assert_tied_result_shape(result)
 
 
+def test_sequential_tied_fit_reports_full_physics(tmp_path):
+    """The ``config=None`` sequential aggregate keeps the full tied contract."""
+    import yaml
+
+    from xpcsjax.config import ConfigManager
+    from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
+    from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
+
+    phi_angles = np.array([0.0], dtype=np.float64)
+    cfg_path = tmp_path / "tied.yaml"
+    cfg_path.write_text(yaml.safe_dump(_tied_config_dict(phi_angles, "auto")))
+    model = HeterodyneModel.from_config(ConfigManager(str(cfg_path)).config)
+    c2 = _build_synthetic_c2(model, phi_angles)
+
+    result = fit_nlsq_multi_phi(model, c2, phi_angles, config=None)
+
+    assert result.nlsq_diagnostics["covariance_structure"] == "block_diagonal_sequential"
+    assert result.n_physics == 14
+    _assert_tied_result_shape(result)
+
+
 def test_fit_nlsq_jax_single_angle_tied_fit_enforces_tie_in_residual():
     """``fit_nlsq_jax`` -> ``_fit_local`` (single-angle, per-angle local
     optimization) is a DISTINCT production entry point from the joint-fit

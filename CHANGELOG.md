@@ -11,6 +11,61 @@ the rendered documentation.
 
 ## [Unreleased]
 
+### Changed
+
+- **Single-angle `two_component` in-memory fits that the engine route accepts run
+  two solvers** (the engine route and `fit_nlsq_multi_phi`) and keep the lower
+  chi-squared (a difference within a relative 1e-12 counts as a tie). On
+  noiseless single-angle data either one could stop in a worse minimum,
+  depending on the CPU. Such fits take longer, results can differ from earlier
+  releases, and the kept fit reports its own convergence status. Fits the route
+  declines (masked or non-uniform weights, non-unit weights under a robust
+  loss, fixed or tied physics) use
+  `fit_nlsq_multi_phi` alone.
+- **One-angle `two_component` fits now follow the per-angle scaling mode.**
+  `fit_nlsq_multi_phi` used to send one angle to the sequential per-angle chain,
+  which held contrast and offset at their configured values and reported zero
+  uncertainty for them. One angle now runs the same joint solvers as several:
+  `individual` and `averaged` fit contrast and offset, and `constant` freezes
+  quantile estimates. CMA-ES and multistart use the joint escapes. Parameters
+  and diagnostics differ from earlier releases, for declined fits too. Data
+  whose true scaling equals the configured values can fit worse than before.
+
+### Fixed
+
+- **`two_component` covariance with jax 0.12.1 / nlsq 0.8.1.** For a
+  rank-deficient Jacobian nlsq either returns an all-`inf` covariance or accepts
+  one whose degenerate entries can be wrong by orders of magnitude. When the
+  solver returns its Jacobian and cost, xpcsjax now checks the rank itself. It
+  computes `pinv(J^T J)` from the other columns only when the `f0`/`f2` pair is
+  the single dependency and coefficients hidden within round-off would leave the
+  other parameters' entries unchanged. In every other rank-deficient case the
+  covariance and uncertainties are `NaN` and `covariance_is_placeholder` is set.
+  This includes fits whose Jacobian columns differ so much in size (about 1e14)
+  that round-off could hide a coupling.
+  When `f0` and `f2` are both free and report
+  uncertainties, `nlsq_diagnostics["covariance_unidentified_parameters"]` names
+  them: only `f0*exp(-f1*f2)` is identifiable, so their individual uncertainties
+  are not meaningful.
+- Masked (zero-weight) pixels no longer count as observations in the sequential
+  `two_component` covariance and reduced chi-squared (the path now used only
+  without a config), including its CMA-ES solve and data with no far-lag noise
+  estimate; when masking leaves no degrees of freedom both are `NaN`, as is the
+  chi-squared of such a solve with neither a noise estimate nor degrees of
+  freedom. A sequential fit with no usable covariance reports `NaN` physics
+  uncertainties instead of zero.
+- A sequential `two_component` solve that produced no fit reports a `NaN`
+  chi-squared instead of zero. In the one-angle comparison, a second solver that
+  fails leaves the engine-route result in place.
+- A homodyne fit that moved but has a non-finite solver covariance is reported as
+  converged with an unknown (`NaN`) covariance instead of failed, after retrying;
+  the attempt with the lowest solver cost is kept, also when a later retry raises.
+  With an unusable covariance, a solve the solver reports as unsuccessful,
+  including one that stops at its evaluation limit, is failed. This now also
+  covers a finite covariance with a zero variance, previously reported as
+  converged. An unsuccessful solve with a usable covariance is reported as
+  before. `on_iteration` indices stay non-decreasing across those retries.
+
 ## [0.1.8] - 2026-09-16
 
 ### Added

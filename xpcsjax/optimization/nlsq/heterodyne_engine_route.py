@@ -356,12 +356,13 @@ def fit_two_component_via_engine(
 
     Raises
     ------
-    NotImplementedError
-        For non-uniform weights (the engine solve is unweighted) or an
-        out-of-scope ``per_angle_mode``; the caller's best-effort guard falls
-        back to ``fit_nlsq_multi_phi``. An "auto" (None) ``max_nfev`` does NOT
-        raise — it is passed through so nlsq auto-resolves ``100*n_params``,
-        mirroring the production joint paths.
+    EngineRouteDeclined
+        A ``NotImplementedError`` subclass, for duplicate phi angles, masking or
+        non-uniform weights, non-unit weights under a robust loss, an
+        out-of-scope ``per_angle_mode`` or a fixed or tied physics parameter;
+        the caller falls back to ``fit_nlsq_multi_phi``. An "auto" (None) ``max_nfev`` does NOT raise —
+        it is passed through so nlsq auto-resolves ``100*n_params``, mirroring
+        the production joint paths.
     """
     import jax.numpy as jnp
 
@@ -624,7 +625,11 @@ def fit_two_component_via_engine(
         max_nfev=(config.max_nfev * n_phi if config.max_nfev is not None else None),
         n_params=len(x0_opt),
     )
-    adapter = NLSQAdapter(parameter_names=[f"p{i}" for i in range(len(x0_opt))])
+    # Real names: the covariance code tells degeneracies apart by name.
+    joint_param_names = _joint_param_names_scaling_first(
+        mode=mode, physics_names=phys_names, n_phi=n_phi
+    )
+    adapter = NLSQAdapter(parameter_names=joint_param_names)
     res = adapter.fit(
         residual_fn=residual_fn,
         initial_params=x0_opt,
@@ -735,9 +740,6 @@ def fit_two_component_via_engine(
     n_physics_field = None if mode == "constant" else int(n_varying)
 
     # -- Per-mode nlsq_diagnostics (mirror the production path's extras) ----
-    joint_param_names = _joint_param_names_scaling_first(
-        mode=mode, physics_names=phys_names, n_phi=n_phi
-    )
     diagnostics = _assemble_diagnostics(
         mode=mode,
         chi2_per_angle=chi2_per_angle,

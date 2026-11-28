@@ -102,16 +102,20 @@ def test_individual_mode_is_joint_params_reproduce_chi2():
     np.testing.assert_allclose(reps_ssr, res.chi_squared, rtol=1e-6)
 
 
-def test_individual_single_angle_still_falls_back_to_sequential():
-    """Single-angle individual stays on the sequential aggregate (legit fallback)."""
+def test_individual_single_angle_fits_scaling_jointly():
+    """One angle fits contrast and offset; the model's values are only a start."""
     model, c2, phi = make_synthetic_two_component(n_phi=1, n_t=20)
+    configured = np.array([model.scaling.contrast[0], model.scaling.offset[0]])
+    truth = configured * np.array([0.8, 1.02])
+    c2 = truth[1] + (c2 - configured[1]) * (truth[0] / configured[0])
     cfg = NLSQConfig.from_dict({"analysis_mode": "two_component", "per_angle_mode": "individual"})
     res = fit_nlsq_multi_phi(model, c2, phi, cfg, weights=None)
     diag = res.nlsq_diagnostics
     assert diag is not None
     assert diag["per_angle_mode"] == "individual"
-    # n_phi <= 1 → sequential aggregate is the legitimate fallback.
-    assert diag.get("covariance_structure") == "block_diagonal_sequential"
+    assert "covariance_structure" not in diag
+    assert diag["parameter_names"][:2] == ["contrast_0", "offset_0"]
+    np.testing.assert_allclose(res.parameters[:2], truth, rtol=1e-2)
 
 
 def test_individual_no_config_falls_back_to_sequential():

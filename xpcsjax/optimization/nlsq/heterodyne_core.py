@@ -641,8 +641,10 @@ def _aggregate_individual_results(
             physics_cov_blocks.append(cov_arr)
         elif cov_arr.shape[0] >= n_physics:
             physics_cov_blocks.append(cov_arr[:n_physics, :n_physics])
-    if physics_cov_blocks:
-        covariance[:n_physics, :n_physics] = np.mean(physics_cov_blocks, axis=0)
+    # No angle produced a covariance: the physics block is unknown, not zero.
+    covariance[:n_physics, :n_physics] = (
+        np.mean(physics_cov_blocks, axis=0) if physics_cov_blocks else np.nan
+    )
     uncertainties = np.sqrt(np.clip(np.diag(covariance), 0.0, None))
 
     # ------------------------------------------------------------------
@@ -677,19 +679,15 @@ def _aggregate_individual_results(
             # and recompute from raw residuals; do not conflate the two.)
             chi2_values.append(2.0 * float(r.final_cost))
         else:
-            # Neither ``fitted_correlation`` nor ``final_cost`` is set -- this
-            # angle contributes 0.0 to the SSR numerator while its data points
-            # still count in the ``n_data_total`` denominator below, silently
-            # deflating the aggregate ``reduced_chi2``. Surface it: a result
-            # this incomplete should not pass unnoticed, especially since
-            # ``reduced_chi2`` now feeds ``classify_quality_flag`` directly.
+            # Neither ``fitted_correlation`` nor ``final_cost`` is set: every
+            # solver failed for this angle, so its SSR -- and the aggregate's --
+            # is unknown. A 0.0 would read as a perfect fit.
             logger.warning(
                 "_aggregate_individual_results: angle %d has neither "
-                "fitted_correlation nor final_cost; contributing 0.0 SSR "
-                "(reduced_chi2 for this aggregate will be understated)",
+                "fitted_correlation nor final_cost; chi-squared is unknown (NaN)",
                 i,
             )
-            chi2_values.append(0.0)
+            chi2_values.append(float("nan"))
     chi2_per_angle = np.asarray(chi2_values, dtype=np.float64)
     ssr = float(chi2_per_angle.sum())
     n_function_evals = int(sum(int(r.n_function_evals or 0) for r in per_angle_results))
@@ -717,11 +715,18 @@ def _aggregate_individual_results(
     # copy of the varying physics with BOTH scaling terms held fixed. The
     # reporting vector ([mean physics | contrasts | offsets], ``total_dim``) is a
     # summary, not the fitted parameter set.
+    # A zero-weight pixel is not an observation.
+    n_data_valid = n_data_total
+    if weights is not None and c2_arr.ndim == 3:
+        from xpcsjax.optimization.nlsq.heterodyne_data_prep import n_contributing_rows
+
+        n_data_valid = n_contributing_rows(np.broadcast_to(weights, c2_arr.shape))
     reduced_chi2 = noise_normalized_reduced_chi2(
         ssr=ssr,
         c2_data=c2_arr,
-        n_data_valid=n_data_total,
+        n_data_valid=n_data_valid,
         n_params=n_phi * n_physics,
+        n_rows=n_data_total,
     )
 
     # ------------------------------------------------------------------
@@ -778,6 +783,8 @@ def _aggregate_individual_results(
         per_angle_success=per_angle_success,
         **hierarchical_extras,
     )
+    if not physics_cov_blocks:
+        diagnostics["covariance_is_placeholder"] = True
 
     if param_manager.tied_idx_pairs:
         diagnostics["tied_parameters"] = dict(param_manager.space.tied)
@@ -875,9 +882,9 @@ def fit_nlsq_multi_phi(
 ) -> OptimizationResult:
     """Fit heterodyne model to multi-phi correlation data.
 
-    Dispatches to a joint-fit path when ``config`` is supplied and
-    ``len(phi_angles) > 1``; otherwise falls through to the sequential
-    per-angle chain. **Every dispatch branch returns a single**
+    Dispatches to a joint-fit path when ``config`` is supplied, for any
+    number of angles including one; with ``config=None`` it runs the
+    sequential per-angle chain. **Every dispatch branch returns a single**
     :class:`OptimizationResult` with per-angle data living in
     ``result.nlsq_diagnostics`` (see
     :mod:`xpcsjax.optimization.nlsq.heterodyne_views` for the post-hoc
@@ -891,26 +898,24 @@ def fit_nlsq_multi_phi(
       → :class:`OptimizationResult`
     - ``"averaged"`` → :func:`_fit_joint_averaged_multi_phi`
       → :class:`OptimizationResult`
-    - ``"individual"`` (explicit, multi-angle) → :func:`_fit_joint_multi_phi`
-      (JOINT fit of the canonical scaling-first
+    - ``"individual"`` (explicit, or ``auto`` below the threshold) →
+      :func:`_fit_joint_multi_phi` (JOINT fit of the canonical scaling-first
       ``[2*n_phi per-angle scaling | physics]`` vector, matching ``laminar_flow``
       and upstream heterodyne) → :class:`OptimizationResult`
-    - ``enable_cmaes=True`` → :func:`_fit_joint_cmaes_multi_phi`
-      → :class:`OptimizationResult`
-    - ``multistart=True`` → :func:`_fit_joint_multistart`
-      → :class:`OptimizationResult`
-    - ``config is None`` / single-angle (``len(phi_angles) <= 1``)
-      → sequential per-angle warm-start chain, aggregated into one
-      :class:`OptimizationResult` via :func:`_aggregate_individual_results`.
+    - ``enable_cmaes=True`` / ``multistart=True`` → the global escape of the
+      resolved mode (for ``individual``: :func:`_fit_joint_cmaes_multi_phi` /
+      :func:`_fit_joint_multistart`) → :class:`OptimizationResult`
+    - ``config is None`` → sequential per-angle warm-start chain, aggregated
+      into one :class:`OptimizationResult` via
+      :func:`_aggregate_individual_results`.
 
-    The sequential-aggregate fallback result uses a **block-diagonal**
-    covariance matrix: off-diagonal blocks between physics and the
-    per-angle scaling tail (and between distinct angles) are zero **by
-    construction**, not by fit. The diagnostic key
-    ``covariance_structure="block_diagonal_sequential"`` flags this so
-    downstream consumers do not mistake the zeros for fit-derived
-    correlation estimates. The JOINT individual path (explicit, multi-angle)
-    does NOT carry this key — it returns a real fitted covariance.
+    The sequential-aggregate result holds each angle's contrast and offset at
+    the model's values and uses a **block-diagonal** covariance matrix:
+    off-diagonal blocks between physics and the per-angle scaling tail (and
+    between distinct angles) are zero **by construction**, not by fit. The
+    diagnostic key ``covariance_structure="block_diagonal_sequential"`` flags
+    this so downstream consumers do not mistake the zeros for fit-derived
+    correlation estimates. The joint paths do NOT carry this key.
 
     Parameters
     ----------
@@ -929,9 +934,8 @@ def fit_nlsq_multi_phi(
     Returns
     -------
     OptimizationResult
-        Joint-fit result (constant / averaged / CMA-ES paths)
-        or sequential-aggregate result (individual / no-config /
-        single-angle fallback). All branches share the unified shape;
+        Joint-fit result when ``config`` is supplied, otherwise the
+        sequential-aggregate result. All branches share the unified shape;
         callers may dispatch on ``result.nlsq_diagnostics["per_angle_mode"]``
         for mode-specific post-processing.
 
@@ -992,10 +996,12 @@ def fit_nlsq_multi_phi(
         weights = np.broadcast_to(np.asarray(weights), np.shape(c2_data)).copy()
 
     # ------------------------------------------------------------------
-    # Determine whether to use homodyne-style joint multi-angle fitting.
+    # Joint fit for every configured fit, one angle included: the per-angle
+    # mode decides how contrast/offset are treated, and no mode holds them at
+    # the model's configured values (the sequential chain below does).
     # ------------------------------------------------------------------
     use_joint = False
-    if config is not None and len(phi_angles) > 1:
+    if config is not None:
         # Resolve ``auto`` / explicit modes to a canonical dispatch token FIRST.
         # The resolver returns one of: "constant", "averaged", "individual"
         # (and rejects any other token). Resolving before the global-escape gate
@@ -1093,7 +1099,7 @@ def fit_nlsq_multi_phi(
             )
 
         if effective_mode == "individual":
-            # Explicit multi-angle ``individual`` is a JOINT fit (parity with
+            # ``individual`` is a JOINT fit (parity with
             # xpcsjax ``laminar_flow`` and upstream heterodyne). The per-angle
             # (contrast, offset) are packed as the ``2*n_phi`` scaling tail of
             # the canonical scaling-first joint vector
@@ -1104,18 +1110,12 @@ def fit_nlsq_multi_phi(
             # as ``parameters``), which was an inconsistent estimator whose
             # parameters did not reproduce the reported chi-squared. The
             # sequential aggregate (``_aggregate_individual_results``) survives
-            # ONLY as the genuine fallback for ``config is None`` / single-angle
-            # (``len(phi_angles) <= 1``) — both handled by this block's guard
-            # (``config is not None and len(phi_angles) > 1``) being false.
+            # only for ``config is None``.
             use_joint = True
-
-        # ``config is None`` / single-angle (len(phi_angles) <= 1) never reach
-        # this block — they fall through to the sequential per-angle aggregate
-        # below, the genuine individual-mode fallback.
 
     if use_joint:
         # Invariant: ``use_joint`` is only set to True inside the
-        # ``if config is not None and len(phi_angles) > 1`` block above,
+        # ``if config is not None`` block above,
         # so config is guaranteed non-None here. mypy can't see the implicit
         # invariant — assert it for the type checker and as a belt-and-
         # suspenders runtime check.
@@ -2649,7 +2649,11 @@ def _multistart_joint_candidate(
 
 
 def _escape_keeps_candidate(ssr_warm: float, ssr_cand: float) -> bool:
-    """Keep-better decision for the joint global escape, NaN-safe.
+    """Whether a candidate fit replaces the incumbent (keep-better), NaN-safe.
+
+    ``ssr_warm`` is the incumbent and ``ssr_cand`` the challenger: warm start and
+    escape result in the joint global escapes, engine route and
+    ``fit_nlsq_multi_phi`` in the single-angle comparison.
 
     A non-finite warm-start SSR must NEVER win over a finite candidate: the
     naive ``ssr_cand <= ssr_warm * (1 + eps)`` evaluates to ``False`` when
@@ -2934,8 +2938,8 @@ def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> ResolvedPerAngleM
     * ``"individual"`` — ``n_phi`` per-angle ``(contrast, offset)`` optimized
       JOINTLY with physics via :func:`_fit_joint_multi_phi`, matching
       ``laminar_flow`` and upstream heterodyne. (The sequential per-angle
-      aggregate survives only as the ``config is None`` / single-angle
-      fallback inside :func:`fit_nlsq_multi_phi`.)
+      aggregate survives only for ``config is None`` inside
+      :func:`fit_nlsq_multi_phi`.)
 
     ``auto`` resolution is unified with the homodyne
     :class:`AntiDegeneracyController` — ``auto`` only ever selects
@@ -4453,22 +4457,7 @@ def _fit_cmaes(
         result.fitted_correlation = np.asarray(fitted_c2)
         model.set_params(full_fitted)
 
-    # Apply same chi2 correction as _fit_local (DOF + σ² normalization)
-    if result.final_cost is not None:
-        n_matrix = c2_jax.shape[0]
-        # Residual mask excludes the t=0 boundary row/column AND the diagonal,
-        # so the valid count is (n-1)*(n-2), matching _compute_per_angle_chi2 —
-        # not the N^2 - N that `size - n_matrix` (diagonal-only) would give.
-        n_valid = (n_matrix - 1) * (n_matrix - 2)
-        n_dof_valid = max(n_valid - len(param_manager.varying_names), 1)
-        c2_np = np.asarray(c2_jax)
-        row_idx = np.arange(n_matrix)
-        lag_mat = np.abs(row_idx[:, None] - row_idx[None, :])
-        far_vals = c2_np[lag_mat >= n_matrix // 2]
-        sigma2_noise = float(np.var(far_vals)) if far_vals.size > 1 else 0.0
-        if sigma2_noise > 1e-12:
-            ssr = 2.0 * result.final_cost
-            result.reduced_chi_squared = ssr / (sigma2_noise * n_dof_valid)
+    _normalize_chi2_by_noise(result, c2_jax, weights_jax, len(param_manager.varying_names))
 
     quality_flag = classify_quality_flag(result.reduced_chi_squared)
     result.metadata["optimizer"] = "cmaes"
@@ -4566,6 +4555,52 @@ def _fit_multistart(
         phi_angles=phi_angles_array,
         config=_config,
         weights=_weights if _weights is None else np.asarray(_weights),
+    )
+
+
+def _normalize_chi2_by_noise(
+    result: NLSQResult,
+    c2: jnp.ndarray,
+    weights: jnp.ndarray | None,
+    n_varying: int,
+) -> None:
+    """Set the reduced χ² of one angle from far-lag noise and observed pixels.
+
+    The solver's value is ``SSR / (N² − p)``: it counts the diagonal and the
+    ``t = 0`` row and column, which the residual forces to zero, and pixels with
+    zero weight, and it is not normalised by the measurement noise. With no
+    degrees of freedom left the value is NaN if pixels are masked or there is no
+    noise estimate; unmasked noisy data keeps a denominator clamped to one.
+    """
+    if result.final_cost is None:
+        return
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        far_lag_noise_variance,
+        n_contributing_rows,
+        noise_normalized_reduced_chi2,
+    )
+
+    n_matrix = c2.shape[0]
+    n_rows = (n_matrix - 1) * (n_matrix - 2)
+    n_valid = n_rows if weights is None else n_contributing_rows(weights)
+    c2_np = np.asarray(c2)
+    sigma2_noise = far_lag_noise_variance(c2_np)
+    if not sigma2_noise > 1e-12:  # near zero, or NaN from a non-finite far-lag pixel
+        if n_valid <= n_varying:
+            result.reduced_chi_squared = float("nan")
+            return
+        logger.warning(
+            "chi2 noise estimate near-zero (σ²=%.2e); reporting uncorrected MSE chi2",
+            sigma2_noise,
+        )
+    result.reduced_chi_squared = noise_normalized_reduced_chi2(
+        2.0 * result.final_cost, c2_np, n_valid, n_varying, n_rows=n_rows
+    )
+    logger.debug(
+        "chi2 correction: σ²_noise=%.4e  n_valid=%d  chi2_corrected=%.4f",
+        sigma2_noise,
+        n_valid,
+        result.reduced_chi_squared,
     )
 
 
@@ -4732,6 +4767,24 @@ def _fit_local(
             "Ensure heterodyne.optimization.nlsq.adapter is importable."
         )
 
+    # A zero-weight pixel still occupies a residual row but is not an observation.
+    from xpcsjax.optimization.nlsq.heterodyne_data_prep import (
+        covariance_on_valid_rows,
+        n_contributing_rows,
+    )
+
+    n_observed = n_data if weights_jax is None else n_contributing_rows(weights_jax)
+    if result.covariance is not None and result.uncertainties is not None:
+        result.covariance, result.uncertainties = covariance_on_valid_rows(
+            result.covariance,
+            result.uncertainties,
+            n_rows_solver=n_data,
+            n_valid=n_observed,
+            n_params=n_varying,
+        )
+        if not np.all(np.isfinite(result.uncertainties)):
+            result.metadata["covariance_is_placeholder"] = True
+
     # ------------------------------------------------------------------
     # Post-fit: compute fitted correlation, update model
     # ------------------------------------------------------------------
@@ -4749,58 +4802,7 @@ def _fit_local(
         result.fitted_correlation = np.asarray(fitted_c2)
         model.set_params(full_fitted)
 
-    # ------------------------------------------------------------------
-    # Post-fit: correct reduced chi-squared
-    #
-    # The raw chi2 from adapter.fit_jax is SSR / (N² − n_params), where
-    # SSR = Σ r² over the full N×N residual vector.  Two corrections:
-    #
-    #   1. DOF: the N diagonal residuals are forced to 0 by the
-    #      non_diagonal mask in compute_residuals — they should be
-    #      excluded from the degrees-of-freedom count.
-    #      n_valid = N*(N−1) instead of N².
-    #
-    #   2. σ² normalization: without dividing by measurement noise,
-    #      chi2 = MSE ≪ 1 for normalized C2 data (C2 ~ 1, residuals ~ 5%).
-    #      We estimate σ²_noise from the far-lag plateau of the C2 matrix
-    #      (|t2−t1| ≥ N/2), where correlations have fully decayed and
-    #      the remaining variance is photon-counting noise.
-    #
-    # chi2_corrected = SSR / (σ²_noise × n_dof_valid)  →  ~1 for good fits
-    # ------------------------------------------------------------------
-    if result.final_cost is not None:
-        n_matrix = c2_jax.shape[0]
-        # Residual mask excludes the t=0 boundary row/column AND the diagonal,
-        # so the valid count is (n-1)*(n-2), matching _compute_per_angle_chi2 —
-        # not the N^2 - N that `size - n_matrix` (diagonal-only) would give.
-        n_valid = (n_matrix - 1) * (n_matrix - 2)
-        n_dof_valid = max(n_valid - n_varying, 1)
-
-        c2_np = np.asarray(c2_jax)
-        row_idx = np.arange(n_matrix)
-        lag_mat = np.abs(row_idx[:, None] - row_idx[None, :])
-        far_mask = lag_mat >= n_matrix // 2  # diagonal (lag=0) not included
-        far_vals = c2_np[far_mask]
-        sigma2_noise = float(np.var(far_vals)) if far_vals.size > 1 else 0.0
-
-        if sigma2_noise > 1e-12:
-            ssr = 2.0 * result.final_cost
-            chi2_corrected = ssr / (sigma2_noise * n_dof_valid)
-            logger.debug(
-                "chi2 correction: σ²_noise=%.4e  n_valid=%d  SSR=%.4e  "
-                "raw_chi2=%.4g → chi2_corrected=%.4f",
-                sigma2_noise,
-                n_valid,
-                ssr,
-                result.reduced_chi_squared or float("nan"),
-                chi2_corrected,
-            )
-            result.reduced_chi_squared = chi2_corrected
-        else:
-            logger.warning(
-                "chi2 noise estimate near-zero (σ²=%.2e); reporting uncorrected MSE chi2",
-                sigma2_noise,
-            )
+    _normalize_chi2_by_noise(result, c2_jax, weights_jax, n_varying)
 
     result.metadata["fallback_occurred"] = fallback_occurred
     if adapter_error is not None:

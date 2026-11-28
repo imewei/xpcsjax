@@ -68,38 +68,27 @@ RESULTS ON THE WELL-POSED FIXTURE (the honest contract)
   scaling estimate differing slightly from the true 0.30/1.00 — both inherit the
   SAME floor). Asserted at strict ``rtol=1e-3``.
 
-* ``individual`` and ``averaged`` — **the engine reaches the true global
-  minimum (SSR ~1e-15); production does NOT.** This is a real Phase 2.3b finding,
-  and it is the OPPOSITE of an engine defect: the engine route is *correct and
-  strictly better*. From the SAME x0 on the SAME well-posed surface, production's
-  joint solver converges to a non-global local minimum (``individual`` stops at
-  SSR ~7e-2, ``averaged`` at SSR ~1.4 with recovered avg_contrast 0.24 vs true
-  0.30) — and it does so even when warm-started immediately adjacent to the truth
-  (verified: production reads config-initial as x0 and is trapped by its
-  batched-meshgrid joint-reparam per-angle geometry, not by the
-  starting point). The engine's frame-0-reconciled stratified-point residual
-  descends cleanly to ~0. (For ``averaged`` the engine additionally has
-  more freedom: the layout broadcasts the 2 averaged scalars to per-angle
-  ``2*n_phi`` scaling — see the scaling-first layout oracle — so it can fit per-angle
-  scaling where production fits a single averaged pair; with uniform true scaling
-  the averaged solve *should* still reach 0, and the gap is production's solver
-  sub-optimality, not the DOF difference.)
-
-  These two modes therefore assert the strong, directional contract: the engine
-  objective is **no worse** than production's AND the engine reaches **near-zero
-  SSR** (it found the true minimum production missed). A STRICTLY-worse engine
-  objective, or an engine that FAILS to reach ~0 on this noiseless well-posed
-  problem, WOULD be a real residual/scaling/layout/solver bug. Do NOT loosen
-  these or touch production to make them pass.
+* ``individual`` and ``averaged`` — both start from ``_SYMMETRY_BROKEN_START``
+  and assert the directional contract: the engine objective is **no worse** than
+  production's AND the engine reaches **near-zero SSR**. In ``individual``
+  production reaches ~0 as well, so "no worse" carries a 1e-9 absolute floor. In
+  ``averaged`` production stops at a higher local minimum while this file's engine
+  run reaches ~0. That run only starts from the broadcast scalars and then fits
+  all ``2*n_phi`` scaling slots, so it is less constrained than the production
+  engine route, which shares two scalars. From the config defaults neither mode
+  is reliable: round-off decides which minimum the local solve ends in. A
+  STRICTLY-worse engine objective, or an engine that FAILS to reach ~0 from this
+  start, WOULD be a real residual/scaling/layout/solver bug. Do NOT loosen these
+  or touch production to make them pass.
 
 CONCERN surfaced for production wiring
 --------------------------------------
-Because production's joint averaged/individual solver under-converges relative to
-the engine on a well-posed problem, routing heterodyne through the shared engine
-is not merely behaviour-preserving — it can *improve* the fit. That is desirable,
-but it means a future production-wiring change must NOT be gated on a strict
-``chi2_engine == chi2_ref`` equality for these two modes (production is the worse
-reference); gate on "engine no worse, and engine reaches the known minimum".
+Because production's joint averaged solver under-converges relative to the engine
+on a well-posed problem, routing heterodyne through the shared engine is not
+merely behaviour-preserving — it can change the fit. A production-wiring change
+must therefore NOT be gated on a strict ``chi2_engine == chi2_ref`` equality for
+the scaling-optimized modes; gate on "engine no worse, and engine reaches the
+known minimum".
 """
 
 from __future__ import annotations
@@ -179,6 +168,18 @@ _TRUE_PERTURB = {
     "beta": 0.90,
     "f0": 0.55,
     "phi0": 0.30,
+}
+
+# Start for the scaling-optimized modes. The config defaults are degenerate (equal
+# reference and sample transport; f1 = 0, so f2 has no effect), and from there
+# round-off decides which minimum a local solve ends in. Signs are chosen opposite
+# to ``_TRUE_PERTURB`` where it perturbs the same parameter.
+_SYMMETRY_BROKEN_START = {
+    "D0_ref": 9.0e3,
+    "D0_sample": 1.1e4,
+    "alpha_ref": -0.02,
+    "alpha_sample": 0.02,
+    "f1": -0.01,
 }
 
 # Maintainer-local oracle gate. These strict-numeric engine-route parity
@@ -312,9 +313,10 @@ def _engine_scaling_first_bounds(
     ``constant``). Phase 4 made x0 scaling-first natively, so the bounds are built
     directly in the engine layout (no physics-first -> scaling-first conversion).
 
-    For ``averaged`` the engine has no compressed scaling mode — it consumes the
-    broadcast ``2*n_phi`` per-angle block — so the bounds use ``2*n_phi`` slots
-    (matching ``expand_to_engine_scaling_first``'s broadcast of the x0 head)."""
+    For ``averaged`` the raw engine consumes a ``2*n_phi`` per-angle block, which
+    this harness fits freely, so the bounds use ``2*n_phi`` slots (matching
+    ``expand_to_engine_scaling_first``'s broadcast of the x0 head). The production
+    engine route instead shares two scalars inside its residual."""
     cb = (SCALING_PARAMS["contrast"].min_bound, SCALING_PARAMS["contrast"].max_bound)
     ob = (SCALING_PARAMS["offset"].min_bound, SCALING_PARAMS["offset"].max_bound)
     physics_lower = np.asarray(physics_lower, dtype=np.float64)
@@ -328,12 +330,17 @@ def _engine_scaling_first_bounds(
     return lb, ub
 
 
-def _run_reference_and_engine(mode: str):
+def _run_reference_and_engine(mode: str, start: dict[str, float] | None = None):
     """Run BOTH the production reference fit and the engine-route fit for ``mode``
-    on the well-posed fixture. Returns a dict of objectives + statuses."""
+    on the well-posed fixture. Returns a dict of objectives + statuses.
+
+    ``start`` overrides the starting values of the named physics parameters for
+    both fits; the data is unchanged."""
     import jax.numpy as jnp
 
     model, c2, phi = _make_well_posed_case()
+    if start:
+        model.param_manager.reseed_initial_values(start)
     phys_names = list(model.param_manager.varying_names)
     n_varying = len(phys_names)
     n_phi = len(phi)
@@ -467,35 +474,33 @@ def test_engine_route_constant_strict_objective_parity():
 
 
 @_MAINTAINER_ONLY
-def test_engine_route_individual_reaches_true_minimum_production_misses():
-    """``individual`` — the engine reaches the TRUE global minimum (SSR ~0) while
-    production's joint solver is trapped at a higher local minimum.
+def test_engine_route_individual_reaches_true_minimum():
+    """``individual`` — the engine reaches the TRUE global minimum (SSR ~0) and is
+    no worse than production.
 
-    On this noiseless, well-posed, in-basin fixture the true objective is ~0.
-    From the SAME x0 the engine-route solve descends to ~1e-15; production's
-    batched-meshgrid joint-reparam per-angle solve stops well above
-    it (SSR ~7e-2). The engine route is therefore CORRECT and STRICTLY BETTER —
-    a real Phase 2.3b finding, not an engine defect (verified production stays
-    trapped even when warm-started adjacent to the truth).
+    On this noiseless, well-posed fixture the true objective is ~0. From
+    ``_SYMMETRY_BROKEN_START`` both solves reach it, so the no-worse comparison
+    carries an absolute floor: two values at round-off level have no meaningful
+    ratio.
     """
-    out = _run_reference_and_engine("individual")
-    _assert_engine_reaches_minimum_no_worse("individual", out)
+    out = _run_reference_and_engine("individual", start=_SYMMETRY_BROKEN_START)
+    _assert_engine_reaches_minimum_no_worse("individual", out, atol=1e-9)
 
 
 @_MAINTAINER_ONLY
 def test_engine_route_averaged_reaches_true_minimum_production_misses():
-    """``averaged`` — same finding as ``individual``: the engine reaches the
-    TRUE global minimum (SSR ~0) while production's averaged joint solver is
-    trapped (SSR ~1.4, recovered avg_contrast ~0.24 vs true 0.30). The layout
-    broadcasts the 2 averaged scalars to per-angle ``2*n_phi`` scaling on the
-    engine; with uniform true scaling the averaged solve *should* still reach 0,
-    so the gap is production solver sub-optimality. Engine is correct + better.
+    """``averaged`` — from ``_SYMMETRY_BROKEN_START`` the engine reaches the
+    TRUE global minimum (SSR ~0) while production's averaged joint solver stops
+    far from it (SSR of order 1 on the maintainer machine). The engine run
+    here starts from the broadcast scalars but fits all ``2*n_phi`` scaling slots.
+    With uniform true scaling the shared-scalar solve *should* still reach 0, so
+    the gap is read as production solver sub-optimality.
     """
-    out = _run_reference_and_engine("averaged")
+    out = _run_reference_and_engine("averaged", start=_SYMMETRY_BROKEN_START)
     _assert_engine_reaches_minimum_no_worse("averaged", out)
 
 
-def _assert_engine_reaches_minimum_no_worse(mode: str, out: dict) -> None:
+def _assert_engine_reaches_minimum_no_worse(mode: str, out: dict, atol: float = 0.0) -> None:
     """Shared contract for the scaling-jointly-optimized modes on the well-posed
     fixture: engine objective is (a) no worse than production and (b) at the true
     global minimum (~0 on noiseless data)."""
@@ -507,7 +512,7 @@ def _assert_engine_reaches_minimum_no_worse(mode: str, out: dict) -> None:
     # (a) Engine no worse than production. A STRICTLY-worse engine objective on a
     # well-posed problem would be a real residual/scaling/layout/solver bug.
     rel_excess = (chi2_engine - chi2_ref) / max(abs(chi2_ref), 1e-300)
-    assert chi2_engine <= chi2_ref * (1.0 + 1e-3), (
+    assert chi2_engine <= chi2_ref * (1.0 + 1e-3) + atol, (
         f"mode={mode}: engine objective {chi2_engine!r} is STRICTLY WORSE than "
         f"production {chi2_ref!r} (rel_excess={rel_excess:.3e}) on a well-posed "
         "problem — a Phase 2.3b finding (residual/scaling/layout/solver bug). Do "

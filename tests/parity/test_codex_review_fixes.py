@@ -96,7 +96,7 @@ def _laminar_fit(mode, *, shear: bool, n_phi: int = 4, n_t: int = 10):
     true = np.array([1000.0, 0.5, 10.0, 0.01, 0.5, 0.01, 0.0])
     nlsq = {
         "analysis_mode": "laminar_flow",
-        "max_iterations": 30,
+        "max_iterations": 100,  # this fit needs up to 83 evaluations
         "loss": "linear",
         "cmaes": {"enable": False, "auto_select": False},
         "multi_start": {"enable": False},

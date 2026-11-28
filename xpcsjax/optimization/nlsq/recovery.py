@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 
+from xpcsjax.optimization.nlsq.covariance import _rho
 from xpcsjax.optimization.nlsq.fallback_chain import OptimizationStrategy
 from xpcsjax.utils.logging import get_logger, log_exception
 
@@ -112,7 +113,7 @@ def execute_with_recovery(
         If optimization fails after all retry attempts or the error is
         diagnosed as unrecoverable.
     """
-    recovery_actions = []
+    recovery_actions: list[str] = []
     max_retries = 3
     current_params = initial_params.copy()
 
@@ -137,6 +138,33 @@ def execute_with_recovery(
     # -- goes through the same diagnose_error()/retry machinery as every other
     # failure in this function, instead of crashing before the loop even starts.
     initial_cost: float | None = None
+    # Lowest-cost usable solve whose covariance came back NaN/Inf.
+    best_unknown: tuple[float, np.ndarray, np.ndarray, dict] | None = None
+
+    def _objective(params: np.ndarray, result: Any) -> float:
+        """Return the solver cost ``0.5 · Σρ``, computing it when none is reported."""
+        cost = getattr(result, "cost", None)
+        if cost is not None:
+            return float(cost)
+        probe = getattr(residual_fn, "fn", residual_fn)
+        if hasattr(probe, "n_total_points"):
+            residuals = np.asarray(residual_fn(params))
+        else:
+            residuals = np.asarray(residual_fn(xdata, *params)) - np.asarray(ydata)
+            if sigma is not None:
+                residuals = residuals / np.asarray(sigma)
+        return float(0.5 * np.sum(_rho(loss_name, residuals**2)[0]))
+
+    def _accept_unknown() -> tuple[np.ndarray, np.ndarray, dict, list[str], str]:
+        assert best_unknown is not None
+        _, popt, pcov, info = best_unknown
+        log.warning(
+            "No attempt returned a finite covariance; accepting the lowest-cost "
+            "solve with covariance unknown (NaN, covariance_is_placeholder=True)."
+        )
+        info["covariance_is_placeholder"] = True
+        unknown = np.full_like(np.asarray(pcov, dtype=float), np.nan)
+        return popt, unknown, info, recovery_actions, "converged"
 
     # Determine if we should use large dataset functions
     use_large = strategy != OptimizationStrategy.STANDARD
@@ -238,13 +266,14 @@ def execute_with_recovery(
                 _dbg_cb = _get_debug_curvefit_callback()
                 if _dbg_cb is not None and "callback" not in _std_kwargs:
                     _std_kwargs["callback"] = _dbg_cb
-                popt, pcov = curve_fit_fn(
+                result = curve_fit_fn(
                     residual_fn,
                     xdata,
                     ydata,
                     p0=current_params.tolist(),
                     **_std_kwargs,
                 )
+                popt, pcov = result
                 info = {"initial_cost": initial_cost}
 
                 log.info("=" * 80)
@@ -271,22 +300,46 @@ def execute_with_recovery(
             params_unchanged = np.allclose(popt, current_params, rtol=1e-10)
             identity_covariance = np.allclose(pcov, np.eye(len(popt)), rtol=1e-10)
             # A solve that moved the parameters but returned a NaN/Inf covariance
-            # (e.g. a near-singular JtJ that didn't trip NLSQ's own identity-
-            # covariance fallback) is not a success either -- without this check
-            # it falls straight through to "Success!" with garbage uncertainties.
-            pcov_non_finite = not np.all(np.isfinite(pcov))
+            # is retried from a perturbed start, which often yields a real
+            # covariance. If no attempt does, the best usable one (solver did not
+            # report failure, parameters and objective finite) is converged with
+            # UNKNOWN covariance, not failed: nlsq >= 0.8 returns all-inf whenever
+            # a rank-deficient Jacobian's pseudo-inverse cannot be trusted.
+            # Not stored in ``info``: it only decides what may be accepted below.
+            solver_success = bool(getattr(result, "success", info.get("success", True)))
+            # A failed solve with a zero variance has no covariance either: the
+            # public result discards such a matrix (``finalize_covariance``).
+            pcov_unusable = not np.all(np.isfinite(pcov)) or (
+                not solver_success and not np.all(np.diag(pcov) > 0.0)
+            )
+            stagnated = params_unchanged or identity_covariance
+            if pcov_unusable and not stagnated and solver_success and np.all(np.isfinite(popt)):
+                cost = _objective(popt, result)
+                if np.isfinite(cost) and (best_unknown is None or cost < best_unknown[0]):
+                    best_unknown = (cost, popt, pcov, info)
+            if (
+                attempt >= max_retries - 1
+                and best_unknown is not None
+                and (pcov_unusable or stagnated)
+            ):
+                return _accept_unknown()
 
-            if params_unchanged or identity_covariance or pcov_non_finite:
+            if params_unchanged or identity_covariance or pcov_unusable:
                 log.warning(
                     f"Potential optimization failure detected:\n"
                     f"  Parameters unchanged: {params_unchanged}\n"
                     f"  Identity covariance: {identity_covariance}\n"
-                    f"  Non-finite covariance: {pcov_non_finite}\n"
+                    f"  Unusable covariance: {pcov_unusable}\n"
                     f"  This may indicate NLSQ streaming bug or failed optimization"
                 )
 
                 if attempt < max_retries - 1:
-                    recovery_actions.append("detected_parameter_stagnation")
+                    if params_unchanged or identity_covariance:
+                        recovery_actions.append("detected_parameter_stagnation")
+                    elif not np.all(np.isfinite(pcov)):
+                        recovery_actions.append("retry_non_finite_covariance")
+                    else:
+                        recovery_actions.append("retry_non_positive_variance")
                     log.info("Retrying with perturbed parameters...")
                     _rng = np.random.default_rng(seed=42 + attempt)
                     # Use an absolute-value scale with a unit floor so parameters
@@ -303,13 +356,17 @@ def execute_with_recovery(
                         current_params = np.clip(current_params, bounds[0], bounds[1])
                     continue
                 log.error(
-                    "Optimization returned unchanged parameters after all retries. "
+                    "No usable solve after all retries (see the flags above). "
                     "This may indicate a bug in NLSQ or an intractable problem."
                 )
                 # Honest status: a detected stagnation on the final attempt is
                 # a failure, not a convergence. Returning "converged" here would
                 # silently mislabel an unoptimized fit as successful.
-                recovery_actions.append("stagnation_after_all_retries")
+                recovery_actions.append(
+                    "stagnation_after_all_retries"
+                    if stagnated
+                    else "unusable_covariance_after_all_retries"
+                )
                 return popt, pcov, info, recovery_actions, "failed"
 
             # Success!
@@ -352,7 +409,12 @@ def execute_with_recovery(
             log.info(f"Diagnostic: {diagnostic['message']}")
 
             recovery_strategy = diagnostic["recovery_strategy"]
-            if recovery_strategy.get("action") == "no_recovery_available":
+            unrecoverable = recovery_strategy.get("action") == "no_recovery_available"
+            if best_unknown is not None and (unrecoverable or attempt >= max_retries - 1):
+                # An earlier attempt solved the problem; a failed retry does not undo it.
+                recovery_actions.append(f"retry_raised_{diagnostic['error_type']}")
+                return _accept_unknown()
+            if unrecoverable:
                 error_msg = (
                     f"Optimization failed: {diagnostic['error_type']} (unrecoverable)\n"
                     f"Diagnostic: {diagnostic['message']}\n"

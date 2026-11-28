@@ -133,19 +133,13 @@ def test_global_escape_tag_mirrors_winner_when_search_runs() -> None:
 
 @pytest.mark.skipif(
     not getattr(heterodyne_core, "HAS_CMAES", False),
-    reason="entering _fit_cmaes via the public path is gated on HAS_CMAES",
+    reason="the public CMA-ES escape is gated on HAS_CMAES",
 )
-def test_global_escape_surfaces_in_per_angle_metadata() -> None:
-    """The ``global_escape`` tag must survive aggregation into
-    ``nlsq_diagnostics["per_angle_metadata"]`` (which copies each result's
-    ``.metadata``).
+def test_one_angle_global_escape_tag_surfaces() -> None:
+    """One angle through ``fit_nlsq_multi_phi`` reports the joint escape's tag.
 
-    Routed through the public ``fit_nlsq_multi_phi`` with ``n_phi=1`` — the
-    only layout that reaches the *per-angle* ``_fit_cmaes`` (multi-angle +
-    ``enable_cmaes`` goes to the JOINT escape instead). Entering ``_fit_cmaes``
-    requires ``HAS_CMAES`` even though auto-skip (threshold 1e9) then gates off
-    the actual evosax search — so ``fit_with_cmaes`` is patched to explode as a
-    belt-and-suspenders check that the search never runs.
+    The auto-skip (threshold 1e9) gates off the search, so ``fit_with_cmaes``
+    is patched to explode as a belt-and-suspenders check that it never runs.
     """
     from xpcsjax.optimization.nlsq.heterodyne_core import fit_nlsq_multi_phi
 
@@ -164,11 +158,8 @@ def test_global_escape_surfaces_in_per_angle_metadata() -> None:
         result = fit_nlsq_multi_phi(model, c2, phi, config, weights=None)
 
     diag = result.nlsq_diagnostics or {}
-    per_angle = diag.get("per_angle_metadata")
-    assert isinstance(per_angle, list) and len(per_angle) == 1
-    assert per_angle[0].get("global_escape") == "cmaes_warmstart_auto_skip", (
-        "per-angle global_escape tag must propagate into "
-        f"nlsq_diagnostics['per_angle_metadata']; got {per_angle[0].get('global_escape')!r}"
+    assert diag.get("global_escape") == "cmaes_warmstart_auto_skip", (
+        f"joint global_escape tag missing; got {diag.get('global_escape')!r}"
     )
 
 

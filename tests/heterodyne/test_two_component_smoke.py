@@ -36,10 +36,9 @@ _NOISE_SIGMA = 1e-3
 def _smoke_config_dict() -> dict:
     """Self-contained heterodyne config sufficient for HeterodyneModel.from_config.
 
-    Uses registry defaults for all 14 physics parameters; only the analyzer /
-    optimizer sections are populated. The ``parameters`` block is intentionally
-    empty so :meth:`ParameterSpace.from_config` falls back to defaults — this
-    keeps the test insulated from registry-default drift.
+    Registry defaults except where they make the model structurally singular:
+    equal reference and sample transport, ``alpha = 0`` (``D0`` and ``D_offset``
+    inseparable) and ``f1 = 0``. Covariance is unknown at such a point.
     """
     return {
         "analysis_mode": "two_component",
@@ -54,6 +53,19 @@ def _smoke_config_dict() -> dict:
             "mode": "constant",
             "initial_contrast": 0.3,
             "initial_offset": 1.0,
+        },
+        "parameters": {
+            "reference": {
+                "D0_ref": {"value": 5.0e3},
+                "alpha_ref": {"value": 0.3},
+                "D_offset_ref": {"value": 100.0},
+            },
+            "sample": {
+                "D0_sample": {"value": 8.0e3},
+                "alpha_sample": {"value": 0.2},
+                "D_offset_sample": {"value": 200.0},
+            },
+            "fraction": {"f1": {"value": 0.02}},
         },
         "optimization": {
             "nlsq": {
@@ -100,8 +112,8 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     cfg_path = _write_config(tmp_path)
     cfg = ConfigManager(str(cfg_path))
 
-    # Truth model: defaults from the registry, accessed via the same config
-    # that the fit will use. Recording the truth vector now (before the fit
+    # Truth model: the config's ``parameters`` over the registry defaults, which
+    # is also where the fit starts. Recording the truth vector now (before the fit
     # mutates anything) lets us assert recovery downstream.
     truth_model = HeterodyneModel.from_config(cfg.config)
     truth_params = np.asarray(truth_model.get_params(), dtype=np.float64)
@@ -128,6 +140,8 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     assert "chi2_per_angle" in diag, (
         "OptimizationResult must carry chi2_per_angle in nlsq_diagnostics"
     )
+    # f0 and f2 are both free here, so their sigmas are reported and flagged
+    assert diag["covariance_unidentified_parameters"] == ["f0", "f2"]
     assert np.asarray(diag["chi2_per_angle"]).shape == (len(_PHI_ANGLES),), (
         f"chi2_per_angle shape mismatch: "
         f"{np.asarray(diag['chi2_per_angle']).shape} "
@@ -148,25 +162,18 @@ def test_heterodyne_smoke_fit_recovers_truth(tmp_path):
     # tight golden-value check belongs in Phase 7's real-data test, not here.
     name_to_idx = {n: i for i, n in enumerate(first_names)}
 
-    # ``D0_ref`` is intentionally excluded: with the registry-default truth
-    # value of ``alpha_ref ≈ 0`` the time-power-law ``t^alpha_ref ≈ 1``, so
-    # ``J_r(t) = D0_ref * t^alpha_ref + D_offset_ref`` collapses to
-    # ``D0_ref + D_offset_ref`` — a perfectly degenerate offset trade-off.
-    # The real-data parity test (``test_two_component_real_data``) catches
-    # ``D0_ref`` drift on the C044 fit where ``alpha_ref`` is well away from
-    # zero and the parameter is identifiable. Same reason ``D_offset_ref``
-    # is not in this list either.
+    # Only these three are checked. ``D0_ref`` and ``D_offset_ref`` trade off
+    # against each other through ``J_r(t) = D0_ref * t^alpha_ref + D_offset_ref``,
+    # and f0/f2 are determined only in combination. The start equals the truth, so
+    # this detects drift away from it, not recovery.
     tight_params = ["alpha_ref", "D0_sample", "alpha_sample"]
     for p in tight_params:
         if p not in name_to_idx:
             pytest.fail(f"smoke fit lost parameter {p!r}; have {first_names}")
         recovered = first_params[name_to_idx[p]]
         truth = truth_params[truth_names.index(p)]
-        # Loose envelope: rtol=0.5 OR atol=0.1 — whichever wider. The atol
-        # floor matters because several truth defaults are near zero
-        # (e.g. ``alpha_ref ≈ 0``) which would otherwise collapse
-        # ``rtol * abs(truth)`` to zero and make the assertion sub-1e-6
-        # strict. We are testing pipeline integrity, not solver quality.
+        # Loose envelope: rtol=0.5 OR atol=0.1 — whichever wider. We are testing
+        # pipeline integrity, not solver quality.
         tol = max(abs(truth) * 0.5, 0.1)
         assert np.isclose(recovered, truth, rtol=0.5, atol=tol), (
             f"smoke fit drifted on {p}: truth={truth:.4g} recovered={recovered:.4g}"

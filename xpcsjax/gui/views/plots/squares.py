@@ -13,9 +13,7 @@ from typing import TYPE_CHECKING
 import pyqtgraph as pg
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QWidget
-
-    _SquareBase = QWidget
+    from PySide6.QtWidgets import QWidget as _SquareBase
 else:
     _SquareBase = object
 

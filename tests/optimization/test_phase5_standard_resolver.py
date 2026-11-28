@@ -40,7 +40,7 @@ def _laminar_cfg(per_angle_mode: str | None, n_t: int = 8):
             "method": "nlsq",
             "nlsq": {
                 "analysis_mode": "laminar_flow",
-                "max_iterations": 30,
+                "max_iterations": 100,  # the individual fit needs up to 59 evaluations
                 "loss": "linear",
                 "cmaes": {"enable": False, "auto_select": False},
                 "multi_start": {"enable": False},

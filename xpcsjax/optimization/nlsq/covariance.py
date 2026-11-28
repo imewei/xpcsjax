@@ -84,6 +84,108 @@ def finalize_covariance(
 
 _EPS = float(np.finfo(np.float64).eps)
 
+# The dependent column must be a multiple of its partner this closely (unit-norm
+# columns); the heterodyne chain rule gives about 10 eps.
+_PAIR_RESIDUAL_TOL = 1e-12
+# Least round-off allowed on each unit-norm column coefficient.
+_COEF_ROUNDOFF = 4.0 * _EPS
+# Largest change, in units of sd_i * sd_j, that coefficients hidden within
+# round-off may make to the covariance of the identifiable parameters.
+_HIDDEN_COEF_TOL = 1e-2
+
+
+def rank_deficient_covariance(
+    J: np.ndarray | None,
+    *,
+    cost: float | None,
+    n_data: int,
+    pair: tuple[int, int] | None,
+) -> np.ndarray | None:
+    """Covariance ``pinv(JᵀJ) · 2·cost / (n − p)`` of a rank-deficient fit.
+
+    nlsq >= 0.8 reports all-``inf`` when the pseudo-inverse it builds from a
+    rank-deficient Jacobian fails its accuracy checks, which discards the
+    identifiable parameters' uncertainties too; when it accepts, the degenerate
+    parameters' entries can still be wrong. Only one degeneracy is reported with
+    numbers: the one the model is known to have. Its Moore-Penrose inverse is
+    built from the other columns, and is used only if coefficients hidden within
+    round-off would leave the other parameters' entries unchanged.
+
+    Parameters
+    ----------
+    J : np.ndarray or None
+        Solver Jacobian at the solution, shape ``(m, p)``, robust-loss scaled.
+        Zero padding rows are harmless.
+    cost : float or None
+        Solver cost (``0.5 · Σρ``).
+    n_data : int
+        Number of observations (``n`` above and in the rank cutoff).
+    pair : tuple of int or None
+        Columns ``(partner, dependent)`` the model makes proportional
+        (``f0``, ``f2``), or None when the two are not both free.
+
+    Returns
+    -------
+    np.ndarray or None
+        None when ``J`` is not rank-deficient or the inputs are unusable (keep
+        the solver covariance). Otherwise a ``(p, p)`` matrix: the pseudo-inverse
+        when ``pair`` is the only dependency, whose two entries are minimum-norm
+        values and not individually meaningful; all-NaN (unknown) in every other
+        case.
+    """
+    if J is None or cost is None or not (np.isfinite(cost) and cost >= 0):
+        return None
+    J = np.asarray(J, dtype=np.float64)
+    if J.ndim != 2 or not (J.shape[0] and 0 < J.shape[1] < n_data) or not np.all(np.isfinite(J)):
+        return None
+    p = J.shape[1]
+    R = np.linalg.qr(J, mode="r")  # RᵀR = JᵀJ, so everything below is (p, p)
+    norm = np.linalg.norm(R, axis=0)
+    norm[norm == 0.0] = 1.0
+    Q = R / norm
+    s = np.linalg.svd(Q, compute_uv=False)
+    cutoff = _EPS * max(n_data, p) * s[0]
+    rank = int(np.sum(s > cutoff))
+    if rank == p:
+        return None
+    unknown = np.full((p, p), np.nan)
+    if pair is None or rank != p - 1:
+        return unknown
+
+    partner, dependent = pair
+    keep = np.delete(np.arange(p), dependent)
+    u, s_keep, vt = np.linalg.svd(Q[:, keep], full_matrices=False)
+    ratio = Q[:, partner] @ Q[:, dependent]
+    residual = np.linalg.norm(Q[:, dependent] - ratio * Q[:, partner])
+    if np.sum(s_keep > cutoff) < p - 1 or residual > _PAIR_RESIDUAL_TOL:
+        return unknown
+
+    pinv_keep = (vt.T / s_keep) @ u.T
+    inverse = (vt.T / s_keep) / norm[keep, None]
+
+    def pseudo_inverse(coef: np.ndarray) -> np.ndarray:
+        """``pinv(JᵀJ)`` if column ``dependent`` is ``Q[:, keep] @ coef``."""
+        null = np.zeros(p)
+        null[dependent] = 1.0
+        null[keep] = -coef * norm[dependent] / norm[keep]
+        null /= np.linalg.norm(null)
+        factor = -np.outer(null, null[keep] @ inverse)
+        factor[keep] += inverse
+        return factor @ factor.T
+
+    pcov = pseudo_inverse(np.where(keep == partner, ratio, 0.0))
+    coef = pinv_keep @ Q[:, dependent]
+    gain = np.linalg.norm(pinv_keep, axis=1)  # coefficient error per unit column error
+    # A coefficient can hide in whatever the pair actually disagrees by.
+    allowance = max(_COEF_ROUNDOFF, 4.0 * residual) * gain
+    hidden = pseudo_inverse(coef + np.copysign(allowance, coef))
+    # The pair's own entries carry no meaning, so only the others are compared.
+    rest = np.ix_(*[np.delete(np.arange(p), [partner, dependent])] * 2)
+    sd = np.sqrt(np.diag(pcov))
+    if not np.all(np.abs(hidden - pcov)[rest] <= _HIDDEN_COEF_TOL * np.outer(sd, sd)[rest]):
+        return unknown
+    return pcov * (2.0 * float(cost) / (n_data - p))
+
 
 def _rho(loss: str, z: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``(rho, rho', rho'')`` of the scipy/nlsq robust losses at ``z = (f/f_scale)²``."""
@@ -91,9 +193,10 @@ def _rho(loss: str, z: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         return z, np.ones_like(z), np.zeros_like(z)
     if loss == "huber":
         big = z > 1.0
-        rho0 = np.where(big, 2.0 * np.sqrt(z) - 1.0, z)
-        rho1 = np.where(big, z**-0.5, 1.0)
-        rho2 = np.where(big, -0.5 * z**-1.5, 0.0)
+        tail = np.where(big, z, 1.0)  # both np.where branches are evaluated
+        rho0 = np.where(big, 2.0 * np.sqrt(tail) - 1.0, z)
+        rho1 = tail**-0.5
+        rho2 = np.where(big, -0.5 * tail**-1.5, 0.0)
         return rho0, rho1, rho2
     if loss == "soft_l1":
         t = 1.0 + z
