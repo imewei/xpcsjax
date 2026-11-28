@@ -2028,9 +2028,9 @@
     "semantic_hash": ""
   },
   "docs/source/theory/heterodyne_memory_strategy.rst": {
-    "mtime": 1795876502.650172,
-    "seen": 1795876667.8188841,
-    "ast_hash": "7d252dee4f6c70db6fe3b64fb04d4135",
+    "mtime": 1795877621.1737866,
+    "seen": 1795880150.0188954,
+    "ast_hash": "270506dadb7a648a3a639d43ecc5b397",
     "semantic_hash": ""
   },
   "docs/source/theory/index.rst": {
@@ -4146,9 +4146,9 @@
     "semantic_hash": ""
   },
   "tests/optimization/test_streaming_sigma.py": {
-    "mtime": 1795876502.649172,
-    "seen": 1795876667.8185067,
-    "ast_hash": "043cd343f894714b74cf49bdb4eb8d6c",
+    "mtime": 1795880020.2673326,
+    "seen": 1795880150.0185409,
+    "ast_hash": "1e34562cecfb270a06b57c09a93f8a60",
     "semantic_hash": ""
   }
 }
