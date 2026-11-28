@@ -108,6 +108,44 @@ def sigma_in_sorted_phi_order(sigma: np.ndarray, phi_raw: Any) -> np.ndarray:
     return sigma[order]
 
 
+def observed_equal_sigma_rows(sigma: np.ndarray) -> np.ndarray:
+    """Return the observed rows, for a solver that cannot take ``sigma``.
+
+    nlsq's streaming optimizer rejects ``sigma``. When every observed row has
+    the same sigma, plain least squares over those rows is the weighted fit, so
+    the caller keeps only them and passes no sigma at all.
+
+    Parameters
+    ----------
+    sigma : np.ndarray
+        Per-row uncertainty. A non-finite or non-positive value marks a masked
+        row.
+
+    Returns
+    -------
+    np.ndarray
+        Boolean mask of the observed rows.
+
+    Raises
+    ------
+    ValueError
+        If every row is masked.
+    NotImplementedError
+        If the observed rows do not all have exactly the same sigma.
+    """
+    sigma = np.asarray(sigma)
+    observed = np.isfinite(sigma) & (sigma > 0)
+    if not observed.any():
+        raise ValueError("no observations: every pixel is masked")
+    values = sigma[observed]
+    if np.any(values != values[0]):
+        raise NotImplementedError(
+            "the streaming solver cannot fit uneven sigma "
+            f"(observed values from {values.min():.3g} to {values.max():.3g})"
+        )
+    return observed
+
+
 def expand_per_angle_parameters(
     compact_params: np.ndarray,
     compact_bounds: tuple[np.ndarray, np.ndarray] | None,

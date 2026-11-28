@@ -730,6 +730,7 @@ def compute_quantile_per_angle_scaling(
     value_quantile_low: float = 0.10,
     value_quantile_high: float = 0.90,
     logger: Any = None,
+    observed: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Estimate per-angle contrast/offset from quantiles of c2_experimental values.
 
@@ -761,6 +762,9 @@ def compute_quantile_per_angle_scaling(
         Quantile for robust ceiling estimation (default: 0.90).
     logger : logging.Logger, optional
         Logger for diagnostic messages.
+    observed : np.ndarray, optional
+        Boolean mask aligned with the flat data rows. Rows marked ``False`` take
+        no part in the estimate. ``None`` (default) uses every row.
 
     Returns
     -------
@@ -837,6 +841,12 @@ def compute_quantile_per_angle_scaling(
         t2_flat = np.tile(t2_per_angle, n_phi)
         g2_flat = g2_cube.reshape(n_phi, n_t1 * n_t2).ravel()
 
+    # The chunked format rebuilds rows in chunk order, which a mask would not follow.
+    if observed is not None and (
+        hasattr(stratified_data, "chunks") or np.shape(observed) != np.shape(phi_flat)
+    ):
+        raise ValueError("observed must align row for row with flat-format data")
+
     # Pre-compute time lags (vectorized)
     delta_t = np.abs(t1_flat - t2_flat)
 
@@ -857,6 +867,8 @@ def compute_quantile_per_angle_scaling(
         # Get mask for this angle — use exact index matching (not tolerance-based)
         # to avoid bleeding adjacent phi bins on dense angular grids.
         mask = phi_indices == i
+        if observed is not None:
+            mask = mask & observed
         n_points = np.sum(mask)
 
         if n_points < 100:
