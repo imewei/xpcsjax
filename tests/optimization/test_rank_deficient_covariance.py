@@ -64,6 +64,8 @@ def _third_column_involved(weight: float, scale: float) -> np.ndarray:
         (_third_column_involved(0.05, 1e14), (1, 2)),
         (_third_column_involved(1e14 * (np.exp(np.log(1e100)) / 1e100 - 1), 1e14), (1, 2)),
         (_third_column_involved(0.5, 1.0), (1, 2)),
+        # a third parameter enters weakly: only the pair residual shows it
+        (np.eye(4)[:, :2] @ np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1e-4]]), (0, 2)),
         # a clean pair beside a column 1e20 smaller: round-off could couple them
         (np.column_stack([1e10 * np.eye(4)[0], 1e-10 * np.eye(4)[1], 1e10 * np.eye(4)[0]]), (0, 2)),
         # two dependencies, and a dependency the caller does not know about

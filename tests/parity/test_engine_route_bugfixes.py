@@ -355,6 +355,7 @@ def test_single_angle_2d_c2_no_worse_than_production(monkeypatch):
     [
         (1.0, 0.5, "production"),
         (0.5, 1.0, "engine"),
+        (1.0, 1.0, "production"),
         (float("nan"), 1.0, "production"),
         (1.0, float("nan"), "engine"),
         (1.0, None, "engine"),  # production raises
@@ -377,6 +378,25 @@ def test_single_angle_keeps_the_lower_chi2(monkeypatch, engine_chi2, production_
     c2 = _single_angle_c2(_build_single_angle_model(), float(phi[0]))
 
     assert fit_nlsq({"c2": c2, "phi": phi}, _single_angle_config()).label == kept
+
+
+def test_multi_angle_fit_never_runs_the_second_solver(monkeypatch):
+    calls: list[str] = []
+
+    def stub(label):
+        def solve(*args, **kwargs):
+            calls.append(label)
+            return SimpleNamespace(label=label, chi_squared=1.0, nlsq_diagnostics={})
+
+        return solve
+
+    monkeypatch.setattr(heterodyne_engine_route, "fit_two_component_via_engine", stub("engine"))
+    monkeypatch.setattr(heterodyne_core, "fit_nlsq_multi_phi", stub("production"))
+    phi = np.array([0.0, 45.0, 90.0], dtype=np.float64)
+    c2 = np.concatenate([_single_angle_c2(_build_single_angle_model(), p) for p in phi])
+
+    assert fit_nlsq({"c2": c2, "phi": phi}, _single_angle_config()).label == "engine"
+    assert calls == ["engine"]
 
 
 def test_single_angle_crashed_comparison_never_wins(monkeypatch):

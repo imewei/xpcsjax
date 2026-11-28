@@ -70,20 +70,21 @@ def test_unusable_solve_stays_failed(popts, strategy, success):
     assert not info.get("covariance_is_placeholder")
 
 
-def _solve(solver, model=lambda x, a, b: a + b * x, y=_Y, loss="linear", strategy=None):
+def _solve(solver, model=lambda x, a, b: a + b * x, y=_Y, loss="linear", sigma=None):
     return execute_with_recovery(
         model,
         _X,
         y,
         np.array([1.0, 1.0]),
         None,
-        strategy or OptimizationStrategy.STANDARD,
+        OptimizationStrategy.STANDARD,
         logging.getLogger("test_recovery_unknown_covariance"),
         loss,
         "jac",
         lambda result, _strategy: (*result, {}),
         solver,
         solver,
+        sigma=sigma,
     )
 
 
@@ -141,6 +142,57 @@ def test_a_later_exception_keeps_the_earlier_usable_solve(error):
     assert np.all(np.isnan(pcov)) and info["covariance_is_placeholder"] is True
     np.testing.assert_array_equal(popt, [2.0, 3.0])
     assert actions[0] == "retry_non_finite_covariance"
+    assert actions[-1].startswith("retry_raised_")
+
+
+def test_a_stagnated_last_retry_keeps_the_earlier_usable_solve():
+    calls = []
+
+    def solver(*_a, p0, **_k):
+        calls.append(1)
+        if len(calls) < 3:
+            return np.array([2.0, 3.0]), np.full((2, 2), np.inf)
+        return np.asarray(p0, dtype=float), 0.1 * np.eye(2)  # did not move
+
+    popt, _, info, _, status = _solve(solver)
+
+    assert status == "converged"
+    assert info["covariance_is_placeholder"] is True
+    np.testing.assert_array_equal(popt, [2.0, 3.0])
+
+
+def test_tuple_results_are_ranked_on_weighted_residuals():
+    # residuals [a, b, b, b]: unweighted, the second attempt wins
+    queue = [[10.0, 0.0], [4.0, 4.0], [9.0, 9.0]]
+
+    def solver(*_a, **_k):
+        return np.asarray(queue.pop(0)), np.full((2, 2), np.inf)
+
+    popt, _, _, _, _ = _solve(
+        solver,
+        lambda x, a, b: _Y + np.where(x == 0, a, b),
+        sigma=np.array([10.0, 1.0, 1.0, 1.0]),
+    )
+
+    np.testing.assert_array_equal(popt, [10.0, 0.0])
+
+
+def test_params_only_residuals_are_ranked_too():
+    class Residuals:  # the stratified shape: called with the parameters alone
+        n_total_points = 2
+
+        def __call__(self, params):
+            return np.asarray(params, dtype=float)
+
+    queue = [[3.0, 4.0], [0.5, 0.5], [2.0, 2.0]]
+
+    def solver(*_a, **_k):
+        return np.asarray(queue.pop(0)), np.full((2, 2), np.inf)
+
+    popt, _, _, _, status = _solve(solver, Residuals())
+
+    assert status == "converged"
+    np.testing.assert_array_equal(popt, [0.5, 0.5])
 
 
 def test_an_exception_without_a_usable_solve_still_raises():
