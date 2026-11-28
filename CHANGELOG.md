@@ -40,9 +40,9 @@ the rendered documentation.
   covariance has a rank check. Uneven weights still raise
   `NotImplementedError`. Values stored in masked pixels take no part in the fit,
   its scaling estimate or its gradient monitor.
-- **The `laminar_flow` streaming fallback is now reported.** Large fits always
-  carry `sigma`, which the streaming solver refuses, so they run on in-memory
-  stratified least-squares. Results are unchanged; `device_info` now records
+- **The `laminar_flow` streaming fallback is now reported.** Large fits on the
+  streaming tier carry `sigma`, which the streaming solver refuses, so they run
+  on in-memory stratified least-squares. Results are unchanged; `device_info` now records
   `fallback_occurred` and `fallback_reason`.
 - **`two_component` covariance with jax 0.12.1 / nlsq 0.8.1.** For a
   rank-deficient Jacobian nlsq either returns an all-`inf` covariance or accepts

@@ -180,15 +180,11 @@ Layer activation on the STREAMING path
   ``regularization.mode`` is ``"none"``. Uses group-variance config on the
   plain branch and ``compute_regularization_jax`` inside the hierarchical
   loss.
-- **L4** — the monitor is *constructed* whenever
+- **L4** — the monitor is constructed whenever
   ``gradient_monitoring.enable`` (default ``True``) and there is a scaling
-  tail, but it is only ever *checked* on the L2 (hierarchical) branch's
-  ``grad_fn`` closure. **The plain (non-hierarchical) branch's
-  ``optimizer.fit(...)`` call passes no ``callback=`` at all**, so on that
-  branch the constructed monitor sits unused for the whole solve --
-  "always active" describes construction, not observation. Strictly
-  observational where it does run: monitor-on ==
-  monitor-off objective.
+  tail. The plain (non-hierarchical) branch passes it to ``optimizer.fit(...)``
+  as ``callback=``; the L2 branch checks it from its ``grad_fn`` closure.
+  Strictly observational: monitor-on == monitor-off objective.
 - **L5** — omitted by design (``laminar_flow``-only); the diagnostics block
   reports the ``'laminar_flow_inactive'`` sentinel.
 
