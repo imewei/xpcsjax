@@ -10,14 +10,15 @@ branch (no heterodyne config in ``tests/`` enabled CMA-ES), so the bug was
 silently latent. Enabling ``cmaes.enable: true`` on a real two-component
 heterodyne config in v0.1 would have crashed with a ``TypeError``.
 
-This test exercises the fixed path on a tiny synthetic 2-angle dataset and
-asserts:
+This test runs the real search on a tiny synthetic one-angle dataset through
+the joint escape and asserts:
 
-* The fitter returns without raising (the regression is purely structural —
-  if the signature drift is ever reintroduced, the call site crashes
-  immediately).
-* The result is shaped like an ``NLSQResult`` and reports CMA-ES winning
-  Phase 3 (``metadata["cmaes_winner"]`` is populated).
+* The search really ran: the escape is best-effort and falls back to the plain
+  joint fit on any exception, which leaves no ``global_escape`` tag.
+* The result is a joint ``individual`` result with finite parameters.
+
+Signature drift in the per-angle ``_fit_cmaes`` call (reached only by calling
+it directly) is guarded by the tests that call it.
 
 The fit quality envelope is intentionally loose — this is the architectural
 sibling of ``test_two_component_smoke``, not a precision test.
@@ -33,10 +34,8 @@ import yaml
 
 # Tiny problem size — keeps the fit under ~30 seconds while still exercising
 # the full CMA-ES warm-start → global-search → Phase-3 comparison chain.
-# Single phi angle: the v0.1 dispatch routes multi-angle CMA-ES to the joint
-# path (currently a Phase-6 NotImplementedError stub), so this test exercises
-# the *per-angle* path that ``_fit_cmaes`` actually wires. Joint multi-angle
-# CMA-ES gets its own test when Phase 6 lands.
+# Single phi angle: one angle runs the joint CMA-ES escape of its per-angle
+# mode (``individual`` below the auto threshold), the same as several angles.
 _N_TIMES = 16
 _DT = 1.0
 _Q = 0.0054
@@ -105,21 +104,8 @@ def _cmaes_available() -> bool:
     not _cmaes_available(),
     reason="CMA-ES backend (evosax) not installed; per-angle CMA-ES path not testable",
 )
-def test_heterodyne_per_angle_cmaes_fits_without_signature_drift(tmp_path: Path) -> None:
-    """End-to-end: the per-angle ``_fit_cmaes`` path completes without raising.
-
-    The regression this guards: ``_fit_cmaes`` previously called
-    ``fit_with_cmaes(objective_fn=..., initial_params=..., parameter_names=...,
-    residual_fn=..., n_data=..., anti_degeneracy=..., config=CMAESConfig(...))``.
-    None of those kwargs exist on the real signature; the call would have
-    raised ``TypeError: fit_with_cmaes() got an unexpected keyword argument
-    'objective_fn'`` the first time a heterodyne user enabled CMA-ES.
-
-    The fix in this PR rewrites the call to use the real signature
-    ``fit_with_cmaes(model_func, xdata, ydata, p0, bounds, sigma, config)``
-    and reads ``chi_squared`` (not ``final_cost``) off ``CMAESResult``. If
-    either drift is reintroduced, this test crashes loudly.
-    """
+def test_heterodyne_one_angle_cmaes_runs_the_joint_search(tmp_path: Path) -> None:
+    """End-to-end: one angle with CMA-ES runs the joint search to completion."""
     from xpcsjax.config import ConfigManager
     from xpcsjax.core.heterodyne_model_stateful import HeterodyneModel
     from xpcsjax.optimization.nlsq import fit_nlsq
@@ -130,7 +116,7 @@ def test_heterodyne_per_angle_cmaes_fits_without_signature_drift(tmp_path: Path)
     cfg = ConfigManager(str(cfg_path))
     assert cfg.config is not None, "ConfigManager.config typed Optional; runtime non-None"
 
-    # Build synthetic data from the truth model (registry defaults + tiny noise).
+    # Synthesise self-consistent c2 at the model's initial parameters.
     truth_model = HeterodyneModel.from_config(cfg.config)
     rng = np.random.default_rng(seed=20260519)
     c2_stack = np.empty((len(_PHI_ANGLES), _N_TIMES, _N_TIMES), dtype=np.float64)
@@ -138,68 +124,19 @@ def test_heterodyne_per_angle_cmaes_fits_without_signature_drift(tmp_path: Path)
         c2 = np.asarray(truth_model.compute_correlation(phi_angle=float(phi), angle_idx=i))
         c2_stack[i] = c2 + rng.normal(0.0, _NOISE_SIGMA, size=c2.shape)
 
-    data = {"c2": c2_stack, "phi": _PHI_ANGLES}
+    results = fit_nlsq({"c2": c2_stack, "phi": _PHI_ANGLES}, cfg)
 
-    # If the joint multi-phi CMA-ES path got reached we'd hit our Phase-6
-    # NotImplementedError — assert we don't. The default dispatch should route
-    # to the per-angle path when ``cmaes.joint_multi_phi`` is unset.
-    results = fit_nlsq(data, cfg)
-
-    # ---- Pipeline contract -----------------------------------------------
-    # Post-C5b: every heterodyne dispatch returns a single
-    # ``OptimizationResult``. Per-angle ``NLSQResult.metadata`` survives in
-    # ``nlsq_diagnostics["per_angle_metadata"]`` for routing audits.
     assert isinstance(results, OptimizationResult), (
         f"expected OptimizationResult, got {type(results)}"
     )
     diag = results.nlsq_diagnostics or {}
-    assert diag.get("per_angle_mode") == "individual", (
-        f"expected per_angle_mode='individual' (CMA-ES individual path); "
-        f"got {diag.get('per_angle_mode')!r}"
-    )
-    per_angle_metadata = diag.get("per_angle_metadata")
-    assert isinstance(per_angle_metadata, list), (
-        "expected per_angle_metadata list in nlsq_diagnostics"
-    )
-    assert len(per_angle_metadata) == len(_PHI_ANGLES), (
-        f"expected {len(_PHI_ANGLES)} per-angle metadata entries, got {len(per_angle_metadata)}"
+    assert diag.get("per_angle_mode") == "individual"
+    assert diag.get("global_escape") in {"cmaes", "cmaes_warmstart_kept"}, (
+        f"the joint CMA-ES search did not run; got {diag.get('global_escape')!r}"
     )
     params = np.asarray(results.parameters, dtype=np.float64)
+    assert diag["parameter_names"][:2] == ["contrast_0", "offset_0"]
     assert np.all(np.isfinite(params)), f"NaN/Inf in fitted parameters: {params}"
-    per_angle_messages = diag.get("per_angle_messages") or []
-    assert all(per_angle_messages), "every per-angle fit must carry a non-empty status message"
-
-    # ---- CMA-ES path was actually taken ---------------------------------
-    # ``_fit_cmaes`` writes ``metadata["optimizer"] = "cmaes"`` and
-    # ``metadata["cmaes_winner"] in {"nlsq", "cmaes"}``. If the per-angle
-    # CMA-ES branch isn't reached (e.g., because someone re-introduced
-    # auto-skip with a permissive threshold), these would be missing.
-    first_meta = per_angle_metadata[0]
-    if "optimizer" not in first_meta:
-        # Some heterodyne dispatch variants nest metadata under the joint
-        # CMA-ES key — be tolerant rather than over-pinning the shape.
-        assert "cmaes" in str(first_meta).lower(), (
-            f"expected CMA-ES marker somewhere in metadata; got keys {list(first_meta)}"
-        )
-    else:
-        assert first_meta["optimizer"] in {"cmaes", "joint_cmaes_warmstart"}, (
-            f"expected CMA-ES optimizer label in metadata, got {first_meta['optimizer']!r}"
-        )
-    # ---- Fit quality contract -------------------------------------------
-    # Audit second-opinion gap: the original test only verified that
-    # CMA-ES labels appeared in metadata; it never asserted that the fit
-    # actually produced a finite cost.  A regression that left CMA-ES
-    # running but produced a NaN/Inf chi_squared or jumped to a
-    # pathological local min would have passed the label check.
-    #
-    # Per this file's docstring ("the fit quality envelope is intentionally
-    # loose — this is the architectural sibling of test_two_component_smoke,
-    # not a precision test"), we deliberately don't pin a noise-floor-tight
-    # bound: CMA-ES is global-search and converges to ~O(0.1-0.5) chi^2 on
-    # this tiny budget, well above the n_residuals*sigma^2 ~ 6e-3 noise
-    # floor that NLSQ reaches.  The 5.0 ceiling is generous enough that
-    # CMA-ES's stochastic spread stays inside it while still catching
-    # an order-of-magnitude regression (e.g., divergence to chi^2 > 50).
     assert np.isfinite(results.chi_squared), (
         f"CMA-ES path must return finite chi_squared; got {results.chi_squared!r}"
     )
@@ -208,11 +145,3 @@ def test_heterodyne_per_angle_cmaes_fits_without_signature_drift(tmp_path: Path)
         f"got {results.chi_squared:.2e} — investigate a stochastic-search "
         f"regression or fixture corruption."
     )
-    # cmaes_winner is the Phase-3 comparison verdict — must be one of the
-    # known values, present in metadata even if "optimizer" key is absent
-    # under nested-dispatch variants.
-    winner = first_meta.get("cmaes_winner")
-    if winner is not None:
-        assert winner in {"nlsq", "cmaes"}, (
-            f"cmaes_winner must be 'nlsq' or 'cmaes'; got {winner!r}"
-        )

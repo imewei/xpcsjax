@@ -882,9 +882,9 @@ def fit_nlsq_multi_phi(
 ) -> OptimizationResult:
     """Fit heterodyne model to multi-phi correlation data.
 
-    Dispatches to a joint-fit path when ``config`` is supplied and
-    ``len(phi_angles) > 1``; otherwise falls through to the sequential
-    per-angle chain. **Every dispatch branch returns a single**
+    Dispatches to a joint-fit path when ``config`` is supplied, for any
+    number of angles including one; with ``config=None`` it runs the
+    sequential per-angle chain. **Every dispatch branch returns a single**
     :class:`OptimizationResult` with per-angle data living in
     ``result.nlsq_diagnostics`` (see
     :mod:`xpcsjax.optimization.nlsq.heterodyne_views` for the post-hoc
@@ -898,26 +898,24 @@ def fit_nlsq_multi_phi(
       → :class:`OptimizationResult`
     - ``"averaged"`` → :func:`_fit_joint_averaged_multi_phi`
       → :class:`OptimizationResult`
-    - ``"individual"`` (explicit, multi-angle) → :func:`_fit_joint_multi_phi`
-      (JOINT fit of the canonical scaling-first
+    - ``"individual"`` (explicit, or ``auto`` below the threshold) →
+      :func:`_fit_joint_multi_phi` (JOINT fit of the canonical scaling-first
       ``[2*n_phi per-angle scaling | physics]`` vector, matching ``laminar_flow``
       and upstream heterodyne) → :class:`OptimizationResult`
-    - ``enable_cmaes=True`` → :func:`_fit_joint_cmaes_multi_phi`
-      → :class:`OptimizationResult`
-    - ``multistart=True`` → :func:`_fit_joint_multistart`
-      → :class:`OptimizationResult`
-    - ``config is None`` / single-angle (``len(phi_angles) <= 1``)
-      → sequential per-angle warm-start chain, aggregated into one
-      :class:`OptimizationResult` via :func:`_aggregate_individual_results`.
+    - ``enable_cmaes=True`` / ``multistart=True`` → the global escape of the
+      resolved mode (for ``individual``: :func:`_fit_joint_cmaes_multi_phi` /
+      :func:`_fit_joint_multistart`) → :class:`OptimizationResult`
+    - ``config is None`` → sequential per-angle warm-start chain, aggregated
+      into one :class:`OptimizationResult` via
+      :func:`_aggregate_individual_results`.
 
-    The sequential-aggregate fallback result uses a **block-diagonal**
-    covariance matrix: off-diagonal blocks between physics and the
-    per-angle scaling tail (and between distinct angles) are zero **by
-    construction**, not by fit. The diagnostic key
-    ``covariance_structure="block_diagonal_sequential"`` flags this so
-    downstream consumers do not mistake the zeros for fit-derived
-    correlation estimates. The JOINT individual path (explicit, multi-angle)
-    does NOT carry this key — it returns a real fitted covariance.
+    The sequential-aggregate result holds each angle's contrast and offset at
+    the model's values and uses a **block-diagonal** covariance matrix:
+    off-diagonal blocks between physics and the per-angle scaling tail (and
+    between distinct angles) are zero **by construction**, not by fit. The
+    diagnostic key ``covariance_structure="block_diagonal_sequential"`` flags
+    this so downstream consumers do not mistake the zeros for fit-derived
+    correlation estimates. The joint paths do NOT carry this key.
 
     Parameters
     ----------
@@ -936,9 +934,8 @@ def fit_nlsq_multi_phi(
     Returns
     -------
     OptimizationResult
-        Joint-fit result (constant / averaged / CMA-ES paths)
-        or sequential-aggregate result (individual / no-config /
-        single-angle fallback). All branches share the unified shape;
+        Joint-fit result when ``config`` is supplied, otherwise the
+        sequential-aggregate result. All branches share the unified shape;
         callers may dispatch on ``result.nlsq_diagnostics["per_angle_mode"]``
         for mode-specific post-processing.
 
@@ -999,10 +996,12 @@ def fit_nlsq_multi_phi(
         weights = np.broadcast_to(np.asarray(weights), np.shape(c2_data)).copy()
 
     # ------------------------------------------------------------------
-    # Determine whether to use homodyne-style joint multi-angle fitting.
+    # Joint fit for every configured fit, one angle included: the per-angle
+    # mode decides how contrast/offset are treated, and no mode holds them at
+    # the model's configured values (the sequential chain below does).
     # ------------------------------------------------------------------
     use_joint = False
-    if config is not None and len(phi_angles) > 1:
+    if config is not None:
         # Resolve ``auto`` / explicit modes to a canonical dispatch token FIRST.
         # The resolver returns one of: "constant", "averaged", "individual"
         # (and rejects any other token). Resolving before the global-escape gate
@@ -1100,7 +1099,7 @@ def fit_nlsq_multi_phi(
             )
 
         if effective_mode == "individual":
-            # Explicit multi-angle ``individual`` is a JOINT fit (parity with
+            # ``individual`` is a JOINT fit (parity with
             # xpcsjax ``laminar_flow`` and upstream heterodyne). The per-angle
             # (contrast, offset) are packed as the ``2*n_phi`` scaling tail of
             # the canonical scaling-first joint vector
@@ -1111,18 +1110,12 @@ def fit_nlsq_multi_phi(
             # as ``parameters``), which was an inconsistent estimator whose
             # parameters did not reproduce the reported chi-squared. The
             # sequential aggregate (``_aggregate_individual_results``) survives
-            # ONLY as the genuine fallback for ``config is None`` / single-angle
-            # (``len(phi_angles) <= 1``) — both handled by this block's guard
-            # (``config is not None and len(phi_angles) > 1``) being false.
+            # only for ``config is None``.
             use_joint = True
-
-        # ``config is None`` / single-angle (len(phi_angles) <= 1) never reach
-        # this block — they fall through to the sequential per-angle aggregate
-        # below, the genuine individual-mode fallback.
 
     if use_joint:
         # Invariant: ``use_joint`` is only set to True inside the
-        # ``if config is not None and len(phi_angles) > 1`` block above,
+        # ``if config is not None`` block above,
         # so config is guaranteed non-None here. mypy can't see the implicit
         # invariant — assert it for the type checker and as a belt-and-
         # suspenders runtime check.
@@ -2945,8 +2938,8 @@ def _resolve_effective_mode(config: NLSQConfig, n_phi: int) -> ResolvedPerAngleM
     * ``"individual"`` — ``n_phi`` per-angle ``(contrast, offset)`` optimized
       JOINTLY with physics via :func:`_fit_joint_multi_phi`, matching
       ``laminar_flow`` and upstream heterodyne. (The sequential per-angle
-      aggregate survives only as the ``config is None`` / single-angle
-      fallback inside :func:`fit_nlsq_multi_phi`.)
+      aggregate survives only for ``config is None`` inside
+      :func:`fit_nlsq_multi_phi`.)
 
     ``auto`` resolution is unified with the homodyne
     :class:`AntiDegeneracyController` — ``auto`` only ever selects

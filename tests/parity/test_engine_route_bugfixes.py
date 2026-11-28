@@ -401,18 +401,27 @@ def test_multi_angle_fit_never_runs_the_second_solver(monkeypatch):
 
 def test_single_angle_crashed_comparison_never_wins(monkeypatch):
     """A comparison whose solvers all crashed has no objective: keep the engine."""
+    compare = heterodyne_core.fit_nlsq_multi_phi
+    crashes: list[str] = []
 
     def crash(*_args, **_kwargs):
+        crashes.append("backend")
         raise RuntimeError("injected backend failure")
 
-    monkeypatch.setattr(heterodyne_core.NLSQAdapter, "fit_jax", crash)
-    monkeypatch.setattr(heterodyne_core.NLSQWrapper, "fit", crash)
+    def compare_with_crashing_backends(*args, **kwargs):
+        # patched only now, so the engine route has already solved
+        monkeypatch.setattr(heterodyne_core.NLSQAdapter, "fit", crash)
+        monkeypatch.setattr(heterodyne_core.NLSQWrapper, "fit", crash)
+        return compare(*args, **kwargs)
+
+    monkeypatch.setattr(heterodyne_core, "fit_nlsq_multi_phi", compare_with_crashing_backends)
     phi = np.array([12.0], dtype=np.float64)
     c2 = _single_angle_c2(_build_single_angle_model(), float(phi[0]))
 
     result = fit_nlsq({"c2": c2, "phi": phi}, _single_angle_config())
 
-    assert result.device_info["adapter"] != "sequential_per_angle"
+    assert crashes, "the injected crash was never reached"
+    assert result.device_info["adapter"] == "engine_route.StratifiedResidualFunctionJIT"
     assert np.isfinite(result.chi_squared) and result.chi_squared > 0.0
 
 

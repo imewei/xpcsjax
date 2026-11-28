@@ -21,7 +21,15 @@ the rendered documentation.
   releases, and the kept fit reports its own convergence status. Fits the route
   declines (masked or non-uniform weights, non-unit weights under a robust
   loss, fixed or tied physics) use
-  `fit_nlsq_multi_phi` alone, as before.
+  `fit_nlsq_multi_phi` alone.
+- **One-angle `two_component` fits now follow the per-angle scaling mode.**
+  `fit_nlsq_multi_phi` used to send one angle to the sequential per-angle chain,
+  which held contrast and offset at their configured values and reported zero
+  uncertainty for them. One angle now runs the same joint solvers as several:
+  `individual` and `averaged` fit contrast and offset, and `constant` freezes
+  quantile estimates. CMA-ES and multistart use the joint escapes. Parameters
+  and diagnostics differ from earlier releases, for declined fits too. Data
+  whose true scaling equals the configured values can fit worse than before.
 
 ### Fixed
 
@@ -40,11 +48,12 @@ the rendered documentation.
   them: only `f0*exp(-f1*f2)` is identifiable, so their individual uncertainties
   are not meaningful.
 - Masked (zero-weight) pixels no longer count as observations in the sequential
-  `two_component` covariance and reduced chi-squared, including the single-angle
-  CMA-ES path and data with no far-lag noise estimate; when masking leaves no
-  degrees of freedom both are `NaN`, as is the single-angle chi-squared of data
-  with neither a noise estimate nor degrees of freedom. A sequential fit with no
-  usable covariance reports `NaN` physics uncertainties instead of zero.
+  `two_component` covariance and reduced chi-squared (the path now used only
+  without a config), including its CMA-ES solve and data with no far-lag noise
+  estimate; when masking leaves no degrees of freedom both are `NaN`, as is the
+  chi-squared of such a solve with neither a noise estimate nor degrees of
+  freedom. A sequential fit with no usable covariance reports `NaN` physics
+  uncertainties instead of zero.
 - A single-angle `two_component` solve that produced no fit can no longer win the
   comparison with a zero chi-squared; its chi-squared is `NaN`.
 - A homodyne fit that moved but has a non-finite solver covariance is reported as

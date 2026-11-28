@@ -503,10 +503,6 @@ def fit_nlsq(
         (``chi2_per_angle``, ``parameter_names``,
         ``contrast_per_angle`` / ``offset_per_angle``, etc.) lives under
         :attr:`result.nlsq_diagnostics <OptimizationResult.nlsq_diagnostics>`.
-        The ``individual`` mode additionally carries
-        ``covariance_structure="block_diagonal_sequential"`` to signal that
-        off-diagonal covariance entries are zero **by construction**
-        (sequential per-angle fits with held-fixed scaling) rather than by fit.
 
     Raises
     ------
@@ -999,8 +995,8 @@ def _fit_nlsq_heterodyne(
         # ``constant``, ``averaged``, and ``individual`` all route to stratified-LS
         # after Phase 3. ``averaged`` / ``individual`` use the JOINT stratified-LS
         # objective, consistent with the in-memory ``_fit_joint_multi_phi`` path
-        # (explicit ``individual`` is a JOINT fit; ``_aggregate_individual_results``
-        # is only the config-is-None / single-angle fallback and never resolves
+        # (``individual`` is a JOINT fit; ``_aggregate_individual_results``
+        # is only the config-is-None fallback and never resolves
         # here — so there is NO objective discontinuity at the 1M boundary for
         # individual). ``constant`` freezes scaling from quantiles and solves
         # physics-only on the stratified-LS path.
