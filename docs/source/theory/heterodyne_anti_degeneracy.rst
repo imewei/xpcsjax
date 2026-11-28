@@ -76,11 +76,11 @@ path.  "Gated" means the layer runs only for the listed
      - all modes
      - averaged/individual/constant reparameterization of the scaling tail
    * - L2
-     - ``constant``/``averaged`` (inline two-stage); **no-op for**
-       ``individual``
+     - ``averaged``/``individual`` (inline two-stage); no-op for
+       ``constant``
      - ``individual`` only
-     - Standard and STREAMING paths gate L2 on **opposite** per-angle
-       modes -- see the L2 prose below
+     - Standard and STREAMING paths gate L2 differently for ``averaged``
+       -- see the L2 prose below
    * - L3
      - all modes
      - whenever there is a scaling tail (group-variance config on plain
@@ -106,28 +106,26 @@ L1: Mode-level reparameterization
   the scaling tail entirely inside the JIT closure).
 
 L2: Hierarchical optimization
-  **The standard path and the STREAMING path gate L2 on opposite
-  per-angle modes** -- this is a real, non-obvious asymmetry, not a typo:
+  **The standard path and the STREAMING path gate L2 on different
+  per-angle modes** -- this is a real asymmetry, not a typo.
 
   **Standard path:** activated by ``config.enable_hierarchical`` for the
-  ``constant``/``averaged`` **joint** solve (``_build_joint_problem`` /
-  ``_fit_joint_multi_phi``). Runs as a two-stage solve: stage 1 fits the
-  physics-only parameters with quantile-frozen scaling (the same path the
-  standalone ``constant`` mode uses); stage 2 warm-starts the joint solve
-  from the stage-1 estimate. Stage-1 χ² and the stage-1/stage-2 χ² ratio
-  are recorded in ``result.nlsq_diagnostics['hierarchical']``. This is an
-  inline two-stage implementation, not a delegation to the shared
+  ``averaged`` and ``individual`` **joint** solves
+  (``_fit_joint_averaged_multi_phi`` / ``_fit_joint_multi_phi``), for any
+  number of angles including one. Runs as a two-stage solve: stage 1 fits
+  the physics-only parameters with quantile-frozen scaling (the same path
+  the standalone ``constant`` mode uses); stage 2 warm-starts the joint
+  solve, scaling included, from the stage-1 estimate.
+  ``result.nlsq_diagnostics`` records
+  ``hierarchical_scope='full_two_stage'``, ``hierarchical_stage1_chi2``
+  and ``hierarchical_stage2_chi2``. This is an inline two-stage
+  implementation, not a delegation to the shared
   :class:`~xpcsjax.optimization.nlsq.hierarchical.HierarchicalOptimizer`
   (used by the STREAMING path below) — see the follow-up tracking item for
   unifying with homodyne's helper.
 
-  For ``individual`` mode, the standard path does **not** go through the
-  joint solver at all -- it runs a separate per-angle sequential fit where
-  each angle's scaling is already fixed at its pre-computed value (the
-  per-angle equivalent of stage 1). A second joint refine across angles is
-  precisely what ``individual`` mode declines to do, so there is no
-  stage 2; ``result.nlsq_diagnostics`` reports
-  ``hierarchical_scope='individual_mode_no_stage2'`` when
+  ``constant`` mode is the stage-1 solve itself, so it has no stage 2 and
+  reports ``hierarchical_scope='constant_mode_no_stage2'`` when
   ``enable_hierarchical`` was requested anyway.
 
   **STREAMING path:** wired via
